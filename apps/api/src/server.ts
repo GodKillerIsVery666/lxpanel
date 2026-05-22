@@ -14,6 +14,8 @@ import { registerSecurityHeaders } from "./middleware/securityHeaders.js";
 import { registerStaticWeb } from "./middleware/staticWeb.js";
 import { AuditLog } from "./modules/audit/auditLog.js";
 import { registerAuditRoutes } from "./modules/audit/auditRoutes.js";
+import { registerAlertRoutes } from "./modules/alerts/alertRoutes.js";
+import { AlertService } from "./modules/alerts/alertService.js";
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
 import { AuthStore } from "./modules/auth/authStore.js";
 import { BackupStore } from "./modules/backups/backupStore.js";
@@ -40,6 +42,7 @@ export interface Services {
   connectorStore: ConnectorStore;
   taskStore: TaskStore;
   backupStore: BackupStore;
+  alertService: AlertService;
   auditLog: AuditLog;
 }
 
@@ -52,6 +55,7 @@ export async function createServices(config: AppConfig): Promise<Services> {
     connectorStore: new ConnectorStore(stateStore),
     taskStore: new TaskStore(stateStore, config.fileRoots),
     backupStore: new BackupStore(stateStore, config.dataDir),
+    alertService: new AlertService(stateStore),
     auditLog: new AuditLog(join(config.dataDir, "audit.jsonl"))
   };
 }
@@ -59,7 +63,7 @@ export async function createServices(config: AppConfig): Promise<Services> {
 export async function buildApp(config: AppConfig = loadConfig()): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel } });
   const services = await createServices(config);
-  const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.auditLog, app.log);
+  const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.alertService, services.auditLog, app.log);
 
   await app.register(cookie);
   await app.register(cors, { credentials: true, origin: config.allowedOrigins });
@@ -85,6 +89,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerDockerRoutes(app, services);
   registerTaskRoutes(app, services);
   registerBackupRoutes(app, services);
+  registerAlertRoutes(app, services);
   registerConnectorRoutes(app, services);
   registerAuditRoutes(app, services);
   registerSecurityRoutes(app, services);

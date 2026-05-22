@@ -1,4 +1,4 @@
-import type { Role } from "@lxpanel/shared";
+import type { AlertEvent, AlertThreshold, Role } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -96,6 +96,9 @@ export interface BackupScheduleRecord {
   updatedBy?: string;
 }
 
+export type AlertThresholdRecord = AlertThreshold;
+export type AlertEventRecord = AlertEvent;
+
 export interface PanelState {
   users: UserRecord[];
   sessions: SessionRecord[];
@@ -105,6 +108,8 @@ export interface PanelState {
   taskRuns?: TaskRunRecord[];
   backups?: BackupRecord[];
   backupSchedule?: BackupScheduleRecord;
+  alertThresholds?: AlertThresholdRecord[];
+  alertEvents?: AlertEventRecord[];
 }
 
 export function createInitialPanelState(): PanelState {
@@ -116,6 +121,16 @@ export function createInitialPanelState(): PanelState {
     tasks: [],
     taskRuns: [],
     backups: [],
-    backupSchedule: { enabled: false, everyHours: 24 }
+    backupSchedule: { enabled: false, everyHours: 24 },
+    alertThresholds: createDefaultAlertThresholds("system", new Date(0).toISOString()),
+    alertEvents: []
   };
+}
+
+export function createDefaultAlertThresholds(updatedBy: string, updatedAt: string): AlertThresholdRecord[] {
+  return [
+    { type: "cpu", warningPercent: 80, criticalPercent: 95, enabled: true, updatedAt, updatedBy },
+    { type: "memory", warningPercent: 80, criticalPercent: 95, enabled: true, updatedAt, updatedBy },
+    { type: "disk", warningPercent: 85, criticalPercent: 95, enabled: true, updatedAt, updatedBy }
+  ];
 }

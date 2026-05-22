@@ -1,6 +1,9 @@
 import { z } from "zod";
 import {
   AuditEventSchema,
+  AlertEventSchema,
+  AlertSummarySchema,
+  AlertThresholdSchema,
   BackupScheduleSchema,
   BackupRequestSchema,
   BackupRestoreResponseSchema,
@@ -13,6 +16,7 @@ import {
   CreateConnectorCommandSchema,
   CreateTaskSchema,
   CreateUserSchema,
+  DismissAlertSchema,
   CreateConnectorSchema,
   DockerContainerActionSchema,
   DockerContainerSchema,
@@ -34,6 +38,7 @@ import {
   PanelTaskSchema,
   ResetUserPasswordSchema,
   UpdateBackupScheduleSchema,
+  UpdateAlertThresholdSchema,
   UpdateTaskScheduleSchema,
   UpdateUserRoleSchema,
   type AuthUser,
@@ -42,6 +47,7 @@ import {
   type CreateConnectorCommand,
   type CreateTask,
   type CreateUser,
+  type UpdateAlertThreshold,
   type DockerContainerAction,
   type LoginRequest,
   type ResetUserPassword,
@@ -64,6 +70,9 @@ const FilesResponseSchema = z.object({ root: z.string(), path: z.string(), entri
 const LogRootsResponseSchema = z.object({ roots: z.array(LogRootSchema) });
 const LogTailResponseSchema = z.object({ tail: LogTailSchema });
 const AuditResponseSchema = z.object({ events: z.array(AuditEventSchema) });
+const AlertsResponseSchema = z.object({ events: z.array(AlertEventSchema), summary: AlertSummarySchema });
+const AlertThresholdsResponseSchema = z.object({ thresholds: z.array(AlertThresholdSchema) });
+const AlertDismissResponseSchema = z.object({ event: AlertEventSchema });
 const SecurityResponseSchema = z.object({ posture: SecurityPostureSchema });
 const ConnectorsResponseSchema = z.object({ connectors: z.array(ConnectorSchema) });
 const ConnectorCommandsResponseSchema = z.object({ commands: z.array(ConnectorCommandSchema) });
@@ -123,6 +132,11 @@ export const api = {
   restoreBackup: (backupId: string) => request("/api/backups/restore", BackupRestoreResponseSchema, "POST", BackupRequestSchema.parse({ backupId })),
   updateBackupSchedule: (input: UpdateBackupSchedule) => request("/api/backups/schedule", BackupScheduleResponseSchema, "PATCH", UpdateBackupScheduleSchema.parse(input)),
   audit: () => request("/api/audit", AuditResponseSchema),
+  alerts: () => request("/api/alerts", AlertsResponseSchema),
+  alertThresholds: () => request("/api/alerts/thresholds", AlertThresholdsResponseSchema),
+  updateAlertThreshold: (input: UpdateAlertThreshold) => request("/api/alerts/thresholds", AlertThresholdsResponseSchema, "PATCH", UpdateAlertThresholdSchema.parse(input)),
+  checkAlerts: () => request("/api/alerts/check", AlertsResponseSchema, "POST"),
+  dismissAlert: (alertId: string) => request("/api/alerts/dismiss", AlertDismissResponseSchema, "POST", DismissAlertSchema.parse({ alertId })),
   security: () => request("/api/security/posture", SecurityResponseSchema),
   connectors: () => request("/api/connectors", ConnectorsResponseSchema),
   connectorCommands: (connectorId?: string) => request(`/api/connectors/commands${connectorId ? `?connectorId=${encodeURIComponent(connectorId)}` : ""}`, ConnectorCommandsResponseSchema),

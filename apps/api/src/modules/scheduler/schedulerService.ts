@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { AuditLog } from "../audit/auditLog.js";
+import type { AlertService } from "../alerts/alertService.js";
 import type { BackupStore } from "../backups/backupStore.js";
 import type { TaskStore } from "../tasks/taskStore.js";
 
@@ -10,6 +11,7 @@ export class SchedulerService {
   constructor(
     private readonly taskStore: TaskStore,
     private readonly backupStore: BackupStore,
+    private readonly alertService: AlertService,
     private readonly auditLog: AuditLog,
     private readonly logger: FastifyBaseLogger
   ) {}
@@ -45,6 +47,10 @@ export class SchedulerService {
       const backup = await this.backupStore.runDueBackup(now);
       if (backup) {
         await this.auditLog.append({ actor: "scheduler", action: "backup.create", target: backup.fileName, status: "success" });
+      }
+      const alerts = await this.alertService.check(now);
+      for (const alert of alerts) {
+        await this.auditLog.append({ actor: "scheduler", action: `alert.${alert.type}`, target: alert.target, status: alert.level === "critical" ? "error" : "success", detail: alert.message });
       }
     } catch (error) {
       this.logger.error(error, "scheduler tick failed");

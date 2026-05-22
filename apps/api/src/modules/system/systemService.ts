@@ -2,6 +2,13 @@ import os from "node:os";
 import type { ProcessInfo, ServiceInfo, SystemOverview } from "@lxpanel/shared";
 import { runCommand } from "../../lib/command.js";
 
+export interface DiskUsageInfo {
+  target: string;
+  totalBytes: number;
+  freeBytes: number;
+  usedPercent: number;
+}
+
 export function getSystemOverview(): SystemOverview {
   const totalBytes = os.totalmem();
   const freeBytes = os.freemem();
@@ -50,6 +57,14 @@ export async function listServices(): Promise<ServiceInfo[]> {
   }
   const { stdout } = await runCommand("systemctl", ["list-units", "--type=service", "--all", "--no-legend", "--no-pager"], 5_000);
   return stdout.split("\n").slice(0, 120).map(parseSystemdService).filter((item): item is ServiceInfo => Boolean(item));
+}
+
+export async function listDiskUsage(): Promise<DiskUsageInfo[]> {
+  if (process.platform === "win32") {
+    return listWindowsDisks();
+  }
+  const { stdout } = await runCommand("df", ["-P", "-k"], 5_000);
+  return stdout.split("\n").slice(1).map(parseUnixDisk).filter((item): item is DiskUsageInfo => Boolean(item));
 }
 
 export async function runServiceAction(name: string, action: "start" | "stop" | "restart"): Promise<void> {
@@ -115,4 +130,47 @@ async function listWindowsServices(): Promise<ServiceInfo[]> {
     state: item.Status,
     description: item.DisplayName
   }));
+}
+
+async function listWindowsDisks(): Promise<DiskUsageInfo[]> {
+  const script = "Get-CimInstance Win32_LogicalDisk -Filter \"DriveType=3\" | Select-Object DeviceID,Size,FreeSpace | ConvertTo-Json -Compress";
+  const { stdout } = await runCommand("powershell.exe", ["-NoProfile", "-Command", script], 8_000);
+  const parsed = parseJsonArray<{ DeviceID: string; Size?: number; FreeSpace?: number }>(stdout || "[]");
+  return parsed.map((item) => {
+    const totalBytes = item.Size ?? 0;
+    const freeBytes = item.FreeSpace ?? 0;
+    return {
+      target: item.DeviceID,
+      totalBytes,
+      freeBytes,
+      usedPercent: Math.round(((totalBytes - freeBytes) / Math.max(1, totalBytes)) * 100)
+    };
+  });
+}
+
+function parseUnixDisk(line: string): DiskUsageInfo | null {
+  const parts = line.trim().split(/\s+/u);
+  if (parts.length < 6) {
+    return null;
+  }
+  const totalKb = Number.parseInt(parts[1] ?? "0", 10);
+  const freeKb = Number.parseInt(parts[3] ?? "0", 10);
+  const usedPercent = Number.parseInt((parts[4] ?? "0").replace("%", ""), 10);
+  return {
+    target: parts[5] ?? "unknown",
+    totalBytes: totalKb * 1024,
+    freeBytes: freeKb * 1024,
+    usedPercent: Number.isFinite(usedPercent) ? usedPercent : 0
+  };
+}
+
+function parseJsonArray<TItem>(raw: string): TItem[] {
+  const parsed = JSON.parse(raw) as unknown;
+  if (Array.isArray(parsed)) {
+    return parsed as TItem[];
+  }
+  if (parsed && typeof parsed === "object") {
+    return [parsed as TItem];
+  }
+  return [];
 }

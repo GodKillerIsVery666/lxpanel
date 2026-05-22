@@ -148,6 +148,64 @@ export const AuditEventSchema = z.object({
 });
 export type AuditEvent = z.infer<typeof AuditEventSchema>;
 
+export const AlertTypeSchema = z.enum(["cpu", "memory", "disk"]);
+export type AlertType = z.infer<typeof AlertTypeSchema>;
+
+export const AlertLevelSchema = z.enum(["warning", "critical"]);
+export type AlertLevel = z.infer<typeof AlertLevelSchema>;
+
+export const AlertThresholdSchema = z.object({
+  type: AlertTypeSchema,
+  warningPercent: z.number().min(1).max(100),
+  criticalPercent: z.number().min(1).max(100),
+  enabled: z.boolean(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+}).superRefine((value, context) => {
+  if (value.warningPercent >= value.criticalPercent) {
+    context.addIssue({ code: "custom", path: ["warningPercent"], message: "警告阈值必须小于严重阈值。" });
+  }
+});
+export type AlertThreshold = z.infer<typeof AlertThresholdSchema>;
+
+export const UpdateAlertThresholdSchema = z.object({
+  type: AlertTypeSchema,
+  warningPercent: z.number().min(1).max(100),
+  criticalPercent: z.number().min(1).max(100),
+  enabled: z.boolean()
+}).superRefine((value, context) => {
+  if (value.warningPercent >= value.criticalPercent) {
+    context.addIssue({ code: "custom", path: ["warningPercent"], message: "警告阈值必须小于严重阈值。" });
+  }
+});
+export type UpdateAlertThreshold = z.infer<typeof UpdateAlertThresholdSchema>;
+
+export const AlertEventSchema = z.object({
+  id: z.string(),
+  time: z.string(),
+  type: AlertTypeSchema,
+  level: AlertLevelSchema,
+  target: z.string(),
+  currentValue: z.number(),
+  threshold: z.number(),
+  message: z.string(),
+  dismissedAt: z.string().optional(),
+  dismissedBy: z.string().optional()
+});
+export type AlertEvent = z.infer<typeof AlertEventSchema>;
+
+export const AlertSummarySchema = z.object({
+  activeWarning: z.number(),
+  activeCritical: z.number(),
+  latest: AlertEventSchema.optional()
+});
+export type AlertSummary = z.infer<typeof AlertSummarySchema>;
+
+export const DismissAlertSchema = z.object({
+  alertId: z.string().min(1)
+});
+export type DismissAlert = z.infer<typeof DismissAlertSchema>;
+
 export const ConnectorSchema = z.object({
   id: z.string(),
   name: z.string(),
