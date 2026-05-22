@@ -1,0 +1,31 @@
+{
+  "name": "lxpanel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LXPanel 是面向个人与中小团队的轻量安全服务器运维面板。",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @lxpanel/api",
+    "dev:api": "npm run dev -w @lxpanel/api",
+    "dev:web": "npm run dev -w @lxpanel/web",
+    "build": "npm run build -w @lxpanel/shared && npm run build -w @lxpanel/api && npm run build -w @lxpanel/web",
+    "typecheck": "npm run build -w @lxpanel/shared && npm run typecheck -w @lxpanel/api && npm run typecheck -w @lxpanel/web",
+    "test": "npm run build -w @lxpanel/shared && npm run test -w @lxpanel/api && npm run test -w @lxpanel/web",
+    "lint": "npm run build -w @lxpanel/shared && eslint .",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@types/node": "latest",
+    "eslint": "latest",
+    "globals": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "typescript-eslint": "latest",
+    "vitest": "latest"
+  }
+}

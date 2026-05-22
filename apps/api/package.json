@@ -1,0 +1,23 @@
+{
+  "name": "@lxpanel/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "npm run build -w @lxpanel/shared && tsx watch src/server.ts",
+    "build": "npm run build -w @lxpanel/shared && tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run build -w @lxpanel/shared && vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@fastify/cookie": "latest",
+    "@fastify/cors": "latest",
+    "@fastify/rate-limit": "latest",
+    "@lxpanel/shared": "0.1.0",
+    "fastify": "latest",
+    "zod": "latest"
+  }
+}
