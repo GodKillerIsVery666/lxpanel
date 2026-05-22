@@ -8,6 +8,7 @@
 - 会话 Cookie 使用 HMAC 签名，服务端只保存会话哈希。
 - `owner` 可以查看活动会话并强制撤销。
 - 登录接口有速率限制。
+- 所有响应带基础安全头，写请求会校验 Origin/Fetch Metadata，降低 Cookie 认证下的 CSRF 风险。
 - 可通过 `LXPANEL_IP_ALLOWLIST` 限制允许访问面板的源 IP。
 - 文件目录访问限制在 `LXPANEL_FILE_ROOTS` 内。
 - 服务控制只允许合法 systemd service 名称。

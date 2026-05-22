@@ -10,6 +10,7 @@ import type { AppConfig } from "./config/env.js";
 import { loadConfig } from "./config/env.js";
 import { JsonStore } from "./lib/jsonStore.js";
 import { registerIpAllowlist } from "./middleware/ipAllowlist.js";
+import { registerSecurityHeaders } from "./middleware/securityHeaders.js";
 import { registerStaticWeb } from "./middleware/staticWeb.js";
 import { AuditLog } from "./modules/audit/auditLog.js";
 import { registerAuditRoutes } from "./modules/audit/auditRoutes.js";
@@ -59,6 +60,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   await app.register(cors, { credentials: true, origin: config.allowedOrigins });
   await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
   registerIpAllowlist(app, config);
+  registerSecurityHeaders(app, config);
 
   app.setErrorHandler(async (error, _request, reply) => {
     app.log.error(error);
