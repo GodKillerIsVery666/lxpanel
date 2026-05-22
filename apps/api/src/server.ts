@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
@@ -65,7 +66,10 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]?.replace(/\\/gu, "/")}`) {
+const currentFile = fileURLToPath(import.meta.url);
+const entryFile = process.argv[1] ? resolve(process.argv[1]) : "";
+
+if (entryFile === currentFile) {
   const config = loadConfig();
   const app = await buildApp(config);
   try {
