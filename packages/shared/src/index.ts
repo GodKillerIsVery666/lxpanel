@@ -212,9 +212,26 @@ export const CreateTaskSchema = z.object({
   command: z.string().min(1).max(180).regex(/^[A-Za-z0-9_.:/\\-]+$/u),
   args: z.array(z.string().max(240)).max(24).default([]),
   cwd: z.string().max(260).optional(),
-  timeoutSeconds: z.number().int().min(1).max(600).default(60)
+  timeoutSeconds: z.number().int().min(1).max(600).default(60),
+  scheduleEnabled: z.boolean().optional(),
+  scheduleEveryMinutes: z.number().int().min(1).max(10_080).optional()
+}).superRefine((value, context) => {
+  if (value.scheduleEnabled && !value.scheduleEveryMinutes) {
+    context.addIssue({ code: "custom", path: ["scheduleEveryMinutes"], message: "启用计划时必须设置间隔。" });
+  }
 });
 export type CreateTask = z.infer<typeof CreateTaskSchema>;
+
+export const UpdateTaskScheduleSchema = z.object({
+  taskId: z.string().min(1),
+  enabled: z.boolean(),
+  everyMinutes: z.number().int().min(1).max(10_080).optional()
+}).superRefine((value, context) => {
+  if (value.enabled && !value.everyMinutes) {
+    context.addIssue({ code: "custom", path: ["everyMinutes"], message: "启用计划时必须设置间隔。" });
+  }
+});
+export type UpdateTaskSchedule = z.infer<typeof UpdateTaskScheduleSchema>;
 
 export const PanelTaskSchema = z.object({
   id: z.string(),
@@ -226,7 +243,12 @@ export const PanelTaskSchema = z.object({
   createdAt: z.string(),
   createdBy: z.string(),
   lastRunAt: z.string().optional(),
-  lastStatus: z.enum(["success", "failed"]).optional()
+  lastStatus: z.enum(["success", "failed"]).optional(),
+  scheduleEnabled: z.boolean().optional(),
+  scheduleEveryMinutes: z.number().optional(),
+  nextRunAt: z.string().optional(),
+  scheduleUpdatedAt: z.string().optional(),
+  scheduleUpdatedBy: z.string().optional()
 });
 export type PanelTask = z.infer<typeof PanelTaskSchema>;
 
@@ -259,6 +281,27 @@ export const BackupSnapshotSchema = z.object({
   kind: z.enum(["state"])
 });
 export type BackupSnapshot = z.infer<typeof BackupSnapshotSchema>;
+
+export const BackupScheduleSchema = z.object({
+  enabled: z.boolean(),
+  everyHours: z.number().int().min(1).max(720),
+  nextRunAt: z.string().optional(),
+  lastRunAt: z.string().optional(),
+  lastStatus: z.enum(["success", "failed"]).optional(),
+  updatedAt: z.string().optional(),
+  updatedBy: z.string().optional()
+});
+export type BackupSchedule = z.infer<typeof BackupScheduleSchema>;
+
+export const UpdateBackupScheduleSchema = z.object({
+  enabled: z.boolean(),
+  everyHours: z.number().int().min(1).max(720).optional()
+}).superRefine((value, context) => {
+  if (value.enabled && !value.everyHours) {
+    context.addIssue({ code: "custom", path: ["everyHours"], message: "启用计划时必须设置间隔。" });
+  }
+});
+export type UpdateBackupSchedule = z.infer<typeof UpdateBackupScheduleSchema>;
 
 export const SecurityPostureSchema = z.object({
   setupRequired: z.boolean(),

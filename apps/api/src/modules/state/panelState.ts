@@ -40,6 +40,11 @@ export interface TaskRecord {
   createdBy: string;
   lastRunAt?: string;
   lastStatus?: "success" | "failed";
+  scheduleEnabled?: boolean;
+  scheduleEveryMinutes?: number;
+  nextRunAt?: string;
+  scheduleUpdatedAt?: string;
+  scheduleUpdatedBy?: string;
 }
 
 export interface TaskRunRecord {
@@ -65,6 +70,16 @@ export interface BackupRecord {
   kind: "state";
 }
 
+export interface BackupScheduleRecord {
+  enabled: boolean;
+  everyHours: number;
+  nextRunAt?: string;
+  lastRunAt?: string;
+  lastStatus?: "success" | "failed";
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface PanelState {
   users: UserRecord[];
   sessions: SessionRecord[];
@@ -72,6 +87,7 @@ export interface PanelState {
   tasks?: TaskRecord[];
   taskRuns?: TaskRunRecord[];
   backups?: BackupRecord[];
+  backupSchedule?: BackupScheduleRecord;
 }
 
 export function createInitialPanelState(): PanelState {
@@ -81,6 +97,7 @@ export function createInitialPanelState(): PanelState {
     connectors: [],
     tasks: [],
     taskRuns: [],
-    backups: []
+    backups: [],
+    backupSchedule: { enabled: false, everyHours: 24 }
   };
 }

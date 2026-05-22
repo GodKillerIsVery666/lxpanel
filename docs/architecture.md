@@ -15,9 +15,10 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 5. Docker 管理只通过 `execFile` 调用参数化 CLI，不拼接 shell 命令；未安装或 daemon 不可用时返回状态而不是阻塞面板。
 6. 日志查看与文件管理分离，日志根目录由 `LXPANEL_LOG_ROOTS` 独立收敛。
 7. 任务运行器只使用 `execFile` 参数数组，并把工作目录限制在 `LXPANEL_FILE_ROOTS` 内。
-8. 备份模块生成本地状态快照，备份文件保存在 `LXPANEL_DATA_DIR/backups`。
-9. 生产部署提供 systemd、Docker Compose、Nginx 模板和独立低权限用户，面板本体默认只监听本机地址。
-10. API 进程可直接托管 `apps/web/dist`，也可放在 Nginx 后面作为纯 API 服务。
+8. 备份模块生成本地状态快照，备份文件保存在 `LXPANEL_DATA_DIR/backups`，默认保留最近 100 份并清理旧文件。
+9. 调度器随 API 进程启动，按状态中的计划触发受控任务和自动备份，执行结果写入运行历史与审计日志。
+10. 生产部署提供 systemd、Docker Compose、Nginx 模板和独立低权限用户，面板本体默认只监听本机地址。
+11. API 进程可直接托管 `apps/web/dist`，也可放在 Nginx 后面作为纯 API 服务。
 
 ## 连接器方向
 

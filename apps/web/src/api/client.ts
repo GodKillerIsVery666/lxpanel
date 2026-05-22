@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   AuditEventSchema,
+  BackupScheduleSchema,
   AuthSessionSchema,
   AuthUserSchema,
   BackupSnapshotSchema,
@@ -28,6 +29,8 @@ import {
   TotpConfirmSchema,
   PanelTaskSchema,
   ResetUserPasswordSchema,
+  UpdateBackupScheduleSchema,
+  UpdateTaskScheduleSchema,
   UpdateUserRoleSchema,
   type AuthUser,
   type ChangeOwnPassword,
@@ -37,7 +40,9 @@ import {
   type DockerContainerAction,
   type LoginRequest,
   type ResetUserPassword,
-  type SetupRequest
+  type SetupRequest,
+  type UpdateBackupSchedule,
+  type UpdateTaskSchedule
 } from "@lxpanel/shared";
 
 const apiBase = typeof import.meta.env.VITE_API_BASE === "string" ? import.meta.env.VITE_API_BASE : "";
@@ -63,8 +68,9 @@ const DockerImagesResponseSchema = z.object({ images: z.array(DockerImageSchema)
 const TasksResponseSchema = z.object({ tasks: z.array(PanelTaskSchema), runs: z.array(TaskRunSchema) });
 const TaskResponseSchema = z.object({ task: PanelTaskSchema });
 const TaskRunResponseSchema = z.object({ run: TaskRunSchema });
-const BackupsResponseSchema = z.object({ backups: z.array(BackupSnapshotSchema) });
+const BackupsResponseSchema = z.object({ backups: z.array(BackupSnapshotSchema), schedule: BackupScheduleSchema });
 const BackupResponseSchema = z.object({ backup: BackupSnapshotSchema });
+const BackupScheduleResponseSchema = z.object({ schedule: BackupScheduleSchema });
 const OkResponseSchema = z.object({ ok: z.boolean() });
 
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
@@ -102,9 +108,11 @@ export const api = {
   tasks: () => request("/api/tasks", TasksResponseSchema),
   createTask: (input: CreateTask) => request("/api/tasks", TaskResponseSchema, "POST", CreateTaskSchema.parse(input)),
   runTask: (taskId: string) => request("/api/tasks/run", TaskRunResponseSchema, "POST", TaskRunRequestSchema.parse({ taskId })),
+  updateTaskSchedule: (input: UpdateTaskSchedule) => request("/api/tasks/schedule", TaskResponseSchema, "PATCH", UpdateTaskScheduleSchema.parse(input)),
   deleteTask: (taskId: string) => request(`/api/tasks?taskId=${encodeURIComponent(taskId)}`, OkResponseSchema, "DELETE"),
   backups: () => request("/api/backups", BackupsResponseSchema),
   createBackup: () => request("/api/backups", BackupResponseSchema, "POST"),
+  updateBackupSchedule: (input: UpdateBackupSchedule) => request("/api/backups/schedule", BackupScheduleResponseSchema, "PATCH", UpdateBackupScheduleSchema.parse(input)),
   audit: () => request("/api/audit", AuditResponseSchema),
   security: () => request("/api/security/posture", SecurityResponseSchema),
   connectors: () => request("/api/connectors", ConnectorsResponseSchema),

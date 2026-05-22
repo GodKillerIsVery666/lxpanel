@@ -71,7 +71,7 @@ td { font-size: 14px; }
 .path-form, .inline-form { display: flex; gap: 10px; }
 .inline-form.wrap { flex-wrap: wrap; }
 .path-form button, .inline-form button { background: var(--ink); color: white; }
-.task-form { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.2fr 120px auto; gap: 10px; }
+.task-form { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.2fr 110px 140px auto; gap: 10px; }
 .task-form button, .mini-button { border: 1px solid transparent; border-radius: 6px; background: var(--ink); color: white; padding: 8px 10px; }
 .mini-button { margin-left: 6px; }
 .root-chips { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -24,6 +24,7 @@ import { registerDockerRoutes } from "./modules/docker/dockerRoutes.js";
 import { registerFileRoutes } from "./modules/files/fileRoutes.js";
 import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
 import { registerLogRoutes } from "./modules/logs/logRoutes.js";
+import { SchedulerService } from "./modules/scheduler/schedulerService.js";
 import { registerSecurityRoutes } from "./modules/security/securityRoutes.js";
 import { createInitialPanelState, type PanelState } from "./modules/state/panelState.js";
 import { registerSystemRoutes } from "./modules/system/systemRoutes.js";
@@ -55,6 +56,7 @@ export function createServices(config: AppConfig): Services {
 export async function buildApp(config: AppConfig = loadConfig()): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel } });
   const services = createServices(config);
+  const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.auditLog, app.log);
 
   await app.register(cookie);
   await app.register(cors, { credentials: true, origin: config.allowedOrigins });
@@ -84,6 +86,10 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerAuditRoutes(app, services);
   registerSecurityRoutes(app, services);
   await registerStaticWeb(app, config);
+  scheduler.start();
+  app.addHook("onClose", () => {
+    scheduler.stop();
+  });
 
   return app;
 }

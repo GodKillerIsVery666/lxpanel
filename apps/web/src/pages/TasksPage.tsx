@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Play, RotateCw, Trash2 } from "lucide-react";
+import { Clock, PauseCircle, Play, RotateCw, Trash2 } from "lucide-react";
 import type { PanelTask, TaskRun } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
@@ -13,6 +13,7 @@ export function TasksPage(): JSX.Element {
   const [args, setArgs] = useState("");
   const [cwd, setCwd] = useState("");
   const [timeoutSeconds, setTimeoutSeconds] = useState(60);
+  const [scheduleEveryMinutes, setScheduleEveryMinutes] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function load(): Promise<void> {
@@ -29,10 +30,19 @@ export function TasksPage(): JSX.Element {
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     try {
-      await api.createTask({ name, command, args: splitArgs(args), cwd: cwd || undefined, timeoutSeconds });
+      const interval = parsePositiveInt(scheduleEveryMinutes);
+      await api.createTask({
+        name,
+        command,
+        args: splitArgs(args),
+        cwd: cwd || undefined,
+        timeoutSeconds,
+        ...(interval ? { scheduleEnabled: true, scheduleEveryMinutes: interval } : {})
+      });
       setName("");
       setCommand("");
       setArgs("");
+      setScheduleEveryMinutes("");
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "创建失败。");
@@ -57,6 +67,15 @@ export function TasksPage(): JSX.Element {
     }
   }
 
+  async function toggleSchedule(task: PanelTask): Promise<void> {
+    try {
+      await api.updateTaskSchedule({ taskId: task.id, enabled: !task.scheduleEnabled, everyMinutes: task.scheduleEveryMinutes ?? 60 });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "更新计划失败。");
+    }
+  }
+
   useEffect(() => {
     void load();
   }, []);
@@ -70,10 +89,11 @@ export function TasksPage(): JSX.Element {
         <input value={args} onChange={(event) => setArgs(event.target.value)} placeholder="参数，用空格分隔" />
         <input value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder="工作目录，可选" />
         <input value={timeoutSeconds} onChange={(event) => setTimeoutSeconds(Number.parseInt(event.target.value, 10) || 60)} type="number" min={1} max={600} />
+        <input value={scheduleEveryMinutes} onChange={(event) => setScheduleEveryMinutes(event.target.value)} type="number" min={1} max={10080} placeholder="自动间隔(分钟)" />
         <button type="submit">保存任务</button>
       </form>
       {error ? <div className="form-error">{error}</div> : null}
-      <section className="table-panel"><div className="panel-title">任务列表</div><table><thead><tr><th>名称</th><th>命令</th><th>最近状态</th><th>创建者</th><th>操作</th></tr></thead><tbody>{tasks.map((task) => <tr key={task.id}><td>{task.name}</td><td><code>{[task.command, ...task.args].join(" ")}</code></td><td>{task.lastStatus ? <StatusPill status={task.lastStatus} /> : "-"}</td><td>{task.createdBy}</td><td className="row-actions"><button title="运行" onClick={() => void run(task.id)}><Play size={15} /></button><button title="删除" onClick={() => void remove(task.id)}><Trash2 size={15} /></button></td></tr>)}</tbody></table></section>
+      <section className="table-panel"><div className="panel-title">任务列表</div><table><thead><tr><th>名称</th><th>命令</th><th>计划</th><th>最近状态</th><th>创建者</th><th>操作</th></tr></thead><tbody>{tasks.map((task) => <tr key={task.id}><td>{task.name}</td><td><code>{[task.command, ...task.args].join(" ")}</code></td><td>{task.scheduleEnabled ? <span>{task.scheduleEveryMinutes} 分钟 / {task.nextRunAt ? formatDate(task.nextRunAt) : "待计算"}</span> : <span className="muted-text">未启用</span>}</td><td>{task.lastStatus ? <StatusPill status={task.lastStatus} /> : "-"}</td><td>{task.createdBy}</td><td className="row-actions"><button title="运行" onClick={() => void run(task.id)}><Play size={15} /></button><button title={task.scheduleEnabled ? "暂停计划" : "启用计划"} onClick={() => void toggleSchedule(task)}>{task.scheduleEnabled ? <PauseCircle size={15} /> : <Clock size={15} />}</button><button title="删除" onClick={() => void remove(task.id)}><Trash2 size={15} /></button></td></tr>)}</tbody></table></section>
       <section className="table-panel"><div className="panel-title">运行记录</div><table><thead><tr><th>时间</th><th>任务</th><th>状态</th><th>输出</th></tr></thead><tbody>{runs.map((runItem) => <tr key={runItem.id}><td>{formatDate(runItem.finishedAt)}</td><td>{runItem.taskName}</td><td><StatusPill status={runItem.status} /></td><td><pre className="inline-log">{runItem.stdoutTail || runItem.stderrTail || "无输出"}</pre></td></tr>)}</tbody></table></section>
     </main>
   );
@@ -81,4 +101,9 @@ export function TasksPage(): JSX.Element {
 
 function splitArgs(value: string): string[] {
   return value.split(" ").map((item) => item.trim()).filter(Boolean);
+}
+
+function parsePositiveInt(value: string): number | undefined {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }

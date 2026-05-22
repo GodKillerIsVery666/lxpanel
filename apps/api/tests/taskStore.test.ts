@@ -26,4 +26,23 @@ describe("任务运行器", () => {
 
     await expect(taskStore.createTask({ name: "bad", command: process.execPath, args: [], cwd: outside, timeoutSeconds: 10 }, "admin")).rejects.toThrow("路径不在允许的管理目录内");
   });
+
+  it("运行到期的计划任务并推进下次运行时间", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-task-schedule-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const taskStore = new TaskStore(store, [root]);
+    const task = await taskStore.createTask({ name: "scheduled", command: process.execPath, args: ["-e", "console.log('scheduled')"], cwd: root, timeoutSeconds: 10, scheduleEnabled: true, scheduleEveryMinutes: 5 }, "admin");
+    const now = new Date("2026-05-22T09:00:00.000Z");
+    await store.update((state) => ({
+      data: { ...state, tasks: (state.tasks ?? []).map((item) => item.id === task.id ? { ...item, nextRunAt: "2026-05-22T08:59:00.000Z" } : item) },
+      result: undefined
+    }));
+
+    const runs = await taskStore.runDueScheduledTasks(now);
+    const updated = (await taskStore.listTasks()).find((item) => item.id === task.id);
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.stdoutTail.trim()).toBe("scheduled");
+    expect(updated?.nextRunAt).toBe("2026-05-22T09:05:00.000Z");
+  });
 });

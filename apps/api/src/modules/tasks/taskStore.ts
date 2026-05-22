@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
-import type { CreateTask, PanelTask, TaskRun } from "@lxpanel/shared";
+import type { CreateTask, PanelTask, TaskRun, UpdateTaskSchedule } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { JsonStore } from "../../lib/jsonStore.js";
 import { resolveManagedPath } from "../files/pathGuard.js";
@@ -30,6 +30,8 @@ export class TaskStore {
     await this.validateTask(input);
     return this.store.update((state) => {
       const now = new Date().toISOString();
+      const scheduleEveryMinutes = input.scheduleEveryMinutes;
+      const scheduleEnabled = input.scheduleEnabled === true;
       const record: TaskRecord = {
         id: randomToken(12),
         name: input.name,
@@ -38,9 +40,40 @@ export class TaskStore {
         ...(input.cwd ? { cwd: resolveManagedPath(input.cwd, this.fileRoots).path } : {}),
         timeoutSeconds: input.timeoutSeconds,
         createdAt: now,
-        createdBy: actor
+        createdBy: actor,
+        ...(scheduleEveryMinutes ? { scheduleEveryMinutes } : {}),
+        ...(scheduleEnabled ? { scheduleEnabled, nextRunAt: nextRunAt(new Date(now), scheduleEveryMinutes ?? 60), scheduleUpdatedAt: now, scheduleUpdatedBy: actor } : {})
       };
       return { data: { ...state, tasks: [...(state.tasks ?? []), record] }, result: toTask(record) };
+    });
+  }
+
+  async updateTaskSchedule(input: UpdateTaskSchedule, actor: string): Promise<PanelTask> {
+    return this.store.update((state) => {
+      const task = (state.tasks ?? []).find((item) => item.id === input.taskId);
+      if (!task) {
+        throw new Error("任务不存在。");
+      }
+      const now = new Date();
+      const everyMinutes = input.everyMinutes ?? task.scheduleEveryMinutes;
+      if (input.enabled && !everyMinutes) {
+        throw new Error("启用计划时必须设置间隔。");
+      }
+      const updated: TaskRecord = {
+        ...task,
+        scheduleEnabled: input.enabled,
+        ...(everyMinutes ? { scheduleEveryMinutes: everyMinutes } : {}),
+        scheduleUpdatedAt: now.toISOString(),
+        scheduleUpdatedBy: actor,
+        ...(input.enabled && everyMinutes ? { nextRunAt: nextRunAt(now, everyMinutes) } : {})
+      };
+      if (!input.enabled) {
+        delete updated.nextRunAt;
+      }
+      return {
+        data: { ...state, tasks: (state.tasks ?? []).map((item) => item.id === input.taskId ? updated : item) },
+        result: toTask(updated)
+      };
     });
   }
 
@@ -67,6 +100,25 @@ export class TaskStore {
       result: undefined
     }));
     return toRun(run);
+  }
+
+  async runDueScheduledTasks(now = new Date()): Promise<TaskRun[]> {
+    const state = await this.store.read();
+    const dueTasks = (state.tasks ?? []).filter((task) => task.scheduleEnabled && task.scheduleEveryMinutes && isDue(task.nextRunAt, now));
+    const runs: TaskRun[] = [];
+    for (const task of dueTasks) {
+      await this.store.update((current) => ({
+        data: {
+          ...current,
+          tasks: (current.tasks ?? []).map((item) => item.id === task.id && item.scheduleEveryMinutes
+            ? { ...item, nextRunAt: nextRunAt(now, item.scheduleEveryMinutes) }
+            : item)
+        },
+        result: undefined
+      }));
+      runs.push(await this.runTask(task.id, "scheduler"));
+    }
+    return runs;
   }
 
   private async validateTask(input: CreateTask): Promise<void> {
@@ -133,10 +185,23 @@ function toTask(record: TaskRecord): PanelTask {
     createdAt: record.createdAt,
     createdBy: record.createdBy,
     ...(record.lastRunAt ? { lastRunAt: record.lastRunAt } : {}),
-    ...(record.lastStatus ? { lastStatus: record.lastStatus } : {})
+    ...(record.lastStatus ? { lastStatus: record.lastStatus } : {}),
+    ...(record.scheduleEnabled !== undefined ? { scheduleEnabled: record.scheduleEnabled } : {}),
+    ...(record.scheduleEveryMinutes ? { scheduleEveryMinutes: record.scheduleEveryMinutes } : {}),
+    ...(record.nextRunAt ? { nextRunAt: record.nextRunAt } : {}),
+    ...(record.scheduleUpdatedAt ? { scheduleUpdatedAt: record.scheduleUpdatedAt } : {}),
+    ...(record.scheduleUpdatedBy ? { scheduleUpdatedBy: record.scheduleUpdatedBy } : {})
   };
 }
 
 function toRun(record: TaskRunRecord): TaskRun {
   return { ...record };
+}
+
+function isDue(nextRun: string | undefined, now: Date): boolean {
+  return Boolean(nextRun && new Date(nextRun).getTime() <= now.getTime());
+}
+
+function nextRunAt(from: Date, everyMinutes: number): string {
+  return new Date(from.getTime() + everyMinutes * 60_000).toISOString();
 }

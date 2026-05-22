@@ -1,4 +1,4 @@
-import { readFile, mkdtemp } from "node:fs/promises";
+import { access, readFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,5 +19,37 @@ describe("备份快照", () => {
     expect(backup.fileName).toContain("lxpanel-state");
     expect(content).toContain("admin");
     await expect(backupStore.listBackups()).resolves.toHaveLength(1);
+  });
+
+  it("按计划生成自动备份并推进下次运行时间", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-backup-schedule-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const backupStore = new BackupStore(store, root);
+    await backupStore.updateSchedule({ enabled: true, everyHours: 6 }, "admin");
+    await store.update((state) => ({
+      data: { ...state, backupSchedule: { ...state.backupSchedule, enabled: true, everyHours: 6, nextRunAt: "2026-05-22T08:00:00.000Z" } },
+      result: undefined
+    }));
+
+    const backup = await backupStore.runDueBackup(new Date("2026-05-22T09:00:00.000Z"));
+    const schedule = await backupStore.getSchedule();
+
+    expect(backup?.createdBy).toBe("scheduler");
+    expect(schedule.lastStatus).toBe("success");
+    expect(schedule.nextRunAt).toBe("2026-05-22T15:00:00.000Z");
+  });
+
+  it("超过保留上限时清理旧备份文件", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-backup-retention-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const backupStore = new BackupStore(store, root);
+
+    const first = await backupStore.createBackup("admin");
+    for (let index = 0; index < 100; index += 1) {
+      await backupStore.createBackup("admin");
+    }
+
+    await expect(backupStore.listBackups()).resolves.toHaveLength(100);
+    await expect(access(first.path)).rejects.toThrow();
   });
 });
