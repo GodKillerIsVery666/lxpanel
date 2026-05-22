@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { Cable, Container, FileText, Files, Gauge, ListTree, ScrollText, ShieldCheck, SquareActivity } from "lucide-react";
+import { Archive, Cable, ClipboardList, Container, FileText, Files, Gauge, ListTree, ScrollText, ShieldCheck, SquareActivity, Users } from "lucide-react";
 import type { AuthUser } from "../api/client.js";
 import type { ViewId } from "../App.js";
 
@@ -7,6 +7,7 @@ interface NavItem {
   id: ViewId;
   label: string;
   icon: ComponentType<{ size?: number }>;
+  minRole?: AuthUser["role"];
 }
 
 const navItems: NavItem[] = [
@@ -17,6 +18,9 @@ const navItems: NavItem[] = [
   { id: "files", label: "文件", icon: Files },
   { id: "logs", label: "日志", icon: FileText },
   { id: "connectors", label: "连接器", icon: Cable },
+  { id: "tasks", label: "任务", icon: ClipboardList, minRole: "operator" },
+  { id: "users", label: "用户", icon: Users, minRole: "owner" },
+  { id: "backups", label: "备份", icon: Archive, minRole: "owner" },
   { id: "security", label: "安全", icon: ShieldCheck },
   { id: "audit", label: "审计", icon: ScrollText }
 ];
@@ -30,12 +34,13 @@ interface ShellProps {
 }
 
 export function Shell({ user, activeView, onNavigate, onLogout, children }: ShellProps): JSX.Element {
+  const visibleItems = navItems.filter((item) => !item.minRole || roleRank(user.role) >= roleRank(item.minRole));
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand">LXPanel</div>
         <nav>
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon;
             return (
               <button key={item.id} className={activeView === item.id ? "active" : ""} onClick={() => onNavigate(item.id)}>
@@ -58,3 +63,8 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
     </div>
   );
 }
+
+function roleRank(role: AuthUser["role"]): number {
+  return role === "owner" ? 3 : role === "operator" ? 2 : 1;
+}
+

@@ -15,6 +15,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); }
 button, input { font: inherit; }
+select { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; background: #fff; color: var(--ink); }
 button { cursor: pointer; }
 
 .login-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: linear-gradient(135deg, #f7f4ed 0%, #e9efe8 100%); }
@@ -68,7 +69,11 @@ td { font-size: 14px; }
 .notice { margin: 8px 0; padding: 10px 12px; border-left: 3px solid var(--amber); background: #fff7ea; }
 .muted-text { color: var(--muted); }
 .path-form, .inline-form { display: flex; gap: 10px; }
+.inline-form.wrap { flex-wrap: wrap; }
 .path-form button, .inline-form button { background: var(--ink); color: white; }
+.task-form { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.2fr 120px auto; gap: 10px; }
+.task-form button, .mini-button { border: 1px solid transparent; border-radius: 6px; background: var(--ink); color: white; padding: 8px 10px; }
+.mini-button { margin-left: 6px; }
 .root-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .root-chips button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 8px 12px; color: var(--ink); }
 .clickable-row:hover { background: #f6f2e8; }
@@ -79,6 +84,7 @@ td { font-size: 14px; }
 .log-panel { background: #181c1a; color: #e9efe8; border: 1px solid #30372f; border-radius: 8px; overflow: hidden; }
 .log-panel pre { margin: 0; padding: 14px; overflow: auto; max-height: 58vh; font-family: "Cascadia Mono", "Consolas", monospace; font-size: 13px; line-height: 1.55; }
 .log-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.inline-log { max-width: 520px; max-height: 120px; margin: 0; overflow: auto; white-space: pre-wrap; font-family: "Cascadia Mono", "Consolas", monospace; font-size: 12px; }
 
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
@@ -92,5 +98,6 @@ td { font-size: 14px; }
 @media (max-width: 560px) {
   .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-heading, .path-form, .inline-form { align-items: stretch; flex-direction: column; }
+  .task-form { grid-template-columns: 1fr; }
   .icon-button { width: 100%; }
 }

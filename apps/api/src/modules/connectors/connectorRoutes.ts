@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { ConnectorHeartbeatSchema, CreateConnectorSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
-import { requireUser } from "../auth/authMiddleware.js";
+import { requireRole, requireUser } from "../auth/authMiddleware.js";
 
 export function registerConnectorRoutes(app: FastifyInstance, services: Services): void {
   app.get("/api/connectors", async (request, reply) => {
-    const user = await requireUser(request, reply, services);
+    const user = await requireRole(request, reply, services, "operator");
     if (!user) {
       return;
     }

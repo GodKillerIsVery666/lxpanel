@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { AuthUser } from "@lxpanel/shared";
+import type { AuthUser, Role } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { verifySignedValue } from "../../lib/sessionCookie.js";
 
@@ -21,4 +21,20 @@ export async function requireUser(request: FastifyRequest, reply: FastifyReply, 
     return null;
   }
   return user;
+}
+
+export async function requireRole(request: FastifyRequest, reply: FastifyReply, services: Services, role: Role): Promise<AuthUser | null> {
+  const user = await requireUser(request, reply, services);
+  if (!user) {
+    return null;
+  }
+  if (roleRank(user.role) < roleRank(role)) {
+    await reply.code(403).send({ message: "当前账号权限不足。" });
+    return null;
+  }
+  return user;
+}
+
+function roleRank(role: Role): number {
+  return role === "owner" ? 3 : role === "operator" ? 2 : 1;
 }

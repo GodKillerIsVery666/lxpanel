@@ -1,0 +1,142 @@
+import { execFile } from "node:child_process";
+import { stat } from "node:fs/promises";
+import type { CreateTask, PanelTask, TaskRun } from "@lxpanel/shared";
+import { randomToken } from "../../lib/crypto.js";
+import type { JsonStore } from "../../lib/jsonStore.js";
+import { resolveManagedPath } from "../files/pathGuard.js";
+import type { PanelState, TaskRecord, TaskRunRecord } from "../state/panelState.js";
+
+const outputLimit = 12_000;
+
+export class TaskStore {
+  constructor(private readonly store: JsonStore<PanelState>, private readonly fileRoots: readonly string[]) {}
+
+  async listTasks(): Promise<PanelTask[]> {
+    const state = await this.store.read();
+    return (state.tasks ?? []).map(toTask);
+  }
+
+  async listRuns(): Promise<TaskRun[]> {
+    const state = await this.store.read();
+    return (state.taskRuns ?? []).slice(-100).reverse().map(toRun);
+  }
+
+  async countTasks(): Promise<number> {
+    const state = await this.store.read();
+    return (state.tasks ?? []).length;
+  }
+
+  async createTask(input: CreateTask, actor: string): Promise<PanelTask> {
+    await this.validateTask(input);
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const record: TaskRecord = {
+        id: randomToken(12),
+        name: input.name,
+        command: input.command,
+        args: input.args,
+        ...(input.cwd ? { cwd: resolveManagedPath(input.cwd, this.fileRoots).path } : {}),
+        timeoutSeconds: input.timeoutSeconds,
+        createdAt: now,
+        createdBy: actor
+      };
+      return { data: { ...state, tasks: [...(state.tasks ?? []), record] }, result: toTask(record) };
+    });
+  }
+
+  async deleteTask(taskId: string): Promise<void> {
+    await this.store.update((state) => ({
+      data: { ...state, tasks: (state.tasks ?? []).filter((task) => task.id !== taskId) },
+      result: undefined
+    }));
+  }
+
+  async runTask(taskId: string, actor: string): Promise<TaskRun> {
+    const state = await this.store.read();
+    const task = (state.tasks ?? []).find((item) => item.id === taskId);
+    if (!task) {
+      throw new Error("任务不存在。");
+    }
+    const run = await executeTask(task, actor);
+    await this.store.update((current) => ({
+      data: {
+        ...current,
+        tasks: (current.tasks ?? []).map((item) => item.id === taskId ? { ...item, lastRunAt: run.finishedAt, lastStatus: run.status } : item),
+        taskRuns: [...(current.taskRuns ?? []), run].slice(-200)
+      },
+      result: undefined
+    }));
+    return toRun(run);
+  }
+
+  private async validateTask(input: CreateTask): Promise<void> {
+    if (input.command.includes("..")) {
+      throw new Error("命令路径不允许包含上级目录。 ");
+    }
+    if (input.cwd) {
+      const managed = resolveManagedPath(input.cwd, this.fileRoots);
+      const info = await stat(managed.path);
+      if (!info.isDirectory()) {
+        throw new Error("工作目录不是目录。");
+      }
+    }
+  }
+}
+
+function executeTask(task: TaskRecord, actor: string): Promise<TaskRunRecord> {
+  const startedAt = new Date().toISOString();
+  return new Promise((resolve) => {
+    execFile(task.command, task.args, {
+      cwd: task.cwd,
+      timeout: task.timeoutSeconds * 1000,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+      encoding: "utf8"
+    }, (error, stdout, stderr) => {
+      const exitCode = readExitCode(error);
+      const status = error ? "failed" : "success";
+      resolve({
+        id: randomToken(12),
+        taskId: task.id,
+        taskName: task.name,
+        actor,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        status,
+        ...(typeof exitCode === "number" ? { exitCode } : {}),
+        stdoutTail: tailOutput(stdout),
+        stderrTail: tailOutput(stderr || (error instanceof Error ? error.message : ""))
+      });
+    });
+  });
+}
+
+function readExitCode(error: unknown): number | undefined {
+  if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "number") {
+    return error.code;
+  }
+  return error ? 1 : 0;
+}
+
+function tailOutput(output: string): string {
+  return output.length > outputLimit ? output.slice(-outputLimit) : output;
+}
+
+function toTask(record: TaskRecord): PanelTask {
+  return {
+    id: record.id,
+    name: record.name,
+    command: record.command,
+    args: record.args,
+    ...(record.cwd ? { cwd: record.cwd } : {}),
+    timeoutSeconds: record.timeoutSeconds,
+    createdAt: record.createdAt,
+    createdBy: record.createdBy,
+    ...(record.lastRunAt ? { lastRunAt: record.lastRunAt } : {}),
+    ...(record.lastStatus ? { lastStatus: record.lastStatus } : {})
+  };
+}
+
+function toRun(record: TaskRunRecord): TaskRun {
+  return { ...record };
+}

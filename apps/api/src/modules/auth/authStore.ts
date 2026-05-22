@@ -1,4 +1,4 @@
-import type { AuthUser } from "@lxpanel/shared";
+import type { AuthUser, CreateUser, Role } from "@lxpanel/shared";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../../lib/crypto.js";
 import type { JsonStore } from "../../lib/jsonStore.js";
 import type { PanelState, UserRecord } from "../state/panelState.js";
@@ -28,6 +28,97 @@ export class AuthStore {
         createdAt: now
       };
       return { data: { ...state, users: [user] }, result: toAuthUser(user) };
+    });
+  }
+
+  async listUsers(): Promise<AuthUser[]> {
+    const state = await this.store.read();
+    return state.users.map(toAuthUser);
+  }
+
+  async countUsers(): Promise<number> {
+    const state = await this.store.read();
+    return state.users.length;
+  }
+
+  async createUser(input: CreateUser): Promise<AuthUser> {
+    const passwordHash = await hashPassword(input.password);
+    return this.store.update((state) => {
+      if (state.users.some((user) => user.username === input.username)) {
+        throw new Error("用户名已存在。");
+      }
+      const now = new Date().toISOString();
+      const user: UserRecord = {
+        id: randomToken(12),
+        username: input.username,
+        role: input.role,
+        passwordHash,
+        createdAt: now
+      };
+      return { data: { ...state, users: [...state.users, user] }, result: toAuthUser(user) };
+    });
+  }
+
+  async updateUserRole(userId: string, role: Role): Promise<AuthUser> {
+    return this.store.update((state) => {
+      const user = state.users.find((item) => item.id === userId);
+      if (!user) {
+        throw new Error("用户不存在。");
+      }
+      if (user.role === "owner" && role !== "owner" && countOwners(state.users) <= 1) {
+        throw new Error("至少保留一个 owner。 ");
+      }
+      const updated = { ...user, role };
+      return {
+        data: { ...state, users: state.users.map((item) => item.id === userId ? updated : item) },
+        result: toAuthUser(updated)
+      };
+    });
+  }
+
+  async resetPassword(userId: string, password: string): Promise<void> {
+    const passwordHash = await hashPassword(password);
+    await this.store.update((state) => {
+      if (!state.users.some((item) => item.id === userId)) {
+        throw new Error("用户不存在。");
+      }
+      return {
+        data: { ...state, users: state.users.map((item) => item.id === userId ? { ...item, passwordHash } : item) },
+        result: undefined
+      };
+    });
+  }
+
+  async changeOwnPassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+    const state = await this.store.read();
+    const user = state.users.find((item) => item.id === userId);
+    if (!user) {
+      throw new Error("用户不存在。");
+    }
+    const verified = await verifyPassword(currentPassword, user.passwordHash);
+    if (!verified) {
+      throw new Error("当前密码不正确。");
+    }
+    await this.resetPassword(userId, newPassword);
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    await this.store.update((state) => {
+      const user = state.users.find((item) => item.id === userId);
+      if (!user) {
+        throw new Error("用户不存在。");
+      }
+      if (user.role === "owner" && countOwners(state.users) <= 1) {
+        throw new Error("至少保留一个 owner。 ");
+      }
+      return {
+        data: {
+          ...state,
+          users: state.users.filter((item) => item.id !== userId),
+          sessions: state.sessions.filter((session) => session.userId !== userId)
+        },
+        result: undefined
+      };
     });
   }
 
@@ -89,6 +180,10 @@ export class AuthStore {
       result: undefined
     }));
   }
+}
+
+function countOwners(users: UserRecord[]): number {
+  return users.filter((user) => user.role === "owner").length;
 }
 
 function toAuthUser(user: UserRecord): AuthUser {

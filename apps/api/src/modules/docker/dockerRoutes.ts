@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { DockerContainerActionSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
-import { requireUser } from "../auth/authMiddleware.js";
+import { requireRole, requireUser } from "../auth/authMiddleware.js";
 import { getDockerStatus, listDockerContainers, listDockerImages, runDockerContainerAction } from "./dockerService.js";
 
 export function registerDockerRoutes(app: FastifyInstance, services: Services): void {
   app.get("/api/docker/status", async (request, reply) => {
-    const user = await requireUser(request, reply, services);
+    const user = await requireRole(request, reply, services, "operator");
     if (!user) {
       return;
     }

@@ -13,6 +13,8 @@ import { AuditLog } from "./modules/audit/auditLog.js";
 import { registerAuditRoutes } from "./modules/audit/auditRoutes.js";
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
 import { AuthStore } from "./modules/auth/authStore.js";
+import { BackupStore } from "./modules/backups/backupStore.js";
+import { registerBackupRoutes } from "./modules/backups/backupRoutes.js";
 import { registerConnectorRoutes } from "./modules/connectors/connectorRoutes.js";
 import { ConnectorStore } from "./modules/connectors/connectorStore.js";
 import { registerDockerRoutes } from "./modules/docker/dockerRoutes.js";
@@ -22,11 +24,16 @@ import { registerLogRoutes } from "./modules/logs/logRoutes.js";
 import { registerSecurityRoutes } from "./modules/security/securityRoutes.js";
 import { createInitialPanelState, type PanelState } from "./modules/state/panelState.js";
 import { registerSystemRoutes } from "./modules/system/systemRoutes.js";
+import { TaskStore } from "./modules/tasks/taskStore.js";
+import { registerTaskRoutes } from "./modules/tasks/taskRoutes.js";
+import { registerUserRoutes } from "./modules/users/userRoutes.js";
 
 export interface Services {
   config: AppConfig;
   authStore: AuthStore;
   connectorStore: ConnectorStore;
+  taskStore: TaskStore;
+  backupStore: BackupStore;
   auditLog: AuditLog;
 }
 
@@ -36,6 +43,8 @@ export function createServices(config: AppConfig): Services {
     config,
     authStore: new AuthStore(stateStore),
     connectorStore: new ConnectorStore(stateStore),
+    taskStore: new TaskStore(stateStore, config.fileRoots),
+    backupStore: new BackupStore(stateStore, config.dataDir),
     auditLog: new AuditLog(join(config.dataDir, "audit.jsonl"))
   };
 }
@@ -59,10 +68,13 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
 
   registerHealthRoutes(app);
   registerAuthRoutes(app, services);
+  registerUserRoutes(app, services);
   registerSystemRoutes(app, services);
   registerFileRoutes(app, services);
   registerLogRoutes(app, services);
   registerDockerRoutes(app, services);
+  registerTaskRoutes(app, services);
+  registerBackupRoutes(app, services);
   registerConnectorRoutes(app, services);
   registerAuditRoutes(app, services);
   registerSecurityRoutes(app, services);

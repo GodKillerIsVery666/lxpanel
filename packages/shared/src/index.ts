@@ -23,6 +23,29 @@ export const SetupRequestSchema = LoginRequestSchema.extend({
 });
 export type SetupRequest = z.infer<typeof SetupRequestSchema>;
 
+export const CreateUserSchema = LoginRequestSchema.extend({
+  role: RoleSchema.default("operator")
+});
+export type CreateUser = z.infer<typeof CreateUserSchema>;
+
+export const UpdateUserRoleSchema = z.object({
+  userId: z.string().min(1),
+  role: RoleSchema
+});
+export type UpdateUserRole = z.infer<typeof UpdateUserRoleSchema>;
+
+export const ResetUserPasswordSchema = z.object({
+  userId: z.string().min(1),
+  password: z.string().min(8).max(256)
+});
+export type ResetUserPassword = z.infer<typeof ResetUserPasswordSchema>;
+
+export const ChangeOwnPasswordSchema = z.object({
+  currentPassword: z.string().min(8).max(256),
+  newPassword: z.string().min(8).max(256)
+});
+export type ChangeOwnPassword = z.infer<typeof ChangeOwnPasswordSchema>;
+
 export const SystemOverviewSchema = z.object({
   hostname: z.string(),
   platform: z.string(),
@@ -161,12 +184,68 @@ export const DockerContainerActionSchema = z.object({
 });
 export type DockerContainerAction = z.infer<typeof DockerContainerActionSchema>;
 
+export const CreateTaskSchema = z.object({
+  name: z.string().min(2).max(80),
+  command: z.string().min(1).max(180).regex(/^[A-Za-z0-9_.:/\\-]+$/u),
+  args: z.array(z.string().max(240)).max(24).default([]),
+  cwd: z.string().max(260).optional(),
+  timeoutSeconds: z.number().int().min(1).max(600).default(60)
+});
+export type CreateTask = z.infer<typeof CreateTaskSchema>;
+
+export const PanelTaskSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  command: z.string(),
+  args: z.array(z.string()),
+  cwd: z.string().optional(),
+  timeoutSeconds: z.number(),
+  createdAt: z.string(),
+  createdBy: z.string(),
+  lastRunAt: z.string().optional(),
+  lastStatus: z.enum(["success", "failed"]).optional()
+});
+export type PanelTask = z.infer<typeof PanelTaskSchema>;
+
+export const TaskRunSchema = z.object({
+  id: z.string(),
+  taskId: z.string(),
+  taskName: z.string(),
+  actor: z.string(),
+  startedAt: z.string(),
+  finishedAt: z.string(),
+  status: z.enum(["success", "failed"]),
+  exitCode: z.number().optional(),
+  stdoutTail: z.string(),
+  stderrTail: z.string()
+});
+export type TaskRun = z.infer<typeof TaskRunSchema>;
+
+export const TaskRunRequestSchema = z.object({
+  taskId: z.string().min(1)
+});
+export type TaskRunRequest = z.infer<typeof TaskRunRequestSchema>;
+
+export const BackupSnapshotSchema = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  path: z.string(),
+  sizeBytes: z.number(),
+  createdAt: z.string(),
+  createdBy: z.string(),
+  kind: z.enum(["state"])
+});
+export type BackupSnapshot = z.infer<typeof BackupSnapshotSchema>;
+
 export const SecurityPostureSchema = z.object({
   setupRequired: z.boolean(),
   cookieSecure: z.boolean(),
   managedRoots: z.array(z.string()),
   logRoots: z.array(z.string()),
   connectorCount: z.number(),
+  userCount: z.number(),
+  taskCount: z.number(),
+  backupCount: z.number(),
   recommendations: z.array(z.string())
 });
 export type SecurityPosture = z.infer<typeof SecurityPostureSchema>;

@@ -2,7 +2,7 @@
 
 LXPanel 首版采用 npm workspaces 管理三块代码：
 
-- `apps/api`：Fastify API 服务，负责认证、审计、系统信息、Docker、日志、文件目录与连接器协议。
+- `apps/api`：Fastify API 服务，负责认证、RBAC、审计、系统信息、Docker、日志、任务、备份、文件目录与连接器协议。
 - `apps/web`：Vite + React 前端，负责面板交互与状态展示。
 - `packages/shared`：Zod Schema 与共享类型，确保前后端契约一致。
 
@@ -14,6 +14,8 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 4. 所有高风险操作进入审计日志，后续扩展到数据库与不可篡改日志。
 5. Docker 管理只通过 `execFile` 调用参数化 CLI，不拼接 shell 命令；未安装或 daemon 不可用时返回状态而不是阻塞面板。
 6. 日志查看与文件管理分离，日志根目录由 `LXPANEL_LOG_ROOTS` 独立收敛。
+7. 任务运行器只使用 `execFile` 参数数组，并把工作目录限制在 `LXPANEL_FILE_ROOTS` 内。
+8. 备份模块生成本地状态快照，备份文件保存在 `LXPANEL_DATA_DIR/backups`。
 
 ## 连接器方向
 

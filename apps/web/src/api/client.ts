@@ -2,7 +2,11 @@ import { z } from "zod";
 import {
   AuditEventSchema,
   AuthUserSchema,
+  BackupSnapshotSchema,
+  ChangeOwnPasswordSchema,
   ConnectorSchema,
+  CreateTaskSchema,
+  CreateUserSchema,
   CreateConnectorSchema,
   DockerContainerActionSchema,
   DockerContainerSchema,
@@ -17,16 +21,26 @@ import {
   ServiceInfoSchema,
   SetupRequestSchema,
   SystemOverviewSchema,
+  TaskRunRequestSchema,
+  TaskRunSchema,
+  PanelTaskSchema,
+  ResetUserPasswordSchema,
+  UpdateUserRoleSchema,
   type AuthUser,
+  type ChangeOwnPassword,
   type CreateConnector,
+  type CreateTask,
+  type CreateUser,
   type DockerContainerAction,
   type LoginRequest,
+  type ResetUserPassword,
   type SetupRequest
 } from "@lxpanel/shared";
 
 const apiBase = typeof import.meta.env.VITE_API_BASE === "string" ? import.meta.env.VITE_API_BASE : "";
 
 const AuthResponseSchema = z.object({ user: AuthUserSchema });
+const UsersResponseSchema = z.object({ users: z.array(AuthUserSchema) });
 const AuthStatusSchema = z.object({ setupRequired: z.boolean(), user: AuthUserSchema.nullable() });
 const OverviewResponseSchema = z.object({ overview: SystemOverviewSchema });
 const ProcessesResponseSchema = z.object({ processes: z.array(ProcessInfoSchema) });
@@ -41,6 +55,11 @@ const CreatedConnectorResponseSchema = z.object({ connector: ConnectorSchema, to
 const DockerStatusResponseSchema = z.object({ status: DockerStatusSchema });
 const DockerContainersResponseSchema = z.object({ containers: z.array(DockerContainerSchema) });
 const DockerImagesResponseSchema = z.object({ images: z.array(DockerImageSchema) });
+const TasksResponseSchema = z.object({ tasks: z.array(PanelTaskSchema), runs: z.array(TaskRunSchema) });
+const TaskResponseSchema = z.object({ task: PanelTaskSchema });
+const TaskRunResponseSchema = z.object({ run: TaskRunSchema });
+const BackupsResponseSchema = z.object({ backups: z.array(BackupSnapshotSchema) });
+const BackupResponseSchema = z.object({ backup: BackupSnapshotSchema });
 const OkResponseSchema = z.object({ ok: z.boolean() });
 
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
@@ -52,6 +71,12 @@ export const api = {
   setup: (input: SetupRequest) => request("/api/auth/setup", AuthResponseSchema, "POST", SetupRequestSchema.parse(input)),
   login: (input: LoginRequest) => request("/api/auth/login", AuthResponseSchema, "POST", LoginRequestSchema.parse(input)),
   logout: () => request("/api/auth/logout", OkResponseSchema, "POST"),
+  users: () => request("/api/users", UsersResponseSchema),
+  createUser: (input: CreateUser) => request("/api/users", AuthResponseSchema, "POST", CreateUserSchema.parse(input)),
+  updateUserRole: (userId: string, role: AuthUser["role"]) => request("/api/users/role", AuthResponseSchema, "PATCH", UpdateUserRoleSchema.parse({ userId, role })),
+  resetUserPassword: (input: ResetUserPassword) => request("/api/users/password", OkResponseSchema, "POST", ResetUserPasswordSchema.parse(input)),
+  changeOwnPassword: (input: ChangeOwnPassword) => request("/api/users/me/password", OkResponseSchema, "POST", ChangeOwnPasswordSchema.parse(input)),
+  deleteUser: (userId: string) => request(`/api/users?userId=${encodeURIComponent(userId)}`, OkResponseSchema, "DELETE"),
   overview: () => request("/api/system/overview", OverviewResponseSchema),
   processes: () => request("/api/system/processes", ProcessesResponseSchema),
   services: () => request("/api/system/services", ServicesResponseSchema),
@@ -64,6 +89,12 @@ export const api = {
   dockerContainers: () => request("/api/docker/containers", DockerContainersResponseSchema),
   dockerImages: () => request("/api/docker/images", DockerImagesResponseSchema),
   dockerAction: (input: DockerContainerAction) => request("/api/docker/containers/action", OkResponseSchema, "POST", DockerContainerActionSchema.parse(input)),
+  tasks: () => request("/api/tasks", TasksResponseSchema),
+  createTask: (input: CreateTask) => request("/api/tasks", TaskResponseSchema, "POST", CreateTaskSchema.parse(input)),
+  runTask: (taskId: string) => request("/api/tasks/run", TaskRunResponseSchema, "POST", TaskRunRequestSchema.parse({ taskId })),
+  deleteTask: (taskId: string) => request(`/api/tasks?taskId=${encodeURIComponent(taskId)}`, OkResponseSchema, "DELETE"),
+  backups: () => request("/api/backups", BackupsResponseSchema),
+  createBackup: () => request("/api/backups", BackupResponseSchema, "POST"),
   audit: () => request("/api/audit", AuditResponseSchema),
   security: () => request("/api/security/posture", SecurityResponseSchema),
   connectors: () => request("/api/connectors", ConnectorsResponseSchema),

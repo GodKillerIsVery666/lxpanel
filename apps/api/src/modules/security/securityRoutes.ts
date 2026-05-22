@@ -22,6 +22,9 @@ export function registerSecurityRoutes(app: FastifyInstance, services: Services)
       managedRoots: services.config.fileRoots,
       logRoots: services.config.logRoots,
       connectorCount: await services.connectorStore.count(),
+      userCount: await services.authStore.countUsers(),
+      taskCount: await services.taskStore.countTasks(),
+      backupCount: await services.backupStore.countBackups(),
       recommendations
     };
     return { posture };
