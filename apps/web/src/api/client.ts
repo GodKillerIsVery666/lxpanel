@@ -4,7 +4,13 @@ import {
   AuthUserSchema,
   ConnectorSchema,
   CreateConnectorSchema,
+  DockerContainerActionSchema,
+  DockerContainerSchema,
+  DockerImageSchema,
+  DockerStatusSchema,
   FileEntrySchema,
+  LogRootSchema,
+  LogTailSchema,
   LoginRequestSchema,
   ProcessInfoSchema,
   SecurityPostureSchema,
@@ -13,6 +19,7 @@ import {
   SystemOverviewSchema,
   type AuthUser,
   type CreateConnector,
+  type DockerContainerAction,
   type LoginRequest,
   type SetupRequest
 } from "@lxpanel/shared";
@@ -25,10 +32,15 @@ const OverviewResponseSchema = z.object({ overview: SystemOverviewSchema });
 const ProcessesResponseSchema = z.object({ processes: z.array(ProcessInfoSchema) });
 const ServicesResponseSchema = z.object({ services: z.array(ServiceInfoSchema) });
 const FilesResponseSchema = z.object({ root: z.string(), path: z.string(), entries: z.array(FileEntrySchema) });
+const LogRootsResponseSchema = z.object({ roots: z.array(LogRootSchema) });
+const LogTailResponseSchema = z.object({ tail: LogTailSchema });
 const AuditResponseSchema = z.object({ events: z.array(AuditEventSchema) });
 const SecurityResponseSchema = z.object({ posture: SecurityPostureSchema });
 const ConnectorsResponseSchema = z.object({ connectors: z.array(ConnectorSchema) });
 const CreatedConnectorResponseSchema = z.object({ connector: ConnectorSchema, token: z.string() });
+const DockerStatusResponseSchema = z.object({ status: DockerStatusSchema });
+const DockerContainersResponseSchema = z.object({ containers: z.array(DockerContainerSchema) });
+const DockerImagesResponseSchema = z.object({ images: z.array(DockerImageSchema) });
 const OkResponseSchema = z.object({ ok: z.boolean() });
 
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
@@ -45,6 +57,13 @@ export const api = {
   services: () => request("/api/system/services", ServicesResponseSchema),
   serviceAction: (name: string, action: "start" | "stop" | "restart") => request("/api/system/services/action", OkResponseSchema, "POST", { name, action }),
   files: (path?: string) => request(`/api/files${path ? `?path=${encodeURIComponent(path)}` : ""}`, FilesResponseSchema),
+  logRoots: () => request("/api/logs/roots", LogRootsResponseSchema),
+  logFiles: (path?: string) => request(`/api/logs/files${path ? `?path=${encodeURIComponent(path)}` : ""}`, FilesResponseSchema),
+  logTail: (path: string, lines = 300) => request(`/api/logs/tail?path=${encodeURIComponent(path)}&lines=${lines}`, LogTailResponseSchema),
+  dockerStatus: () => request("/api/docker/status", DockerStatusResponseSchema),
+  dockerContainers: () => request("/api/docker/containers", DockerContainersResponseSchema),
+  dockerImages: () => request("/api/docker/images", DockerImagesResponseSchema),
+  dockerAction: (input: DockerContainerAction) => request("/api/docker/containers/action", OkResponseSchema, "POST", DockerContainerActionSchema.parse(input)),
   audit: () => request("/api/audit", AuditResponseSchema),
   security: () => request("/api/security/posture", SecurityResponseSchema),
   connectors: () => request("/api/connectors", ConnectorsResponseSchema),

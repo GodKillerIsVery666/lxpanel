@@ -69,11 +69,16 @@ td { font-size: 14px; }
 .muted-text { color: var(--muted); }
 .path-form, .inline-form { display: flex; gap: 10px; }
 .path-form button, .inline-form button { background: var(--ink); color: white; }
+.root-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.root-chips button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 8px 12px; color: var(--ink); }
 .clickable-row:hover { background: #f6f2e8; }
 .file-name { display: flex; align-items: center; gap: 8px; }
 .security-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .path-code, .token-box code { display: block; padding: 10px; background: #f2eee4; border: 1px solid var(--line); border-radius: 6px; margin: 8px 0; overflow-wrap: anywhere; }
 .token-box { background: #eff7f4; border: 1px solid #b9d8cf; border-radius: 8px; padding: 12px; }
+.log-panel { background: #181c1a; color: #e9efe8; border: 1px solid #30372f; border-radius: 8px; overflow: hidden; }
+.log-panel pre { margin: 0; padding: 14px; overflow: auto; max-height: 58vh; font-family: "Cascadia Mono", "Consolas", monospace; font-size: 13px; line-height: 1.55; }
+.log-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }

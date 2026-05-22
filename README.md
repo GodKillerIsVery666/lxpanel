@@ -7,7 +7,9 @@ LXPanel 是一个从零开始搭建的轻量服务器运维面板原型，目标
 - 管理员首次初始化，无默认密码。
 - scrypt 密码哈希、HttpOnly SameSite Cookie、登录限速、会话服务端存储。
 - 主机概览、进程列表、服务列表和 Linux systemd 服务动作入口。
+- Docker 状态、容器列表、镜像列表和容器启动/停止/重启动作入口。
 - 受控文件目录浏览，默认只允许访问配置的根目录。
+- 受控日志目录浏览与尾部读取，适合快速排查服务日志。
 - 连接器登记与心跳令牌，为本地客户端分担远程连接负载预留协议。
 - 审计日志、安全态势页、CI、类型检查和单元测试。
 
@@ -33,6 +35,7 @@ npm run dev:web
 | `LXPANEL_COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
 | `LXPANEL_ALLOWED_ORIGINS` | Vite 本地地址 | CORS 白名单，分号或逗号分隔 |
 | `LXPANEL_FILE_ROOTS` | 当前用户主目录 | 允许文件管理器访问的根目录 |
+| `LXPANEL_LOG_ROOTS` | `./data` 和系统日志目录 | 允许日志查看器访问的根目录 |
 
 ## 验证
 

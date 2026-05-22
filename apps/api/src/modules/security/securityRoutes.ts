@@ -20,6 +20,7 @@ export function registerSecurityRoutes(app: FastifyInstance, services: Services)
       setupRequired: !(await services.authStore.hasUsers()),
       cookieSecure: services.config.cookieSecure,
       managedRoots: services.config.fileRoots,
+      logRoots: services.config.logRoots,
       connectorCount: await services.connectorStore.count(),
       recommendations
     };

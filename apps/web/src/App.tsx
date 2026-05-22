@@ -5,12 +5,14 @@ import { Shell } from "./components/Shell.js";
 import { AuditPage } from "./pages/AuditPage.js";
 import { ConnectorsPage } from "./pages/ConnectorsPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
+import { DockerPage } from "./pages/DockerPage.js";
 import { FilesPage } from "./pages/FilesPage.js";
+import { LogsPage } from "./pages/LogsPage.js";
 import { ProcessesPage } from "./pages/ProcessesPage.js";
 import { SecurityPage } from "./pages/SecurityPage.js";
 import { ServicesPage } from "./pages/ServicesPage.js";
 
-export type ViewId = "dashboard" | "processes" | "services" | "files" | "connectors" | "security" | "audit";
+export type ViewId = "dashboard" | "processes" | "services" | "docker" | "files" | "logs" | "connectors" | "security" | "audit";
 
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -53,7 +55,9 @@ function renderView(view: ViewId): JSX.Element {
   switch (view) {
     case "processes": return <ProcessesPage />;
     case "services": return <ServicesPage />;
+    case "docker": return <DockerPage />;
     case "files": return <FilesPage />;
+    case "logs": return <LogsPage />;
     case "connectors": return <ConnectorsPage />;
     case "security": return <SecurityPage />;
     case "audit": return <AuditPage />;

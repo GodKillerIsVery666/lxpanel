@@ -6,6 +6,7 @@ const toneMap: Record<string, string> = {
   online: "good",
   running: "good",
   active: "good",
+  secure: "good",
   success: "good",
   stale: "warn",
   inactive: "muted",

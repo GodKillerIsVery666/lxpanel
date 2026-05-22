@@ -9,6 +9,7 @@ export interface AppConfig {
   cookieSecure: boolean;
   allowedOrigins: string[];
   fileRoots: string[];
+  logRoots: string[];
   logLevel: string;
 }
 
@@ -21,18 +22,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
 
   const fileRoots = splitList(env.LXPANEL_FILE_ROOTS).map((item) => resolve(item));
+  const dataDir = resolve(env.LXPANEL_DATA_DIR ?? join(process.cwd(), "data"));
+  const logRoots = splitList(env.LXPANEL_LOG_ROOTS).map((item) => resolve(item));
   return {
     host: env.LXPANEL_HOST ?? "127.0.0.1",
     port: parsePort(env.LXPANEL_PORT ?? "7080"),
-    dataDir: resolve(env.LXPANEL_DATA_DIR ?? join(process.cwd(), "data")),
+    dataDir,
     sessionSecret,
     cookieSecure: parseBool(env.LXPANEL_COOKIE_SECURE ?? "false"),
     allowedOrigins: splitList(env.LXPANEL_ALLOWED_ORIGINS).length > 0
       ? splitList(env.LXPANEL_ALLOWED_ORIGINS)
       : ["http://localhost:5173", "http://127.0.0.1:5173"],
     fileRoots: fileRoots.length > 0 ? fileRoots : [homedir()],
+    logRoots: logRoots.length > 0 ? logRoots : defaultLogRoots(dataDir),
     logLevel: env.LXPANEL_LOG_LEVEL ?? "info"
   };
+}
+
+function defaultLogRoots(dataDir: string): string[] {
+  if (process.platform === "win32") {
+    return [dataDir, process.cwd()];
+  }
+  return [dataDir, "/var/log"];
 }
 
 function parsePort(value: string): number {

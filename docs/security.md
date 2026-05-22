@@ -8,6 +8,8 @@
 - 登录接口有速率限制。
 - 文件目录访问限制在 `LXPANEL_FILE_ROOTS` 内。
 - 服务控制只允许合法 systemd service 名称。
+- Docker 容器动作只接受受限 ID/名称字符，并记录审计。
+- 日志查看限制在 `LXPANEL_LOG_ROOTS` 内，只读取文件尾部，避免一次性加载超大日志。
 - 审计日志记录登录、初始化、连接器创建和服务动作。
 
 ## 生产部署要求
@@ -16,7 +18,8 @@
 2. 放在 HTTPS 反向代理后，并设置 `LXPANEL_COOKIE_SECURE=true`。
 3. 明确配置 `LXPANEL_ALLOWED_ORIGINS`。
 4. 将 `LXPANEL_FILE_ROOTS` 收敛到必要目录。
-5. 使用独立低权限用户运行 API 服务。
+5. 将 `LXPANEL_LOG_ROOTS` 收敛到必要日志目录。
+6. 使用独立低权限用户运行 API 服务，谨慎授予 Docker socket 权限。
 
 ## 后续强化
 

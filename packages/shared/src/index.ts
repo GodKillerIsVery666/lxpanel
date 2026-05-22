@@ -74,6 +74,22 @@ export const FileEntrySchema = z.object({
 });
 export type FileEntry = z.infer<typeof FileEntrySchema>;
 
+export const LogRootSchema = z.object({
+  path: z.string(),
+  label: z.string()
+});
+export type LogRoot = z.infer<typeof LogRootSchema>;
+
+export const LogTailSchema = z.object({
+  root: z.string(),
+  path: z.string(),
+  sizeBytes: z.number(),
+  modifiedAt: z.string(),
+  lines: z.array(z.string()),
+  truncated: z.boolean()
+});
+export type LogTail = z.infer<typeof LogTailSchema>;
+
 export const AuditEventSchema = z.object({
   id: z.string(),
   time: z.string(),
@@ -110,10 +126,46 @@ export const ConnectorHeartbeatSchema = z.object({
 });
 export type ConnectorHeartbeat = z.infer<typeof ConnectorHeartbeatSchema>;
 
+export const DockerStatusSchema = z.object({
+  available: z.boolean(),
+  composeAvailable: z.boolean(),
+  version: z.string().optional(),
+  error: z.string().optional()
+});
+export type DockerStatus = z.infer<typeof DockerStatusSchema>;
+
+export const DockerContainerSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  image: z.string(),
+  command: z.string().optional(),
+  createdAt: z.string().optional(),
+  status: z.string(),
+  state: z.string(),
+  ports: z.string().optional()
+});
+export type DockerContainer = z.infer<typeof DockerContainerSchema>;
+
+export const DockerImageSchema = z.object({
+  id: z.string(),
+  repository: z.string(),
+  tag: z.string(),
+  createdSince: z.string().optional(),
+  size: z.string()
+});
+export type DockerImage = z.infer<typeof DockerImageSchema>;
+
+export const DockerContainerActionSchema = z.object({
+  id: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:/@-]+$/u),
+  action: z.enum(["start", "stop", "restart"])
+});
+export type DockerContainerAction = z.infer<typeof DockerContainerActionSchema>;
+
 export const SecurityPostureSchema = z.object({
   setupRequired: z.boolean(),
   cookieSecure: z.boolean(),
   managedRoots: z.array(z.string()),
+  logRoots: z.array(z.string()),
   connectorCount: z.number(),
   recommendations: z.array(z.string())
 });
