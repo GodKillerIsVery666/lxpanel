@@ -14,6 +14,8 @@ const topDir = `lxpanel-${version}`;
 
 const includePaths = [
   "README.md",
+  "Dockerfile",
+  ".dockerignore",
   "package.json",
   "package-lock.json",
   "apps/api/package.json",

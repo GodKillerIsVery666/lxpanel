@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface AppConfig {
   host: string;
@@ -9,12 +10,14 @@ export interface AppConfig {
   cookieSecure: boolean;
   allowedOrigins: string[];
   ipAllowlist: string[];
+  webRoot: string;
   fileRoots: string[];
   logRoots: string[];
   logLevel: string;
 }
 
 const defaultDevSecret = "dev-change-me-lxpanel-session-secret-32-bytes";
+const defaultWebRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../web/dist");
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const sessionSecret = env.LXPANEL_SESSION_SECRET ?? defaultDevSecret;
@@ -35,6 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       ? splitList(env.LXPANEL_ALLOWED_ORIGINS)
       : ["http://localhost:5173", "http://127.0.0.1:5173"],
     ipAllowlist: splitList(env.LXPANEL_IP_ALLOWLIST),
+    webRoot: resolve(env.LXPANEL_WEB_ROOT ?? defaultWebRoot),
     fileRoots: fileRoots.length > 0 ? fileRoots : [homedir()],
     logRoots: logRoots.length > 0 ? logRoots : defaultLogRoots(dataDir),
     logLevel: env.LXPANEL_LOG_LEVEL ?? "info"

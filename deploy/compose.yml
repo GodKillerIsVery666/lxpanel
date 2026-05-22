@@ -1,0 +1,22 @@
+services:
+  lxpanel:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: lxpanel:local
+    restart: unless-stopped
+    ports:
+      - "7080:7080"
+    environment:
+      LXPANEL_SESSION_SECRET: "replace-with-strong-random-secret"
+      LXPANEL_COOKIE_SECURE: "false"
+      LXPANEL_ALLOWED_ORIGINS: "http://127.0.0.1:7080"
+      LXPANEL_IP_ALLOWLIST: ""
+      LXPANEL_FILE_ROOTS: "/srv;/var/lib/lxpanel"
+      LXPANEL_LOG_ROOTS: "/var/log;/var/lib/lxpanel"
+    volumes:
+      - lxpanel-data:/var/lib/lxpanel
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+volumes:
+  lxpanel-data:

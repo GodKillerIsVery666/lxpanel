@@ -1,0 +1,9 @@
+node_modules
+apps/*/dist
+packages/*/dist
+coverage
+data
+release
+.git
+.env
+.env.*

@@ -38,6 +38,7 @@ npm run dev:web
 | `LXPANEL_COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
 | `LXPANEL_ALLOWED_ORIGINS` | Vite 本地地址 | CORS 白名单，分号或逗号分隔 |
 | `LXPANEL_IP_ALLOWLIST` | 空 | 面板访问源 IP 白名单，分号或逗号分隔 |
+| `LXPANEL_WEB_ROOT` | `apps/web/dist` | API 进程直接托管前端静态文件的目录 |
 | `LXPANEL_FILE_ROOTS` | 当前用户主目录 | 允许文件管理器访问的根目录 |
 | `LXPANEL_LOG_ROOTS` | `./data` 和系统日志目录 | 允许日志查看器访问的根目录 |
 
@@ -68,6 +69,15 @@ sudo sh scripts/install-linux.sh
 ```
 
 安装脚本会创建 `lxpanel` 系统用户、`/var/lib/lxpanel` 数据目录、`/etc/lxpanel/lxpanel.env` 和 systemd 服务模板。首次启动前必须编辑 `LXPANEL_SESSION_SECRET`、`LXPANEL_ALLOWED_ORIGINS`、`LXPANEL_IP_ALLOWLIST` 等生产配置。
+
+## Docker Compose
+
+```sh
+cd deploy
+docker compose up -d --build
+```
+
+Compose 模板默认把 API 和前端放在同一个容器内运行，并持久化 `/var/lib/lxpanel`。生产环境务必替换 `LXPANEL_SESSION_SECRET`，并按管理网络配置 `LXPANEL_IP_ALLOWLIST`。
 
 ## 发布包
 

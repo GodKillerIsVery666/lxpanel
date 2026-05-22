@@ -10,6 +10,7 @@ import type { AppConfig } from "./config/env.js";
 import { loadConfig } from "./config/env.js";
 import { JsonStore } from "./lib/jsonStore.js";
 import { registerIpAllowlist } from "./middleware/ipAllowlist.js";
+import { registerStaticWeb } from "./middleware/staticWeb.js";
 import { AuditLog } from "./modules/audit/auditLog.js";
 import { registerAuditRoutes } from "./modules/audit/auditRoutes.js";
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
@@ -80,6 +81,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerConnectorRoutes(app, services);
   registerAuditRoutes(app, services);
   registerSecurityRoutes(app, services);
+  await registerStaticWeb(app, config);
 
   return app;
 }

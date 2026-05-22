@@ -16,6 +16,7 @@
     "@fastify/cookie": "latest",
     "@fastify/cors": "latest",
     "@fastify/rate-limit": "latest",
+    "@fastify/static": "^9.1.3",
     "@lxpanel/shared": "0.1.0",
     "fastify": "latest",
     "zod": "latest"
