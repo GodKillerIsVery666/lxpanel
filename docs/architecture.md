@@ -20,6 +20,15 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 10. 调度器随 API 进程启动，按状态中的计划触发受控任务和自动备份，执行结果写入运行历史与审计日志。
 11. 生产部署提供 systemd、Docker Compose、Nginx 模板和独立低权限用户，面板本体默认只监听本机地址。
 12. API 进程可直接托管 `apps/web/dist`，也可放在 Nginx 后面作为纯 API 服务。
+13. 状态存储通过 `StateStore` 接口隔离，默认 JSON 文件便于开发和小型部署，生产可用 SQLite KV 存储；SQLite 启用时会从 legacy `state.json` 导入初始状态并保留原文件。
+
+## 状态存储
+
+所有核心状态通过 `StateStore<PanelState>` 读写，认证、连接器、任务和备份模块只依赖接口，不直接关心底层介质。
+
+- `JsonStore`：写入 `LXPANEL_DATA_DIR/state.json`，使用临时文件和 rename 保持单文件写入原子性。
+- `SqliteStateStore`：写入 `LXPANEL_STATE_SQLITE_PATH`，启用 WAL，并在 `kv` 表中保存 `state` JSON 文档。这样先获得 SQLite 的文件锁、WAL 和后续迁移基础，同时保持备份恢复语义稳定。
+- 迁移策略：当 `LXPANEL_STATE_STORE=sqlite` 且数据库尚无状态时，读取 legacy `state.json` 作为 seed，不删除原文件。
 
 ## 连接器方向
 

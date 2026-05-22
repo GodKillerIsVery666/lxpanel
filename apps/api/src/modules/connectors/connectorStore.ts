@@ -1,6 +1,6 @@
 import type { Connector, ConnectorCommand, ConnectorCommandResult, ConnectorHeartbeat, CreateConnector, CreateConnectorCommand } from "@lxpanel/shared";
 import { randomToken, sha256 } from "../../lib/crypto.js";
-import type { JsonStore } from "../../lib/jsonStore.js";
+import type { StateStore } from "../../lib/stateStore.js";
 import type { ConnectorCommandRecord, ConnectorRecord, PanelState } from "../state/panelState.js";
 
 const staleAfterMs = 1000 * 60 * 3;
@@ -12,7 +12,7 @@ export interface CreatedConnector {
 }
 
 export class ConnectorStore {
-  constructor(private readonly store: JsonStore<PanelState>) {}
+  constructor(private readonly store: StateStore<PanelState>) {}
 
   async create(input: CreateConnector): Promise<CreatedConnector> {
     const token = randomToken(32);

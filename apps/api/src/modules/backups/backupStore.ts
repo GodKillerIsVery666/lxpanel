@@ -3,13 +3,13 @@ import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BackupSchedule, BackupSnapshot, UpdateBackupSchedule } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
-import type { JsonStore } from "../../lib/jsonStore.js";
+import type { StateStore } from "../../lib/stateStore.js";
 import { createInitialPanelState, type BackupRecord, type BackupScheduleRecord, type PanelState } from "../state/panelState.js";
 
 const maxBackups = 100;
 
 export class BackupStore {
-  constructor(private readonly store: JsonStore<PanelState>, private readonly dataDir: string) {}
+  constructor(private readonly store: StateStore<PanelState>, private readonly dataDir: string) {}
 
   async listBackups(): Promise<BackupSnapshot[]> {
     const state = await this.store.read();

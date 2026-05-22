@@ -13,6 +13,7 @@ LXPanel 是一个从零开始搭建的轻量服务器运维面板原型，目标
 - 多用户与 RBAC：`owner`、`operator`、`viewer` 三档角色。
 - 受控任务运行器：使用参数化命令执行维护任务，记录运行历史。
 - 计划任务与自动备份：按固定间隔运行维护任务、生成面板状态快照，并支持下载、校验、恢复和保留最近 100 份快照。
+- 可配置状态存储：默认使用 JSON 文件，生产可切换到 SQLite，并自动从已有 `state.json` 导入初始状态。
 - 连接器登记、心跳令牌与命令队列，为本地客户端分担远程连接负载预留协议。
 - 审计日志、安全态势页、CI、类型检查和单元测试。
 
@@ -34,6 +35,8 @@ npm run dev
 | `LXPANEL_HOST` | `127.0.0.1` | API 监听地址 |
 | `LXPANEL_PORT` | `7080` | API 监听端口 |
 | `LXPANEL_DATA_DIR` | `./data` | 状态与审计数据目录 |
+| `LXPANEL_STATE_STORE` | `json` | 状态存储驱动，可选 `json` 或 `sqlite` |
+| `LXPANEL_STATE_SQLITE_PATH` | `LXPANEL_DATA_DIR/lxpanel.db` | SQLite 状态库路径；也兼容 `LXPANEL_DATABASE_PATH` |
 | `LXPANEL_SESSION_SECRET` | 开发默认值 | 生产环境必须设置强随机值 |
 | `LXPANEL_COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
 | `LXPANEL_ALLOWED_ORIGINS` | Vite 本地地址 | CORS 白名单，分号或逗号分隔 |
@@ -41,6 +44,8 @@ npm run dev
 | `LXPANEL_WEB_ROOT` | `apps/web/dist` | API 进程直接托管前端静态文件的目录 |
 | `LXPANEL_FILE_ROOTS` | 当前用户主目录 | 允许文件管理器访问的根目录 |
 | `LXPANEL_LOG_ROOTS` | `./data` 和系统日志目录 | 允许日志查看器访问的根目录 |
+
+启用 SQLite 时，服务首次启动会在数据库为空且 `LXPANEL_DATA_DIR/state.json` 存在时导入旧状态文件，但不会删除原 JSON 文件，方便回滚和人工核对。Node 当前会对内置 `node:sqlite` 输出实验特性警告，生产部署建议先在预发环境验证运行时版本。
 
 ## 验证
 

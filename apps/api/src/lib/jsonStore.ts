@@ -1,7 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { StateStore } from "./stateStore.js";
 
-export class JsonStore<TData extends object> {
+export class JsonStore<TData extends object> implements StateStore<TData> {
   constructor(
     private readonly filePath: string,
     private readonly createInitial: () => TData

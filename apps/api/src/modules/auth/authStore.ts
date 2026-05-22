@@ -1,6 +1,6 @@
 import type { AuthSession, AuthUser, CreateUser, Role } from "@lxpanel/shared";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../../lib/crypto.js";
-import type { JsonStore } from "../../lib/jsonStore.js";
+import type { StateStore } from "../../lib/stateStore.js";
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from "../../lib/totp.js";
 import type { PanelState, UserRecord } from "../state/panelState.js";
 
@@ -14,7 +14,7 @@ export interface TotpSetupResult {
 }
 
 export class AuthStore {
-  constructor(private readonly store: JsonStore<PanelState>) {}
+  constructor(private readonly store: StateStore<PanelState>) {}
 
   async hasUsers(): Promise<boolean> {
     const state = await this.store.read();

@@ -2,14 +2,14 @@ import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
 import type { CreateTask, PanelTask, TaskRun, UpdateTaskSchedule } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
-import type { JsonStore } from "../../lib/jsonStore.js";
+import type { StateStore } from "../../lib/stateStore.js";
 import { resolveManagedPath } from "../files/pathGuard.js";
 import type { PanelState, TaskRecord, TaskRunRecord } from "../state/panelState.js";
 
 const outputLimit = 12_000;
 
 export class TaskStore {
-  constructor(private readonly store: JsonStore<PanelState>, private readonly fileRoots: readonly string[]) {}
+  constructor(private readonly store: StateStore<PanelState>, private readonly fileRoots: readonly string[]) {}
 
   async listTasks(): Promise<PanelTask[]> {
     const state = await this.store.read();

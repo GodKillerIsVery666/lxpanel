@@ -8,7 +8,7 @@ import rateLimit from "@fastify/rate-limit";
 import { ZodError } from "zod";
 import type { AppConfig } from "./config/env.js";
 import { loadConfig } from "./config/env.js";
-import { JsonStore } from "./lib/jsonStore.js";
+import type { StateStore } from "./lib/stateStore.js";
 import { registerIpAllowlist } from "./middleware/ipAllowlist.js";
 import { registerSecurityHeaders } from "./middleware/securityHeaders.js";
 import { registerStaticWeb } from "./middleware/staticWeb.js";
@@ -26,7 +26,8 @@ import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
 import { registerLogRoutes } from "./modules/logs/logRoutes.js";
 import { SchedulerService } from "./modules/scheduler/schedulerService.js";
 import { registerSecurityRoutes } from "./modules/security/securityRoutes.js";
-import { createInitialPanelState, type PanelState } from "./modules/state/panelState.js";
+import type { PanelState } from "./modules/state/panelState.js";
+import { createPanelStateStore } from "./modules/state/stateStoreFactory.js";
 import { registerSystemRoutes } from "./modules/system/systemRoutes.js";
 import { TaskStore } from "./modules/tasks/taskStore.js";
 import { registerTaskRoutes } from "./modules/tasks/taskRoutes.js";
@@ -34,6 +35,7 @@ import { registerUserRoutes } from "./modules/users/userRoutes.js";
 
 export interface Services {
   config: AppConfig;
+  stateStore: StateStore<PanelState>;
   authStore: AuthStore;
   connectorStore: ConnectorStore;
   taskStore: TaskStore;
@@ -41,10 +43,11 @@ export interface Services {
   auditLog: AuditLog;
 }
 
-export function createServices(config: AppConfig): Services {
-  const stateStore = new JsonStore<PanelState>(join(config.dataDir, "state.json"), createInitialPanelState);
+export async function createServices(config: AppConfig): Promise<Services> {
+  const stateStore = await createPanelStateStore(config);
   return {
     config,
+    stateStore,
     authStore: new AuthStore(stateStore),
     connectorStore: new ConnectorStore(stateStore),
     taskStore: new TaskStore(stateStore, config.fileRoots),
@@ -55,7 +58,7 @@ export function createServices(config: AppConfig): Services {
 
 export async function buildApp(config: AppConfig = loadConfig()): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel } });
-  const services = createServices(config);
+  const services = await createServices(config);
   const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.auditLog, app.log);
 
   await app.register(cookie);
@@ -89,6 +92,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   scheduler.start();
   app.addHook("onClose", () => {
     scheduler.stop();
+    services.stateStore.close?.();
   });
 
   return app;
