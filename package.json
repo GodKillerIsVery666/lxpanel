@@ -16,7 +16,8 @@
     "typecheck": "npm run build -w @lxpanel/shared && npm run typecheck -w @lxpanel/api && npm run typecheck -w @lxpanel/web",
     "test": "npm run build -w @lxpanel/shared && npm run test -w @lxpanel/api && npm run test -w @lxpanel/web",
     "lint": "npm run build -w @lxpanel/shared && eslint .",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "package:release": "node scripts/package-release.mjs"
   },
   "devDependencies": {
     "@eslint/js": "latest",

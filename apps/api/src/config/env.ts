@@ -8,6 +8,7 @@ export interface AppConfig {
   sessionSecret: string;
   cookieSecure: boolean;
   allowedOrigins: string[];
+  ipAllowlist: string[];
   fileRoots: string[];
   logRoots: string[];
   logLevel: string;
@@ -33,6 +34,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     allowedOrigins: splitList(env.LXPANEL_ALLOWED_ORIGINS).length > 0
       ? splitList(env.LXPANEL_ALLOWED_ORIGINS)
       : ["http://localhost:5173", "http://127.0.0.1:5173"],
+    ipAllowlist: splitList(env.LXPANEL_IP_ALLOWLIST),
     fileRoots: fileRoots.length > 0 ? fileRoots : [homedir()],
     logRoots: logRoots.length > 0 ? logRoots : defaultLogRoots(dataDir),
     logLevel: env.LXPANEL_LOG_LEVEL ?? "info"

@@ -10,6 +10,8 @@ interface LoginPanelProps {
 export function LoginPanel({ setupRequired, onAuthenticated }: LoginPanelProps): JSX.Element {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [totpRequired, setTotpRequired] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +22,12 @@ export function LoginPanel({ setupRequired, onAuthenticated }: LoginPanelProps):
     try {
       const response = setupRequired
         ? await api.setup({ username, password })
-        : await api.login({ username, password });
+        : await api.login({ username, password, ...(totpCode ? { totpCode } : {}) });
+      if ("totpRequired" in response) {
+        setTotpRequired(true);
+        setError("请输入双因素验证码。");
+        return;
+      }
       onAuthenticated(response.user);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "登录失败。");
@@ -42,6 +49,12 @@ export function LoginPanel({ setupRequired, onAuthenticated }: LoginPanelProps):
           密码
           <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete={setupRequired ? "new-password" : "current-password"} minLength={8} />
         </label>
+        {totpRequired ? (
+          <label>
+            双因素验证码
+            <input value={totpCode} onChange={(event) => setTotpCode(event.target.value)} inputMode="numeric" maxLength={6} placeholder="000000" />
+          </label>
+        ) : null}
         {error ? <div className="form-error">{error}</div> : null}
         <button className="primary-button" type="submit" disabled={busy}>
           <LogIn size={18} /> {busy ? "处理中" : setupRequired ? "完成初始化" : "进入面板"}

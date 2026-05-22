@@ -5,11 +5,14 @@ export interface UserRecord {
   username: string;
   role: Role;
   passwordHash: string;
+  totpSecret?: string;
+  totpEnabled?: boolean;
   createdAt: string;
   lastLoginAt?: string;
 }
 
 export interface SessionRecord {
+  id?: string;
   idHash: string;
   userId: string;
   createdAt: string;

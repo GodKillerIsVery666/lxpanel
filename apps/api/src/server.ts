@@ -9,6 +9,7 @@ import { ZodError } from "zod";
 import type { AppConfig } from "./config/env.js";
 import { loadConfig } from "./config/env.js";
 import { JsonStore } from "./lib/jsonStore.js";
+import { registerIpAllowlist } from "./middleware/ipAllowlist.js";
 import { AuditLog } from "./modules/audit/auditLog.js";
 import { registerAuditRoutes } from "./modules/audit/auditRoutes.js";
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
@@ -56,6 +57,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   await app.register(cookie);
   await app.register(cors, { credentials: true, origin: config.allowedOrigins });
   await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
+  registerIpAllowlist(app, config);
 
   app.setErrorHandler(async (error, _request, reply) => {
     app.log.error(error);
@@ -66,7 +68,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
     await reply.code(500).send({ message: "服务内部错误。" });
   });
 
-  registerHealthRoutes(app);
+  registerHealthRoutes(app, services);
   registerAuthRoutes(app, services);
   registerUserRoutes(app, services);
   registerSystemRoutes(app, services);

@@ -1,0 +1,22 @@
+[Unit]
+Description=LXPanel API Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lxpanel
+Group=lxpanel
+WorkingDirectory=/opt/lxpanel
+EnvironmentFile=/etc/lxpanel/lxpanel.env
+ExecStart=/usr/bin/node /opt/lxpanel/apps/api/dist/server.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/lxpanel
+
+[Install]
+WantedBy=multi-user.target

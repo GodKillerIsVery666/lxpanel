@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { LoginRequestSchema, SetupRequestSchema } from "@lxpanel/shared";
+import { LoginRequestSchema, SetupRequestSchema, TotpConfirmSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { signValue, verifySignedValue } from "../../lib/sessionCookie.js";
-import { readAuthenticatedUser, requireUser, sessionCookieName } from "./authMiddleware.js";
+import { readAuthenticatedUser, requireRole, requireUser, sessionCookieName } from "./authMiddleware.js";
 
 export function registerAuthRoutes(app: FastifyInstance, services: Services): void {
   app.get("/api/auth/status", async (request) => {
@@ -31,12 +31,17 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
   }, async (request, reply) => {
     const body = LoginRequestSchema.parse(request.body);
-    const user = await services.authStore.verifyLogin(body.username, body.password);
-    if (!user) {
+    const result = await services.authStore.verifyLogin(body.username, body.password, body.totpCode);
+    if (!result) {
       await services.auditLog.append({ actor: body.username, action: "auth.login", target: "session", ip: request.ip, status: "denied" });
       await reply.code(401).send({ message: "用户名或密码错误。" });
       return;
     }
+    if (result.status === "totp_required") {
+      await services.auditLog.append({ actor: body.username, action: "auth.login.totp", target: "session", ip: request.ip, status: "denied" });
+      return { totpRequired: true };
+    }
+    const user = result.user;
     const session = await services.authStore.createSession(user.id);
     setSessionCookie(reply, services, session);
     await services.auditLog.append({ actor: user.username, action: "auth.login", target: "session", ip: request.ip, status: "success" });
@@ -58,6 +63,61 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
       return;
     }
     return { user };
+  });
+
+  app.get("/api/auth/sessions", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const rawSessionId = verifySignedValue(request.cookies[sessionCookieName], services.config.sessionSecret) ?? undefined;
+    return { sessions: await services.authStore.listSessions(rawSessionId) };
+  });
+
+  app.delete<{ Querystring: { sessionId?: string } }>("/api/auth/sessions", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    if (!request.query.sessionId) {
+      await reply.code(400).send({ message: "缺少 sessionId。" });
+      return;
+    }
+    await services.authStore.deleteSessionByPublicId(request.query.sessionId);
+    await services.auditLog.append({ actor: user.username, action: "auth.session.revoke", target: request.query.sessionId, ip: request.ip, status: "success" });
+    return { ok: true };
+  });
+
+  app.post("/api/auth/totp/setup", async (request, reply) => {
+    const user = await requireUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    const setup = await services.authStore.beginTotpSetup(user.id);
+    await services.auditLog.append({ actor: user.username, action: "auth.totp.setup", target: user.username, ip: request.ip, status: "success" });
+    return setup;
+  });
+
+  app.post("/api/auth/totp/confirm", async (request, reply) => {
+    const user = await requireUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    const body = TotpConfirmSchema.parse(request.body);
+    const updated = await services.authStore.confirmTotp(user.id, body.code);
+    await services.auditLog.append({ actor: user.username, action: "auth.totp.confirm", target: user.username, ip: request.ip, status: "success" });
+    return { user: updated };
+  });
+
+  app.post("/api/auth/totp/disable", async (request, reply) => {
+    const user = await requireUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    const body = TotpConfirmSchema.parse(request.body);
+    const updated = await services.authStore.disableTotp(user.id, body.code);
+    await services.auditLog.append({ actor: user.username, action: "auth.totp.disable", target: user.username, ip: request.ip, status: "success" });
+    return { user: updated };
   });
 }
 

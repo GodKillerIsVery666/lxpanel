@@ -8,15 +8,23 @@ export const AuthUserSchema = z.object({
   username: z.string(),
   role: RoleSchema,
   createdAt: z.string(),
-  lastLoginAt: z.string().optional()
+  lastLoginAt: z.string().optional(),
+  totpEnabled: z.boolean().default(false)
 });
 export type AuthUser = z.infer<typeof AuthUserSchema>;
 
 export const LoginRequestSchema = z.object({
   username: z.string().min(1).max(64),
-  password: z.string().min(8).max(256)
+  password: z.string().min(8).max(256),
+  totpCode: z.string().regex(/^\d{6}$/u).optional()
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+
+export const LoginResponseSchema = z.union([
+  z.object({ user: AuthUserSchema }),
+  z.object({ totpRequired: z.literal(true) })
+]);
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
 
 export const SetupRequestSchema = LoginRequestSchema.extend({
   inviteCode: z.string().max(128).optional()
@@ -45,6 +53,21 @@ export const ChangeOwnPasswordSchema = z.object({
   newPassword: z.string().min(8).max(256)
 });
 export type ChangeOwnPassword = z.infer<typeof ChangeOwnPasswordSchema>;
+
+export const TotpConfirmSchema = z.object({
+  code: z.string().regex(/^\d{6}$/u)
+});
+export type TotpConfirm = z.infer<typeof TotpConfirmSchema>;
+
+export const AuthSessionSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  username: z.string(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  current: z.boolean().optional()
+});
+export type AuthSession = z.infer<typeof AuthSessionSchema>;
 
 export const SystemOverviewSchema = z.object({
   hostname: z.string(),
@@ -240,6 +263,8 @@ export type BackupSnapshot = z.infer<typeof BackupSnapshotSchema>;
 export const SecurityPostureSchema = z.object({
   setupRequired: z.boolean(),
   cookieSecure: z.boolean(),
+  ipAllowlistEnabled: z.boolean(),
+  ipAllowlist: z.array(z.string()),
   managedRoots: z.array(z.string()),
   logRoots: z.array(z.string()),
   connectorCount: z.number(),

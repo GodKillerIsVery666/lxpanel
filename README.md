@@ -37,6 +37,7 @@ npm run dev:web
 | `LXPANEL_SESSION_SECRET` | 开发默认值 | 生产环境必须设置强随机值 |
 | `LXPANEL_COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
 | `LXPANEL_ALLOWED_ORIGINS` | Vite 本地地址 | CORS 白名单，分号或逗号分隔 |
+| `LXPANEL_IP_ALLOWLIST` | 空 | 面板访问源 IP 白名单，分号或逗号分隔 |
 | `LXPANEL_FILE_ROOTS` | 当前用户主目录 | 允许文件管理器访问的根目录 |
 | `LXPANEL_LOG_ROOTS` | `./data` 和系统日志目录 | 允许日志查看器访问的根目录 |
 
@@ -57,6 +58,25 @@ npm run smoke
 | `owner` | 用户管理、备份、全部运维动作 |
 | `operator` | 服务/Docker 动作、任务运行、常规运维 |
 | `viewer` | 只读查看概览、文件、日志、审计等信息 |
+
+## Linux 服务安装
+
+```sh
+npm ci
+npm run build
+sudo sh scripts/install-linux.sh
+```
+
+安装脚本会创建 `lxpanel` 系统用户、`/var/lib/lxpanel` 数据目录、`/etc/lxpanel/lxpanel.env` 和 systemd 服务模板。首次启动前必须编辑 `LXPANEL_SESSION_SECRET`、`LXPANEL_ALLOWED_ORIGINS`、`LXPANEL_IP_ALLOWLIST` 等生产配置。
+
+## 发布包
+
+```sh
+npm run build
+npm run package:release
+```
+
+发布包会输出到 `release/lxpanel-<version>.tar.gz`，旁边生成 `.sha256` 校验文件。Nginx 反向代理示例位于 `deploy/nginx/lxpanel.conf`。
 
 ## 文档
 

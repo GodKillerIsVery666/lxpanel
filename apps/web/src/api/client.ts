@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   AuditEventSchema,
+  AuthSessionSchema,
   AuthUserSchema,
   BackupSnapshotSchema,
   ChangeOwnPasswordSchema,
@@ -15,6 +16,7 @@ import {
   FileEntrySchema,
   LogRootSchema,
   LogTailSchema,
+  LoginResponseSchema,
   LoginRequestSchema,
   ProcessInfoSchema,
   SecurityPostureSchema,
@@ -23,6 +25,7 @@ import {
   SystemOverviewSchema,
   TaskRunRequestSchema,
   TaskRunSchema,
+  TotpConfirmSchema,
   PanelTaskSchema,
   ResetUserPasswordSchema,
   UpdateUserRoleSchema,
@@ -40,6 +43,8 @@ import {
 const apiBase = typeof import.meta.env.VITE_API_BASE === "string" ? import.meta.env.VITE_API_BASE : "";
 
 const AuthResponseSchema = z.object({ user: AuthUserSchema });
+const TotpSetupResponseSchema = z.object({ secret: z.string(), uri: z.string() });
+const SessionsResponseSchema = z.object({ sessions: z.array(AuthSessionSchema) });
 const UsersResponseSchema = z.object({ users: z.array(AuthUserSchema) });
 const AuthStatusSchema = z.object({ setupRequired: z.boolean(), user: AuthUserSchema.nullable() });
 const OverviewResponseSchema = z.object({ overview: SystemOverviewSchema });
@@ -69,8 +74,13 @@ export type CreatedConnectorResponse = z.infer<typeof CreatedConnectorResponseSc
 export const api = {
   authStatus: () => request("/api/auth/status", AuthStatusSchema),
   setup: (input: SetupRequest) => request("/api/auth/setup", AuthResponseSchema, "POST", SetupRequestSchema.parse(input)),
-  login: (input: LoginRequest) => request("/api/auth/login", AuthResponseSchema, "POST", LoginRequestSchema.parse(input)),
+  login: (input: LoginRequest) => request("/api/auth/login", LoginResponseSchema, "POST", LoginRequestSchema.parse(input)),
   logout: () => request("/api/auth/logout", OkResponseSchema, "POST"),
+  sessions: () => request("/api/auth/sessions", SessionsResponseSchema),
+  revokeSession: (sessionId: string) => request(`/api/auth/sessions?sessionId=${encodeURIComponent(sessionId)}`, OkResponseSchema, "DELETE"),
+  setupTotp: () => request("/api/auth/totp/setup", TotpSetupResponseSchema, "POST"),
+  confirmTotp: (code: string) => request("/api/auth/totp/confirm", AuthResponseSchema, "POST", TotpConfirmSchema.parse({ code })),
+  disableTotp: (code: string) => request("/api/auth/totp/disable", AuthResponseSchema, "POST", TotpConfirmSchema.parse({ code })),
   users: () => request("/api/users", UsersResponseSchema),
   createUser: (input: CreateUser) => request("/api/users", AuthResponseSchema, "POST", CreateUserSchema.parse(input)),
   updateUserRole: (userId: string, role: AuthUser["role"]) => request("/api/users/role", AuthResponseSchema, "PATCH", UpdateUserRoleSchema.parse({ userId, role })),

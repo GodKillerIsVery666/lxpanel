@@ -16,6 +16,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 6. 日志查看与文件管理分离，日志根目录由 `LXPANEL_LOG_ROOTS` 独立收敛。
 7. 任务运行器只使用 `execFile` 参数数组，并把工作目录限制在 `LXPANEL_FILE_ROOTS` 内。
 8. 备份模块生成本地状态快照，备份文件保存在 `LXPANEL_DATA_DIR/backups`。
+9. 生产部署提供 systemd 模板和独立低权限用户，面板本体默认只监听本机地址。
 
 ## 连接器方向
 

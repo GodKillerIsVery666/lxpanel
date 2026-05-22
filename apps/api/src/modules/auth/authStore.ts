@@ -1,9 +1,17 @@
-import type { AuthUser, CreateUser, Role } from "@lxpanel/shared";
+import type { AuthSession, AuthUser, CreateUser, Role } from "@lxpanel/shared";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../../lib/crypto.js";
 import type { JsonStore } from "../../lib/jsonStore.js";
+import { buildTotpUri, generateTotpSecret, verifyTotpCode } from "../../lib/totp.js";
 import type { PanelState, UserRecord } from "../state/panelState.js";
 
 const sessionTtlMs = 1000 * 60 * 60 * 12;
+
+export type LoginVerification = { status: "ok"; user: AuthUser } | { status: "totp_required" } | null;
+
+export interface TotpSetupResult {
+  secret: string;
+  uri: string;
+}
 
 export class AuthStore {
   constructor(private readonly store: JsonStore<PanelState>) {}
@@ -122,7 +130,7 @@ export class AuthStore {
     });
   }
 
-  async verifyLogin(username: string, password: string): Promise<AuthUser | null> {
+  async verifyLogin(username: string, password: string, totpCode?: string): Promise<LoginVerification> {
     const state = await this.store.read();
     const user = state.users.find((item) => item.username === username);
     if (!user) {
@@ -132,16 +140,22 @@ export class AuthStore {
     if (!verified) {
       return null;
     }
+    if (user.totpEnabled) {
+      if (!user.totpSecret || !totpCode || !verifyTotpCode(user.totpSecret, totpCode)) {
+        return { status: "totp_required" };
+      }
+    }
     const updatedUser: UserRecord = { ...user, lastLoginAt: new Date().toISOString() };
     await this.store.write({
       ...state,
       users: state.users.map((item) => item.id === user.id ? updatedUser : item)
     });
-    return toAuthUser(updatedUser);
+    return { status: "ok", user: toAuthUser(updatedUser) };
   }
 
   async createSession(userId: string): Promise<string> {
     const rawSessionId = randomToken(32);
+    const sessionId = randomToken(10);
     const now = new Date();
     const expiresAt = new Date(now.getTime() + sessionTtlMs).toISOString();
     await this.store.update((state) => ({
@@ -150,6 +164,7 @@ export class AuthStore {
         sessions: [
           ...state.sessions.filter((session) => new Date(session.expiresAt).getTime() > Date.now()),
           {
+            id: sessionId,
             idHash: sha256(rawSessionId),
             userId,
             createdAt: now.toISOString(),
@@ -180,6 +195,82 @@ export class AuthStore {
       result: undefined
     }));
   }
+
+  async listSessions(currentRawSessionId?: string): Promise<AuthSession[]> {
+    const state = await this.store.read();
+    const currentHash = currentRawSessionId ? sha256(currentRawSessionId) : "";
+    return state.sessions
+      .filter((session) => new Date(session.expiresAt).getTime() > Date.now())
+      .map((session) => {
+        const user = state.users.find((item) => item.id === session.userId);
+        return {
+          id: session.id ?? session.idHash.slice(0, 12),
+          userId: session.userId,
+          username: user?.username ?? "unknown",
+          createdAt: session.createdAt,
+          expiresAt: session.expiresAt,
+          ...(session.idHash === currentHash ? { current: true } : {})
+        };
+      })
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async deleteSessionByPublicId(sessionId: string): Promise<void> {
+    await this.store.update((state) => ({
+      data: { ...state, sessions: state.sessions.filter((session) => (session.id ?? session.idHash.slice(0, 12)) !== sessionId) },
+      result: undefined
+    }));
+  }
+
+  async beginTotpSetup(userId: string): Promise<TotpSetupResult> {
+    const secret = generateTotpSecret();
+    return this.store.update((state) => {
+      const user = state.users.find((item) => item.id === userId);
+      if (!user) {
+        throw new Error("用户不存在。");
+      }
+      const updated = { ...user, totpSecret: secret, totpEnabled: false };
+      return {
+        data: { ...state, users: state.users.map((item) => item.id === userId ? updated : item) },
+        result: { secret, uri: buildTotpUri(secret, user.username) }
+      };
+    });
+  }
+
+  async confirmTotp(userId: string, code: string): Promise<AuthUser> {
+    return this.store.update((state) => {
+      const user = state.users.find((item) => item.id === userId);
+      if (!user?.totpSecret) {
+        throw new Error("请先开始 TOTP 设置。");
+      }
+      if (!verifyTotpCode(user.totpSecret, code)) {
+        throw new Error("TOTP 验证码不正确。");
+      }
+      const updated = { ...user, totpEnabled: true };
+      return {
+        data: { ...state, users: state.users.map((item) => item.id === userId ? updated : item) },
+        result: toAuthUser(updated)
+      };
+    });
+  }
+
+  async disableTotp(userId: string, code: string): Promise<AuthUser> {
+    return this.store.update((state) => {
+      const user = state.users.find((item) => item.id === userId);
+      if (!user) {
+        throw new Error("用户不存在。");
+      }
+      if (user.totpEnabled && (!user.totpSecret || !verifyTotpCode(user.totpSecret, code))) {
+        throw new Error("TOTP 验证码不正确。");
+      }
+      const updated: UserRecord = { ...user, totpEnabled: false };
+      delete updated.totpSecret;
+      return {
+        data: { ...state, users: state.users.map((item) => item.id === userId ? updated : item) },
+        result: toAuthUser(updated)
+      };
+    });
+  }
 }
 
 function countOwners(users: UserRecord[]): number {
@@ -192,6 +283,7 @@ function toAuthUser(user: UserRecord): AuthUser {
     username: user.username,
     role: user.role,
     createdAt: user.createdAt,
+    totpEnabled: user.totpEnabled ?? false,
     ...(user.lastLoginAt ? { lastLoginAt: user.lastLoginAt } : {})
   };
 }
