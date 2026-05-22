@@ -5,10 +5,12 @@ import {
   BackupRequestSchema,
   BackupRestoreResponseSchema,
   AuthSessionSchema,
+  ConnectorCommandSchema,
   AuthUserSchema,
   BackupSnapshotSchema,
   ChangeOwnPasswordSchema,
   ConnectorSchema,
+  CreateConnectorCommandSchema,
   CreateTaskSchema,
   CreateUserSchema,
   CreateConnectorSchema,
@@ -37,6 +39,7 @@ import {
   type AuthUser,
   type ChangeOwnPassword,
   type CreateConnector,
+  type CreateConnectorCommand,
   type CreateTask,
   type CreateUser,
   type DockerContainerAction,
@@ -63,7 +66,9 @@ const LogTailResponseSchema = z.object({ tail: LogTailSchema });
 const AuditResponseSchema = z.object({ events: z.array(AuditEventSchema) });
 const SecurityResponseSchema = z.object({ posture: SecurityPostureSchema });
 const ConnectorsResponseSchema = z.object({ connectors: z.array(ConnectorSchema) });
+const ConnectorCommandsResponseSchema = z.object({ commands: z.array(ConnectorCommandSchema) });
 const CreatedConnectorResponseSchema = z.object({ connector: ConnectorSchema, token: z.string() });
+const ConnectorCommandResponseSchema = z.object({ command: ConnectorCommandSchema });
 const DockerStatusResponseSchema = z.object({ status: DockerStatusSchema });
 const DockerContainersResponseSchema = z.object({ containers: z.array(DockerContainerSchema) });
 const DockerImagesResponseSchema = z.object({ images: z.array(DockerImageSchema) });
@@ -120,6 +125,8 @@ export const api = {
   audit: () => request("/api/audit", AuditResponseSchema),
   security: () => request("/api/security/posture", SecurityResponseSchema),
   connectors: () => request("/api/connectors", ConnectorsResponseSchema),
+  connectorCommands: (connectorId?: string) => request(`/api/connectors/commands${connectorId ? `?connectorId=${encodeURIComponent(connectorId)}` : ""}`, ConnectorCommandsResponseSchema),
+  createConnectorCommand: (input: CreateConnectorCommand) => request("/api/connectors/commands", ConnectorCommandResponseSchema, "POST", CreateConnectorCommandSchema.parse(input)),
   createConnector: (input: CreateConnector) => request("/api/connectors", CreatedConnectorResponseSchema, "POST", CreateConnectorSchema.parse(input))
 };
 

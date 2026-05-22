@@ -29,6 +29,21 @@ export interface ConnectorRecord {
   lastSeenAt?: string;
 }
 
+export interface ConnectorCommandRecord {
+  id: string;
+  connectorId: string;
+  command: string;
+  args: string[];
+  status: "queued" | "running" | "success" | "failed";
+  createdAt: string;
+  createdBy: string;
+  claimedAt?: string;
+  finishedAt?: string;
+  exitCode?: number;
+  stdoutTail?: string;
+  stderrTail?: string;
+}
+
 export interface TaskRecord {
   id: string;
   name: string;
@@ -85,6 +100,7 @@ export interface PanelState {
   users: UserRecord[];
   sessions: SessionRecord[];
   connectors: ConnectorRecord[];
+  connectorCommands?: ConnectorCommandRecord[];
   tasks?: TaskRecord[];
   taskRuns?: TaskRunRecord[];
   backups?: BackupRecord[];
@@ -96,6 +112,7 @@ export function createInitialPanelState(): PanelState {
     users: [],
     sessions: [],
     connectors: [],
+    connectorCommands: [],
     tasks: [],
     taskRuns: [],
     backups: [],

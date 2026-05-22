@@ -172,6 +172,42 @@ export const ConnectorHeartbeatSchema = z.object({
 });
 export type ConnectorHeartbeat = z.infer<typeof ConnectorHeartbeatSchema>;
 
+export const ConnectorCommandStatusSchema = z.enum(["queued", "running", "success", "failed"]);
+export type ConnectorCommandStatus = z.infer<typeof ConnectorCommandStatusSchema>;
+
+export const ConnectorCommandSchema = z.object({
+  id: z.string(),
+  connectorId: z.string(),
+  connectorName: z.string().optional(),
+  command: z.string(),
+  args: z.array(z.string()),
+  status: ConnectorCommandStatusSchema,
+  createdAt: z.string(),
+  createdBy: z.string(),
+  claimedAt: z.string().optional(),
+  finishedAt: z.string().optional(),
+  exitCode: z.number().optional(),
+  stdoutTail: z.string().optional(),
+  stderrTail: z.string().optional()
+});
+export type ConnectorCommand = z.infer<typeof ConnectorCommandSchema>;
+
+export const CreateConnectorCommandSchema = z.object({
+  connectorId: z.string().min(1),
+  command: z.string().min(1).max(180).regex(/^[A-Za-z0-9_.:/\\-]+$/u),
+  args: z.array(z.string().max(240)).max(24).default([])
+});
+export type CreateConnectorCommand = z.infer<typeof CreateConnectorCommandSchema>;
+
+export const ConnectorCommandResultSchema = z.object({
+  commandId: z.string().min(1),
+  status: z.enum(["success", "failed"]),
+  exitCode: z.number().int().optional(),
+  stdoutTail: z.string().max(12_000).default(""),
+  stderrTail: z.string().max(12_000).default("")
+});
+export type ConnectorCommandResult = z.infer<typeof ConnectorCommandResultSchema>;
+
 export const DockerStatusSchema = z.object({
   available: z.boolean(),
   composeAvailable: z.boolean(),
