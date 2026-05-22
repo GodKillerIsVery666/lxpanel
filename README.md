@@ -21,11 +21,11 @@ LXPanel 是一个从零开始搭建的轻量服务器运维面板原型，目标
 ```powershell
 npm install
 npm run build
-npm run dev:api
-npm run dev:web
+npm run dev
 ```
 
 默认 API 地址是 `http://127.0.0.1:7080`，前端地址是 `http://127.0.0.1:5173`。
+如果只运行 `npm run dev:web`，需要另开终端先运行 `npm run dev:api`，否则 Vite 的 `/api` 代理会出现 `ECONNREFUSED 127.0.0.1:7080`。
 
 ## 环境变量
 

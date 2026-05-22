@@ -9,7 +9,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @lxpanel/api",
+    "dev": "node scripts/dev.mjs",
     "dev:api": "npm run dev -w @lxpanel/api",
     "dev:web": "npm run dev -w @lxpanel/web",
     "build": "npm run build -w @lxpanel/shared && npm run build -w @lxpanel/api && npm run build -w @lxpanel/web",
