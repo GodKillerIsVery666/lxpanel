@@ -68,6 +68,7 @@ export interface BackupRecord {
   createdAt: string;
   createdBy: string;
   kind: "state";
+  sha256?: string;
 }
 
 export interface BackupScheduleRecord {

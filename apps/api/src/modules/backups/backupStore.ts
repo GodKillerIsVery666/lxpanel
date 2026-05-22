@@ -1,9 +1,10 @@
-import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BackupSchedule, BackupSnapshot, UpdateBackupSchedule } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { JsonStore } from "../../lib/jsonStore.js";
-import type { BackupRecord, BackupScheduleRecord, PanelState } from "../state/panelState.js";
+import { createInitialPanelState, type BackupRecord, type BackupScheduleRecord, type PanelState } from "../state/panelState.js";
 
 const maxBackups = 100;
 
@@ -48,6 +49,25 @@ export class BackupStore {
     return (state.backups ?? []).length;
   }
 
+  async readBackupFile(backupId: string): Promise<{ backup: BackupSnapshot; content: string }> {
+    const backup = await this.findBackup(backupId);
+    const content = await readFile(backup.path, "utf8");
+    return { backup, content };
+  }
+
+  async restoreBackup(backupId: string, actor: string): Promise<{ restored: BackupSnapshot; preRestore: BackupSnapshot }> {
+    const { backup, content } = await this.readBackupFile(backupId);
+    const restoredState = parseBackupState(content);
+    const preRestore = await this.createBackup(actor);
+    await this.store.write({
+      ...restoredState,
+      sessions: [],
+      backups: [...(restoredState.backups ?? []), toBackupRecord(preRestore)].slice(-maxBackups),
+      backupSchedule: restoredState.backupSchedule ?? { enabled: false, everyHours: 24 }
+    });
+    return { restored: backup, preRestore };
+  }
+
   async createBackup(actor: string): Promise<BackupSnapshot> {
     const state = await this.store.read();
     const id = randomToken(10);
@@ -56,7 +76,8 @@ export class BackupStore {
     const backupDir = join(this.dataDir, "backups");
     const filePath = join(backupDir, fileName);
     await mkdir(backupDir, { recursive: true });
-    await writeFile(filePath, JSON.stringify({ kind: "lxpanel-state", createdAt, state }, null, 2), "utf8");
+    const content = JSON.stringify({ kind: "lxpanel-state", createdAt, state }, null, 2);
+    await writeFile(filePath, content, "utf8");
     const info = await stat(filePath);
     const record: BackupRecord = {
       id,
@@ -65,7 +86,8 @@ export class BackupStore {
       sizeBytes: info.size,
       createdAt,
       createdBy: actor,
-      kind: "state"
+      kind: "state",
+      sha256: createHash("sha256").update(content).digest("hex")
     };
     const removedPaths = await this.store.update((current) => {
       const backups = [...(current.backups ?? []), record];
@@ -114,10 +136,74 @@ export class BackupStore {
       throw error;
     }
   }
+
+  private async findBackup(backupId: string): Promise<BackupSnapshot> {
+    const state = await this.store.read();
+    const backup = (state.backups ?? []).find((item) => item.id === backupId);
+    if (!backup) {
+      throw new Error("备份不存在。");
+    }
+    return toBackup(backup);
+  }
 }
 
 function toBackup(record: BackupRecord): BackupSnapshot {
   return { ...record };
+}
+
+function toBackupRecord(snapshot: BackupSnapshot): BackupRecord {
+  return {
+    id: snapshot.id,
+    fileName: snapshot.fileName,
+    path: snapshot.path,
+    sizeBytes: snapshot.sizeBytes,
+    createdAt: snapshot.createdAt,
+    createdBy: snapshot.createdBy,
+    kind: snapshot.kind,
+    ...(snapshot.sha256 ? { sha256: snapshot.sha256 } : {})
+  };
+}
+
+function parseBackupState(content: string): PanelState {
+  const parsed = JSON.parse(content) as unknown;
+  if (!isRecord(parsed) || parsed.kind !== "lxpanel-state" || !isRecord(parsed.state)) {
+    throw new Error("备份文件格式不正确。");
+  }
+  const initial = createInitialPanelState();
+  const state = parsed.state;
+  return {
+    ...initial,
+    users: readArray<PanelState["users"]>(state.users),
+    sessions: [],
+    connectors: readArray<PanelState["connectors"]>(state.connectors),
+    tasks: readArray<NonNullable<PanelState["tasks"]>>(state.tasks),
+    taskRuns: readArray<NonNullable<PanelState["taskRuns"]>>(state.taskRuns),
+    backups: readArray<NonNullable<PanelState["backups"]>>(state.backups),
+    backupSchedule: readBackupSchedule(state.backupSchedule) ?? initial.backupSchedule ?? { enabled: false, everyHours: 24 }
+  };
+}
+
+function readArray<TValue extends unknown[]>(value: unknown): TValue {
+  return (Array.isArray(value) ? value : []) as TValue;
+}
+
+function readBackupSchedule(value: unknown): BackupScheduleRecord | undefined {
+  if (!isRecord(value) || typeof value.enabled !== "boolean" || typeof value.everyHours !== "number") {
+    return undefined;
+  }
+  return {
+    enabled: value.enabled,
+    everyHours: value.everyHours,
+    ...(typeof value.nextRunAt === "string" ? { nextRunAt: value.nextRunAt } : {}),
+    ...(typeof value.lastRunAt === "string" ? { lastRunAt: value.lastRunAt } : {}),
+    ...(value.lastStatus === "success" || value.lastStatus === "failed" ? { lastStatus: value.lastStatus } : {}),
+    ...(typeof value.updatedAt === "string" ? { updatedAt: value.updatedAt } : {}),
+    ...(typeof value.updatedBy === "string" ? { updatedBy: value.updatedBy } : {})
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function toSchedule(record?: BackupScheduleRecord): BackupSchedule {

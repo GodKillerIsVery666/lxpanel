@@ -278,9 +278,21 @@ export const BackupSnapshotSchema = z.object({
   sizeBytes: z.number(),
   createdAt: z.string(),
   createdBy: z.string(),
-  kind: z.enum(["state"])
+  kind: z.enum(["state"]),
+  sha256: z.string().optional()
 });
 export type BackupSnapshot = z.infer<typeof BackupSnapshotSchema>;
+
+export const BackupRequestSchema = z.object({
+  backupId: z.string().min(1)
+});
+export type BackupRequest = z.infer<typeof BackupRequestSchema>;
+
+export const BackupRestoreResponseSchema = z.object({
+  restored: BackupSnapshotSchema,
+  preRestore: BackupSnapshotSchema
+});
+export type BackupRestoreResponse = z.infer<typeof BackupRestoreResponseSchema>;
 
 export const BackupScheduleSchema = z.object({
   enabled: z.boolean(),

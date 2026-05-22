@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Archive, Clock, PauseCircle, RotateCw } from "lucide-react";
+import { Archive, Clock, Download, PauseCircle, RotateCw, Undo2 } from "lucide-react";
 import type { BackupSchedule, BackupSnapshot } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { formatBytes, formatDate } from "../utils/format.js";
@@ -42,6 +42,32 @@ export function BackupsPage(): JSX.Element {
     }
   }
 
+  async function downloadBackup(backup: BackupSnapshot): Promise<void> {
+    try {
+      const blob = await api.downloadBackup(backup.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = backup.fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "下载失败。");
+    }
+  }
+
+  async function restoreBackup(backup: BackupSnapshot): Promise<void> {
+    if (!window.confirm(`恢复备份 ${backup.fileName} 会清空当前会话并回到快照状态，继续吗？`)) {
+      return;
+    }
+    try {
+      await api.restoreBackup(backup.id);
+      window.location.reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "恢复失败。");
+    }
+  }
+
   useEffect(() => {
     void load();
   }, []);
@@ -55,7 +81,7 @@ export function BackupsPage(): JSX.Element {
         <div className="inline-form wrap"><input value={everyHours} onChange={(event) => setEveryHours(event.target.value)} type="number" min={1} max={720} placeholder="间隔小时" /><button type="button" onClick={() => void updateSchedule(true)}><Clock size={16} /> 启用</button><button type="button" onClick={() => void updateSchedule(false)}><PauseCircle size={16} /> 暂停</button></div>
         <p className="muted-text">当前：{schedule?.enabled ? `每 ${schedule.everyHours} 小时，下一次 ${schedule.nextRunAt ? formatDate(schedule.nextRunAt) : "待计算"}` : "未启用"}</p>
       </section>
-      <section className="table-panel"><table><thead><tr><th>文件</th><th>大小</th><th>创建者</th><th>时间</th><th>路径</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{backup.fileName}</td><td>{formatBytes(backup.sizeBytes)}</td><td>{backup.createdBy}</td><td>{formatDate(backup.createdAt)}</td><td><code>{backup.path}</code></td></tr>)}</tbody></table></section>
+      <section className="table-panel"><table><thead><tr><th>文件</th><th>大小</th><th>创建者</th><th>时间</th><th>校验</th><th>操作</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{backup.fileName}<div className="muted-text"><code>{backup.path}</code></div></td><td>{formatBytes(backup.sizeBytes)}</td><td>{backup.createdBy}</td><td>{formatDate(backup.createdAt)}</td><td><code>{backup.sha256?.slice(0, 16) ?? "-"}</code></td><td className="row-actions"><button title="下载" onClick={() => void downloadBackup(backup)}><Download size={15} /></button><button title="恢复" onClick={() => void restoreBackup(backup)}><Undo2 size={15} /></button></td></tr>)}</tbody></table></section>
     </main>
   );
 }

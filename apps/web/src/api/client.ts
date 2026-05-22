@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   AuditEventSchema,
   BackupScheduleSchema,
+  BackupRequestSchema,
+  BackupRestoreResponseSchema,
   AuthSessionSchema,
   AuthUserSchema,
   BackupSnapshotSchema,
@@ -112,6 +114,8 @@ export const api = {
   deleteTask: (taskId: string) => request(`/api/tasks?taskId=${encodeURIComponent(taskId)}`, OkResponseSchema, "DELETE"),
   backups: () => request("/api/backups", BackupsResponseSchema),
   createBackup: () => request("/api/backups", BackupResponseSchema, "POST"),
+  downloadBackup: (backupId: string) => download(`/api/backups/download?backupId=${encodeURIComponent(BackupRequestSchema.parse({ backupId }).backupId)}`),
+  restoreBackup: (backupId: string) => request("/api/backups/restore", BackupRestoreResponseSchema, "POST", BackupRequestSchema.parse({ backupId })),
   updateBackupSchedule: (input: UpdateBackupSchedule) => request("/api/backups/schedule", BackupScheduleResponseSchema, "PATCH", UpdateBackupScheduleSchema.parse(input)),
   audit: () => request("/api/audit", AuditResponseSchema),
   security: () => request("/api/security/posture", SecurityResponseSchema),
@@ -136,6 +140,14 @@ async function request<TSchema extends z.ZodType>(path: string, schema: TSchema,
     throw new Error(extractMessage(payload, response.statusText));
   }
   return schema.parse(payload);
+}
+
+async function download(path: string): Promise<Blob> {
+  const response = await fetch(`${apiBase}${path}`, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(extractMessage(await readPayload(response), response.statusText));
+  }
+  return response.blob();
 }
 
 async function readPayload(response: Response): Promise<unknown> {
