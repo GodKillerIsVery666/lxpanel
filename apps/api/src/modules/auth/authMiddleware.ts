@@ -8,10 +8,14 @@ export const sessionCookieName = "lx_session";
 export async function readAuthenticatedUser(request: FastifyRequest, services: Services): Promise<AuthUser | null> {
   const signed = request.cookies[sessionCookieName];
   const rawSessionId = verifySignedValue(signed, services.config.sessionSecret);
-  if (!rawSessionId) {
-    return null;
+  if (rawSessionId) {
+    const user = await services.authStore.getUserBySession(rawSessionId);
+    if (user) {
+      return user;
+    }
   }
-  return services.authStore.getUserBySession(rawSessionId);
+  const bearerToken = readBearerToken(request.headers.authorization);
+  return bearerToken ? services.authStore.getUserByApiToken(bearerToken) : null;
 }
 
 export async function requireUser(request: FastifyRequest, reply: FastifyReply, services: Services): Promise<AuthUser | null> {
@@ -37,4 +41,8 @@ export async function requireRole(request: FastifyRequest, reply: FastifyReply, 
 
 function roleRank(role: Role): number {
   return role === "owner" ? 3 : role === "operator" ? 2 : 1;
+}
+
+function readBearerToken(authorization: string | undefined): string {
+  return authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
 }

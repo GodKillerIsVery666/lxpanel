@@ -7,6 +7,7 @@ import {
   AppDeploymentActionSchema,
   AppDeploymentSchema,
   AppTemplateSchema,
+  ApiTokenSchema,
   BackupScheduleSchema,
   BackupRequestSchema,
   BackupRestoreResponseSchema,
@@ -16,12 +17,14 @@ import {
   BackupSnapshotSchema,
   ChangeOwnPasswordSchema,
   ConnectorSchema,
+  CreateApiTokenSchema,
   CreateHostSchema,
   CreateAppDeploymentSchema,
   CreateConnectorCommandSchema,
   CreateNotificationChannelSchema,
   CreateTaskSchema,
   CreateUserSchema,
+  CreatedApiTokenSchema,
   DismissAlertSchema,
   CreateConnectorSchema,
   DockerContainerActionSchema,
@@ -39,6 +42,7 @@ import {
   NotificationDeliverySchema,
   NotificationTestSchema,
   ProcessInfoSchema,
+  RevokeApiTokenSchema,
   SecurityPostureSchema,
   ServiceInfoSchema,
   SetupRequestSchema,
@@ -57,6 +61,7 @@ import {
   type AuthUser,
   type AppDeploymentAction,
   type ChangeOwnPassword,
+  type CreateApiToken,
   type CreateAppDeployment,
   type CreateConnector,
   type CreateConnectorCommand,
@@ -80,6 +85,7 @@ const apiBase = typeof import.meta.env.VITE_API_BASE === "string" ? import.meta.
 const AuthResponseSchema = z.object({ user: AuthUserSchema });
 const TotpSetupResponseSchema = z.object({ secret: z.string(), uri: z.string() });
 const SessionsResponseSchema = z.object({ sessions: z.array(AuthSessionSchema) });
+const ApiTokensResponseSchema = z.object({ tokens: z.array(ApiTokenSchema) });
 const UsersResponseSchema = z.object({ users: z.array(AuthUserSchema) });
 const AuthStatusSchema = z.object({ setupRequired: z.boolean(), user: AuthUserSchema.nullable() });
 const OverviewResponseSchema = z.object({ overview: SystemOverviewSchema });
@@ -129,6 +135,9 @@ export const api = {
   logout: () => request("/api/auth/logout", OkResponseSchema, "POST"),
   sessions: () => request("/api/auth/sessions", SessionsResponseSchema),
   revokeSession: (sessionId: string) => request(`/api/auth/sessions?sessionId=${encodeURIComponent(sessionId)}`, OkResponseSchema, "DELETE"),
+  apiTokens: () => request("/api/auth/tokens", ApiTokensResponseSchema),
+  createApiToken: (input: CreateApiToken) => request("/api/auth/tokens", CreatedApiTokenSchema, "POST", CreateApiTokenSchema.parse(input)),
+  revokeApiToken: (tokenId: string) => request(`/api/auth/tokens?tokenId=${encodeURIComponent(RevokeApiTokenSchema.parse({ tokenId }).tokenId)}`, OkResponseSchema, "DELETE"),
   setupTotp: () => request("/api/auth/totp/setup", TotpSetupResponseSchema, "POST"),
   confirmTotp: (code: string) => request("/api/auth/totp/confirm", AuthResponseSchema, "POST", TotpConfirmSchema.parse({ code })),
   disableTotp: (code: string) => request("/api/auth/totp/disable", AuthResponseSchema, "POST", TotpConfirmSchema.parse({ code })),

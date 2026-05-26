@@ -1,5 +1,5 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
-import { LoginRequestSchema, SetupRequestSchema, TotpConfirmSchema } from "@lxpanel/shared";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { CreateApiTokenSchema, LoginRequestSchema, RevokeApiTokenSchema, SetupRequestSchema, TotpConfirmSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { signValue, verifySignedValue } from "../../lib/sessionCookie.js";
 import { readAuthenticatedUser, requireRole, requireUser, sessionCookieName } from "./authMiddleware.js";
@@ -88,6 +88,40 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     return { ok: true };
   });
 
+  app.get("/api/auth/tokens", async (request, reply) => {
+    const user = await requireCookieUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    return { tokens: await services.authStore.listApiTokens(user.id) };
+  });
+
+  app.post("/api/auth/tokens", async (request, reply) => {
+    const user = await requireCookieUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    const input = CreateApiTokenSchema.parse(request.body);
+    const token = await services.authStore.createApiToken(user, input);
+    await services.auditLog.append({ actor: user.username, action: "auth.token.create", target: token.token.name, ip: request.ip, status: "success" });
+    return token;
+  });
+
+  app.delete<{ Querystring: { tokenId?: string } }>("/api/auth/tokens", async (request, reply) => {
+    const user = await requireCookieUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    const input = RevokeApiTokenSchema.parse({ tokenId: request.query.tokenId ?? "" });
+    const revoked = await services.authStore.revokeApiToken(user.id, input.tokenId);
+    if (!revoked) {
+      await reply.code(404).send({ message: "API Token 不存在。" });
+      return;
+    }
+    await services.auditLog.append({ actor: user.username, action: "auth.token.revoke", target: input.tokenId, ip: request.ip, status: "success" });
+    return { ok: true };
+  });
+
   app.post("/api/auth/totp/setup", async (request, reply) => {
     const user = await requireUser(request, reply, services);
     if (!user) {
@@ -119,6 +153,16 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     await services.auditLog.append({ actor: user.username, action: "auth.totp.disable", target: user.username, ip: request.ip, status: "success" });
     return { user: updated };
   });
+}
+
+async function requireCookieUser(request: FastifyRequest, reply: FastifyReply, services: Services) {
+  const rawSessionId = verifySignedValue(request.cookies[sessionCookieName], services.config.sessionSecret);
+  const user = rawSessionId ? await services.authStore.getUserBySession(rawSessionId) : null;
+  if (!user) {
+    await reply.code(401).send({ message: "请先登录。" });
+    return null;
+  }
+  return user;
 }
 
 function setSessionCookie(reply: FastifyReply, services: Services, rawSessionId: string): void {

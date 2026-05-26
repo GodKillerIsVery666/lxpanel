@@ -43,6 +43,26 @@ describe("用户与角色", () => {
     const sessions = await authStore.listSessions(session);
     expect(sessions[0]).toMatchObject({ username: "admin", current: true });
   });
+
+  it("API Token 只返回一次明文并可撤销", async () => {
+    const authStore = await createAuthStore();
+    const owner = await authStore.createInitialAdmin("admin", "Admin-Password-2026");
+
+    const created = await authStore.createApiToken(owner, { name: "ci", expiresInDays: 7 });
+
+    expect(created.secret).toMatch(/^lxpat_/u);
+    expect(created.token).toMatchObject({ name: "ci", username: "admin", role: "owner" });
+    await expect(authStore.getUserByApiToken(created.secret)).resolves.toMatchObject({ username: "admin" });
+
+    const tokens = await authStore.listApiTokens(owner.id);
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]?.name).toBe("ci");
+    expect(typeof tokens[0]?.lastUsedAt).toBe("string");
+    expect(JSON.stringify(tokens)).not.toContain(created.secret);
+
+    await expect(authStore.revokeApiToken(owner.id, created.token.id)).resolves.toBe(true);
+    await expect(authStore.getUserByApiToken(created.secret)).resolves.toBeNull();
+  });
 });
 
 async function createAuthStore(): Promise<AuthStore> {

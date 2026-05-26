@@ -69,6 +69,35 @@ export const AuthSessionSchema = z.object({
 });
 export type AuthSession = z.infer<typeof AuthSessionSchema>;
 
+export const ApiTokenSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  userId: z.string(),
+  username: z.string(),
+  role: RoleSchema,
+  createdAt: z.string(),
+  expiresAt: z.string().optional(),
+  lastUsedAt: z.string().optional()
+});
+export type ApiToken = z.infer<typeof ApiTokenSchema>;
+
+export const CreateApiTokenSchema = z.object({
+  name: z.string().min(2).max(80),
+  expiresInDays: z.number().int().min(1).max(365).optional()
+});
+export type CreateApiToken = z.infer<typeof CreateApiTokenSchema>;
+
+export const CreatedApiTokenSchema = z.object({
+  token: ApiTokenSchema,
+  secret: z.string()
+});
+export type CreatedApiToken = z.infer<typeof CreatedApiTokenSchema>;
+
+export const RevokeApiTokenSchema = z.object({
+  tokenId: z.string().min(1)
+});
+export type RevokeApiToken = z.infer<typeof RevokeApiTokenSchema>;
+
 export const SystemOverviewSchema = z.object({
   hostname: z.string(),
   platform: z.string(),

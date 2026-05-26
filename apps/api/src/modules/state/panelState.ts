@@ -19,6 +19,17 @@ export interface SessionRecord {
   expiresAt: string;
 }
 
+export interface ApiTokenRecord {
+  id: string;
+  name: string;
+  userId: string;
+  role: Role;
+  tokenHash: string;
+  createdAt: string;
+  expiresAt?: string;
+  lastUsedAt?: string;
+}
+
 export interface ConnectorRecord {
   id: string;
   name: string;
@@ -107,6 +118,7 @@ export type AppDeploymentRecord = AppDeployment;
 export interface PanelState {
   users: UserRecord[];
   sessions: SessionRecord[];
+  apiTokens?: ApiTokenRecord[];
   connectors: ConnectorRecord[];
   connectorCommands?: ConnectorCommandRecord[];
   tasks?: TaskRecord[];
@@ -126,6 +138,7 @@ export function createInitialPanelState(): PanelState {
   return {
     users: [],
     sessions: [],
+    apiTokens: [],
     connectors: [],
     connectorCommands: [],
     tasks: [],

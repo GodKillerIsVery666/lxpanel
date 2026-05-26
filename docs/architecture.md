@@ -25,6 +25,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 15. 主机资产独立于连接器状态保存，未绑定连接器会作为发现主机展示，便于从单机面板过渡到多主机管理。
 16. 监控样本和通知投递记录随状态保存，调度器负责采样、告警、通知投递三段闭环。
 17. 应用商店使用受控 Docker Compose 模板，不接受任意 YAML 输入；模板变量经过校验后写入 `LXPANEL_DATA_DIR/apps` 下的 compose 文件，再通过参数化 `docker compose` 命令执行动作。
+18. API Token 复用认证中间件的 RBAC 判断，自动化请求通过 Bearer Token 进入同一套接口权限模型。
 
 ## 状态存储
 
@@ -49,3 +50,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 ## 应用商店
 
 `AppStore` 暴露模板列表、部署记录和部署动作。首批模板覆盖 Nginx、Redis、PostgreSQL，部署时只渲染内置模板变量，生成的 `docker-compose.yml` 落在数据目录下。启动、停止、重启统一调用 `docker compose -f <composePath> ...` 参数数组，并把执行结果写回部署记录和审计日志。
+
+## 自动化访问
+
+API Token 由 `AuthStore` 生成并保存在 `PanelState.apiTokens` 中，状态内只保存哈希、归属用户、角色快照、创建时间、过期时间和最近使用时间。认证中间件先尝试 Cookie 会话，再尝试 `Authorization: Bearer lxpat_...`；Token 成功认证后返回的用户角色不会高于当前用户角色，避免用户降权后旧 Token 继续拥有旧权限。

@@ -1,8 +1,8 @@
-import type { AuthSession, AuthUser, CreateUser, Role } from "@lxpanel/shared";
+import type { ApiToken, AuthSession, AuthUser, CreatedApiToken, CreateApiToken, CreateUser, Role } from "@lxpanel/shared";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from "../../lib/totp.js";
-import type { PanelState, UserRecord } from "../state/panelState.js";
+import type { ApiTokenRecord, PanelState, UserRecord } from "../state/panelState.js";
 
 const sessionTtlMs = 1000 * 60 * 60 * 12;
 
@@ -123,7 +123,8 @@ export class AuthStore {
         data: {
           ...state,
           users: state.users.filter((item) => item.id !== userId),
-          sessions: state.sessions.filter((session) => session.userId !== userId)
+          sessions: state.sessions.filter((session) => session.userId !== userId),
+          apiTokens: (state.apiTokens ?? []).filter((token) => token.userId !== userId)
         },
         result: undefined
       };
@@ -186,6 +187,62 @@ export class AuthStore {
     }
     const user = state.users.find((item) => item.id === session.userId);
     return user ? toAuthUser(user) : null;
+  }
+
+  async createApiToken(user: AuthUser, input: CreateApiToken): Promise<CreatedApiToken> {
+    const secret = `lxpat_${randomToken(32)}`;
+    return this.store.update((state) => {
+      const now = new Date();
+      const record: ApiTokenRecord = {
+        id: randomToken(12),
+        name: input.name,
+        userId: user.id,
+        role: user.role,
+        tokenHash: sha256(secret),
+        createdAt: now.toISOString(),
+        ...(input.expiresInDays ? { expiresAt: new Date(now.getTime() + input.expiresInDays * 24 * 60 * 60 * 1000).toISOString() } : {})
+      };
+      return { data: { ...state, apiTokens: [...(state.apiTokens ?? []), record] }, result: { token: toApiToken(record, user), secret } };
+    });
+  }
+
+  async listApiTokens(userId: string): Promise<ApiToken[]> {
+    const state = await this.store.read();
+    return (state.apiTokens ?? [])
+      .filter((token) => token.userId === userId)
+      .map((token) => toApiToken(token, state.users.find((user) => user.id === token.userId)))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async revokeApiToken(userId: string, tokenId: string): Promise<boolean> {
+    return this.store.update((state) => {
+      const tokens = state.apiTokens ?? [];
+      const nextTokens = tokens.filter((token) => !(token.id === tokenId && token.userId === userId));
+      return { data: { ...state, apiTokens: nextTokens }, result: nextTokens.length !== tokens.length };
+    });
+  }
+
+  async getUserByApiToken(secret: string): Promise<AuthUser | null> {
+    if (!secret.startsWith("lxpat_")) {
+      return null;
+    }
+    const tokenHash = sha256(secret);
+    return this.store.update((state) => {
+      const now = Date.now();
+      const token = (state.apiTokens ?? []).find((item) => item.tokenHash === tokenHash);
+      if (!token || (token.expiresAt && new Date(token.expiresAt).getTime() <= now)) {
+        return { data: state, result: null };
+      }
+      const user = state.users.find((item) => item.id === token.userId);
+      if (!user) {
+        return { data: state, result: null };
+      }
+      const usedAt = new Date().toISOString();
+      return {
+        data: { ...state, apiTokens: (state.apiTokens ?? []).map((item) => item.id === token.id ? { ...item, lastUsedAt: usedAt } : item) },
+        result: toAuthUser({ ...user, role: lowerRole(user.role, token.role) })
+      };
+    });
   }
 
   async deleteSession(rawSessionId: string): Promise<void> {
@@ -275,6 +332,27 @@ export class AuthStore {
 
 function countOwners(users: UserRecord[]): number {
   return users.filter((user) => user.role === "owner").length;
+}
+
+function toApiToken(token: ApiTokenRecord, user: Pick<AuthUser, "id" | "username"> | UserRecord | undefined): ApiToken {
+  return {
+    id: token.id,
+    name: token.name,
+    userId: token.userId,
+    username: user?.username ?? "unknown",
+    role: token.role,
+    createdAt: token.createdAt,
+    ...(token.expiresAt ? { expiresAt: token.expiresAt } : {}),
+    ...(token.lastUsedAt ? { lastUsedAt: token.lastUsedAt } : {})
+  };
+}
+
+function lowerRole(left: Role, right: Role): Role {
+  return roleRank(left) <= roleRank(right) ? left : right;
+}
+
+function roleRank(role: Role): number {
+  return role === "owner" ? 3 : role === "operator" ? 2 : 1;
 }
 
 function toAuthUser(user: UserRecord): AuthUser {

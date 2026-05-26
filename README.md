@@ -13,6 +13,7 @@ LXPanel 是一个从零开始搭建的轻量服务器运维面板原型，目标
 - 受控文件目录浏览，默认只允许访问配置的根目录。
 - 受控日志目录浏览与尾部读取，适合快速排查服务日志。
 - 多用户与 RBAC：`owner`、`operator`、`viewer` 三档角色。
+- API Token：支持脚本、CI 和第三方系统通过 `Authorization: Bearer lxpat_...` 调用接口，Token 只展示一次明文并可撤销。
 - 受控任务运行器：使用参数化命令执行维护任务，记录运行历史。
 - 计划任务与自动备份：按固定间隔运行维护任务、生成面板状态快照，并支持下载、校验、恢复和保留最近 100 份快照。
 - 资源告警：按 CPU、内存、磁盘阈值自动检查，保留最近告警历史，支持手动检查、确认与审计。
@@ -68,6 +69,14 @@ npm run smoke
 | `owner` | 用户管理、备份、全部运维动作 |
 | `operator` | 主机、应用、通知、服务/Docker 动作、任务运行、常规运维 |
 | `viewer` | 只读查看概览、主机、监控、告警、文件、日志、审计等信息 |
+
+## API Token
+
+API Token 可在安全页创建，用于自动化调用。Token 明文只在创建时显示一次，服务端仅保存哈希；撤销后立即失效。
+
+```powershell
+curl.exe -H "Authorization: Bearer lxpat_xxx" http://127.0.0.1:7080/api/system/overview
+```
 
 ## Linux 服务安装
 
