@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateDatabaseConnectionSchema, DatabaseBackupRequestSchema, UpdateDatabaseConnectionSchema } from "@lxpanel/shared";
+import { CreateDatabaseConnectionSchema, DatabaseBackupRequestSchema, DatabaseRestoreDrillRequestSchema, UpdateDatabaseConnectionSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole } from "../auth/authMiddleware.js";
 
@@ -61,6 +61,17 @@ export function registerDatabaseRoutes(app: FastifyInstance, services: Services)
     const input = DatabaseBackupRequestSchema.parse(request.body);
     const result = await services.databaseStore.backupConnection(input.connectionId, user.username);
     await services.auditLog.append({ actor: user.username, action: "database.backup", target: input.connectionId, ip: request.ip, status: result.status === "success" ? "success" : "error", detail: result.error ?? result.outputTail });
+    return { result };
+  });
+
+  app.post("/api/databases/restore-drill", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const input = DatabaseRestoreDrillRequestSchema.parse(request.body);
+    const result = await services.databaseStore.runRestoreDrill(input.connectionId, user.username);
+    await services.auditLog.append({ actor: user.username, action: "database.restore_drill", target: input.connectionId, ip: request.ip, status: result.status === "success" || result.status === "skipped" ? "success" : "error", detail: result.error ?? result.outputTail });
     return { result };
   });
 }

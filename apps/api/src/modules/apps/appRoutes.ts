@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { AppDeploymentActionSchema, CreateAppDeploymentSchema, RollbackAppDeploymentSchema, UpdateAppDeploymentSchema } from "@lxpanel/shared";
+import { AppDeploymentActionSchema, BackupRequestSchema, CreateAppDeploymentSchema, RollbackAppDeploymentSchema, UpdateAppDeploymentSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
 
@@ -18,6 +18,15 @@ export function registerAppRoutes(app: FastifyInstance, services: Services): voi
       return;
     }
     return { deployments: await services.appStore.listDeployments() };
+  });
+
+  app.get<{ Querystring: { deploymentId?: string } }>("/api/apps/deployments/health", async (request, reply) => {
+    const user = await requireUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    const input = BackupRequestSchema.parse({ backupId: request.query.deploymentId ?? "" });
+    return { health: await services.appStore.checkHealth(input.backupId) };
   });
 
   app.post("/api/apps/deployments", async (request, reply) => {

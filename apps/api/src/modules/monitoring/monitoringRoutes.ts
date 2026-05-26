@@ -19,6 +19,35 @@ export function registerMonitoringRoutes(app: FastifyInstance, services: Service
     }
     return { sample: await services.monitoringService.latest(request.query.hostId) };
   });
+
+  app.get("/api/monitoring/prometheus", async (request, reply) => {
+    const user = await requireUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    const samples = await services.monitoringService.listSamples(undefined, 1000);
+    reply.header("content-type", "text/plain; version=0.0.4; charset=utf-8");
+    return toPrometheus(samples);
+  });
+}
+
+function toPrometheus(samples: Array<{ hostId: string; hostName: string; cpuPercent: number; memoryPercent: number; diskUsedPercent?: number | undefined }>): string {
+  const latestByHost = new Map<string, typeof samples[number]>();
+  for (const sample of samples) {
+    latestByHost.set(sample.hostId, sample);
+  }
+  const lines = [
+    "# HELP lxpanel_cpu_percent Latest CPU usage percent.",
+    "# TYPE lxpanel_cpu_percent gauge",
+    ...[...latestByHost.values()].map((sample) => `lxpanel_cpu_percent{host=${JSON.stringify(sample.hostName)}} ${sample.cpuPercent}`),
+    "# HELP lxpanel_memory_percent Latest memory usage percent.",
+    "# TYPE lxpanel_memory_percent gauge",
+    ...[...latestByHost.values()].map((sample) => `lxpanel_memory_percent{host=${JSON.stringify(sample.hostName)}} ${sample.memoryPercent}`),
+    "# HELP lxpanel_disk_percent Latest disk usage percent.",
+    "# TYPE lxpanel_disk_percent gauge",
+    ...[...latestByHost.values()].filter((sample) => typeof sample.diskUsedPercent === "number").map((sample) => `lxpanel_disk_percent{host=${JSON.stringify(sample.hostName)}} ${sample.diskUsedPercent}`)
+  ];
+  return `${lines.join("\n")}\n`;
 }
 
 function parseLimit(value: string | undefined): number | undefined {

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { copyFile, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BackupSchedule, BackupSnapshot, BackupVerification, CreateRemoteBackupTarget, RemoteBackupSync, RemoteBackupSyncResult, RemoteBackupTarget, UpdateBackupSchedule, UpdateRemoteBackupTarget } from "@lxpanel/shared";
@@ -7,9 +7,14 @@ import type { StateStore } from "../../lib/stateStore.js";
 import { createInitialPanelState, type BackupRecord, type BackupScheduleRecord, type PanelState, type RemoteBackupTargetRecord } from "../state/panelState.js";
 
 const maxBackups = 100;
+const encryptedSecretPrefix = "rbenc:v1";
 
 export class BackupStore {
-  constructor(private readonly store: StateStore<PanelState>, private readonly dataDir: string) {}
+  private readonly encryptionKey: Buffer | null;
+
+  constructor(private readonly store: StateStore<PanelState>, private readonly dataDir: string, encryptionSecret = "") {
+    this.encryptionKey = encryptionSecret ? createHash("sha256").update(encryptionSecret).digest() : null;
+  }
 
   async listBackups(): Promise<BackupSnapshot[]> {
     const state = await this.store.read();
@@ -51,7 +56,7 @@ export class BackupStore {
 
   async listRemoteTargets(): Promise<RemoteBackupTarget[]> {
     const state = await this.store.read();
-    return (state.remoteBackupTargets ?? []).slice().reverse();
+    return (state.remoteBackupTargets ?? []).slice().reverse().map(toPublicRemoteTarget);
   }
 
   async createRemoteTarget(input: CreateRemoteBackupTarget, actor: string): Promise<RemoteBackupTarget> {
@@ -62,12 +67,19 @@ export class BackupStore {
         name: input.name,
         type: input.type,
         path: input.path,
+        ...(input.endpoint ? { endpoint: input.endpoint } : {}),
+        ...(input.bucket ? { bucket: input.bucket } : {}),
+        ...(input.prefix ? { prefix: input.prefix } : {}),
+        ...(input.region ? { region: input.region } : {}),
+        ...(input.accessKeyId ? { accessKeyId: input.accessKeyId } : {}),
+        ...(input.secretAccessKey ? this.toStoredRemoteSecret(input.secretAccessKey) : {}),
+        ...(input.secretAccessKey ? { secretConfigured: true } : {}),
         enabled: input.enabled,
         createdAt: now,
         updatedAt: now,
         updatedBy: actor
       };
-      return { data: { ...state, remoteBackupTargets: [...(state.remoteBackupTargets ?? []), target] }, result: target };
+      return { data: { ...state, remoteBackupTargets: [...(state.remoteBackupTargets ?? []), target] }, result: toPublicRemoteTarget(target) };
     });
   }
 
@@ -82,11 +94,18 @@ export class BackupStore {
         ...target,
         ...(input.name ? { name: input.name } : {}),
         ...(input.path ? { path: input.path } : {}),
+        ...(input.endpoint ? { endpoint: input.endpoint } : {}),
+        ...(input.bucket ? { bucket: input.bucket } : {}),
+        ...(input.prefix !== undefined ? { prefix: input.prefix } : {}),
+        ...(input.region ? { region: input.region } : {}),
+        ...(input.accessKeyId ? { accessKeyId: input.accessKeyId } : {}),
+        ...(input.secretAccessKey ? this.toStoredRemoteSecret(input.secretAccessKey) : {}),
+        ...(input.secretAccessKey ? { secretConfigured: true } : {}),
         ...(typeof input.enabled === "boolean" ? { enabled: input.enabled } : {}),
         updatedAt: new Date().toISOString(),
         updatedBy: actor
       };
-      return { data: { ...state, remoteBackupTargets: targets.map((item) => item.id === input.targetId ? updated : item) }, result: updated };
+      return { data: { ...state, remoteBackupTargets: targets.map((item) => item.id === input.targetId ? updated : item) }, result: toPublicRemoteTarget(updated) };
     });
   }
 
@@ -250,6 +269,9 @@ export class BackupStore {
   }
 
   private async copyBackupToTarget(backup: BackupSnapshot, target: RemoteBackupTargetRecord): Promise<RemoteBackupSyncResult> {
+    if (target.type === "s3") {
+      return this.putBackupToS3(backup, target);
+    }
     const copiedPath = join(target.path, backup.fileName);
     try {
       await mkdir(target.path, { recursive: true });
@@ -258,6 +280,24 @@ export class BackupStore {
         await writeFile(`${copiedPath}.sha256`, `${backup.sha256}  ${backup.fileName}\n`, "utf8");
       }
       return { backupId: backup.id, targetId: target.id, targetName: target.name, status: "success", copiedPath };
+    } catch (error) {
+      return { backupId: backup.id, targetId: target.id, targetName: target.name, status: "failed", error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private async putBackupToS3(backup: BackupSnapshot, target: RemoteBackupTargetRecord): Promise<RemoteBackupSyncResult> {
+    try {
+      if (!target.endpoint || !target.bucket || !target.accessKeyId) {
+        throw new Error("S3 目标缺少 endpoint、bucket 或 accessKeyId。");
+      }
+      const secretAccessKey = this.readRemoteSecret(target);
+      const content = await readFile(backup.path);
+      const objectKey = buildObjectKey(target.prefix, backup.fileName);
+      await putS3Object({ endpoint: target.endpoint, bucket: target.bucket, key: objectKey, region: target.region ?? "us-east-1", accessKeyId: target.accessKeyId, secretAccessKey, body: content });
+      if (backup.sha256) {
+        await putS3Object({ endpoint: target.endpoint, bucket: target.bucket, key: `${objectKey}.sha256`, region: target.region ?? "us-east-1", accessKeyId: target.accessKeyId, secretAccessKey, body: Buffer.from(`${backup.sha256}  ${backup.fileName}\n`, "utf8") });
+      }
+      return { backupId: backup.id, targetId: target.id, targetName: target.name, status: "success", copiedPath: `${target.endpoint}/${target.bucket}/${objectKey}`, objectKey };
     } catch (error) {
       return { backupId: backup.id, targetId: target.id, targetName: target.name, status: "failed", error: error instanceof Error ? error.message : String(error) };
     }
@@ -272,6 +312,114 @@ export class BackupStore {
       result: undefined
     }));
   }
+
+  private toStoredRemoteSecret(value: string): Pick<RemoteBackupTargetRecord, "secretAccessKey" | "encryptedSecretAccessKey"> {
+    return this.encryptionKey ? { encryptedSecretAccessKey: encryptSecret(value, this.encryptionKey) } : { secretAccessKey: value };
+  }
+
+  private readRemoteSecret(target: RemoteBackupTargetRecord): string {
+    if (target.encryptedSecretAccessKey) {
+      if (!this.encryptionKey) {
+        throw new Error("远程备份目标密钥已加密，但当前未配置解密密钥。");
+      }
+      return decryptSecret(target.encryptedSecretAccessKey, this.encryptionKey);
+    }
+    if (target.secretAccessKey) {
+      return target.secretAccessKey;
+    }
+    throw new Error("远程备份目标缺少访问密钥。");
+  }
+}
+
+async function putS3Object(input: { endpoint: string; bucket: string; key: string; region: string; accessKeyId: string; secretAccessKey: string; body: Buffer }): Promise<void> {
+  const url = new URL(`${trimEndSlash(input.endpoint)}/${encodePath(input.bucket)}/${encodeKey(input.key)}`);
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/gu, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = sha256Hex(input.body);
+  const canonicalHeaders = `host:${url.host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalRequest = ["PUT", url.pathname, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const scope = `${dateStamp}/${input.region}/s3/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256Hex(Buffer.from(canonicalRequest, "utf8"))].join("\n");
+  const signature = hmac(signingKey(input.secretAccessKey, dateStamp, input.region), stringToSign, "hex");
+  const authorization = `AWS4-HMAC-SHA256 Credential=${input.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(url, { method: "PUT", body: new Uint8Array(input.body), headers: { authorization, "x-amz-content-sha256": payloadHash, "x-amz-date": amzDate } });
+  if (!response.ok) {
+    throw new Error(`S3 PUT 失败: ${response.status} ${response.statusText}`);
+  }
+}
+
+function signingKey(secret: string, dateStamp: string, region: string): Buffer {
+  const dateKey = hmac(Buffer.from(`AWS4${secret}`, "utf8"), dateStamp);
+  const regionKey = hmac(dateKey, region);
+  const serviceKey = hmac(regionKey, "s3");
+  return hmac(serviceKey, "aws4_request");
+}
+
+function hmac(key: Buffer, value: string): Buffer;
+function hmac(key: Buffer, value: string, encoding: "hex"): string;
+function hmac(key: Buffer, value: string, encoding?: "hex"): Buffer | string {
+  const digest = createHmac("sha256", key).update(value, "utf8");
+  return encoding ? digest.digest(encoding) : digest.digest();
+}
+
+function sha256Hex(value: Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function buildObjectKey(prefix: string | undefined, fileName: string): string {
+  return `${prefix?.replace(/^\/+|\/+$/gu, "") ?? "lxpanel"}/${fileName}`;
+}
+
+function trimEndSlash(value: string): string {
+  return value.replace(/\/+$/u, "");
+}
+
+function encodePath(value: string): string {
+  return encodeURIComponent(value).replace(/%2F/giu, "/");
+}
+
+function encodeKey(value: string): string {
+  return value.split("/").map(encodeURIComponent).join("/");
+}
+
+function encryptSecret(value: string, key: Buffer): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  return `${encryptedSecretPrefix}:${iv.toString("base64url")}:${cipher.getAuthTag().toString("base64url")}:${ciphertext.toString("base64url")}`;
+}
+
+function decryptSecret(value: string, key: Buffer): string {
+  const [prefix, version, ivText, tagText, ciphertextText] = value.split(":");
+  if (`${prefix}:${version}` !== encryptedSecretPrefix || !ivText || !tagText || !ciphertextText) {
+    throw new Error("远程备份密钥格式不正确。");
+  }
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivText, "base64url"));
+  decipher.setAuthTag(Buffer.from(tagText, "base64url"));
+  return Buffer.concat([decipher.update(Buffer.from(ciphertextText, "base64url")), decipher.final()]).toString("utf8");
+}
+
+function toPublicRemoteTarget(target: RemoteBackupTargetRecord): RemoteBackupTarget {
+  return {
+    id: target.id,
+    name: target.name,
+    type: target.type,
+    path: target.path,
+    ...(target.endpoint ? { endpoint: target.endpoint } : {}),
+    ...(target.bucket ? { bucket: target.bucket } : {}),
+    ...(target.prefix ? { prefix: target.prefix } : {}),
+    ...(target.region ? { region: target.region } : {}),
+    ...(target.accessKeyId ? { accessKeyId: target.accessKeyId } : {}),
+    ...(target.secretAccessKey || target.encryptedSecretAccessKey || target.secretConfigured ? { secretConfigured: true } : {}),
+    enabled: target.enabled,
+    createdAt: target.createdAt,
+    updatedAt: target.updatedAt,
+    updatedBy: target.updatedBy,
+    ...(target.lastSyncedAt ? { lastSyncedAt: target.lastSyncedAt } : {}),
+    ...(target.lastStatus ? { lastStatus: target.lastStatus } : {}),
+    ...(target.lastError ? { lastError: target.lastError } : {})
+  };
 }
 
 function toUpdatedRemoteTarget(target: RemoteBackupTargetRecord, result: RemoteBackupSyncResult, actor: string): RemoteBackupTargetRecord {
@@ -323,14 +471,18 @@ function parseBackupState(content: string): PanelState {
     backupSchedule: readBackupSchedule(state.backupSchedule) ?? initial.backupSchedule ?? { enabled: false, everyHours: 24 },
     alertThresholds: readArrayOrDefault<NonNullable<PanelState["alertThresholds"]>>(state.alertThresholds, initial.alertThresholds ?? []),
     alertEvents: readArrayOrDefault<NonNullable<PanelState["alertEvents"]>>(state.alertEvents, initial.alertEvents ?? []),
+    alertSilences: readArrayOrDefault<NonNullable<PanelState["alertSilences"]>>(state.alertSilences, initial.alertSilences ?? []),
     hosts: readArrayOrDefault<NonNullable<PanelState["hosts"]>>(state.hosts, initial.hosts ?? []),
+    hostGroups: readArrayOrDefault<NonNullable<PanelState["hostGroups"]>>(state.hostGroups, initial.hostGroups ?? []),
     metricSamples: readArrayOrDefault<NonNullable<PanelState["metricSamples"]>>(state.metricSamples, initial.metricSamples ?? []),
     notificationChannels: readArrayOrDefault<NonNullable<PanelState["notificationChannels"]>>(state.notificationChannels, initial.notificationChannels ?? []),
     notificationDeliveries: readArrayOrDefault<NonNullable<PanelState["notificationDeliveries"]>>(state.notificationDeliveries, initial.notificationDeliveries ?? []),
     appDeployments: readArrayOrDefault<NonNullable<PanelState["appDeployments"]>>(state.appDeployments, initial.appDeployments ?? []),
     approvals: readArrayOrDefault<NonNullable<PanelState["approvals"]>>(state.approvals, initial.approvals ?? []),
     remoteBackupTargets: readArrayOrDefault<NonNullable<PanelState["remoteBackupTargets"]>>(state.remoteBackupTargets, initial.remoteBackupTargets ?? []),
-    databaseConnections: readArrayOrDefault<NonNullable<PanelState["databaseConnections"]>>(state.databaseConnections, initial.databaseConnections ?? [])
+    databaseConnections: readArrayOrDefault<NonNullable<PanelState["databaseConnections"]>>(state.databaseConnections, initial.databaseConnections ?? []),
+    accessPolicies: readArrayOrDefault<NonNullable<PanelState["accessPolicies"]>>(state.accessPolicies, initial.accessPolicies ?? []),
+    securityRemediationRuns: readArrayOrDefault<NonNullable<PanelState["securityRemediationRuns"]>>(state.securityRemediationRuns, initial.securityRemediationRuns ?? [])
   };
 }
 

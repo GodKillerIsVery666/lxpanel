@@ -2,15 +2,22 @@ import { z } from "zod";
 import {
   AuditEventSchema,
   AuditExportQuerySchema,
+  AuditIntegrityReportSchema,
   AuditPruneResultSchema,
   AuditQuerySchema,
   AuditRetentionSchema,
   AlertEventSchema,
+  AlertSilenceSchema,
   AlertSummarySchema,
   AlertThresholdSchema,
+  AccessEvaluationRequestSchema,
+  AccessEvaluationSchema,
+  AccessPolicySchema,
+  AppDeploymentHealthSchema,
   AppDeploymentActionSchema,
   AppDeploymentSchema,
   AppTemplateSchema,
+  CapacityPlanSchema,
   ApiTokenSchema,
   ApprovalDecisionSchema,
   ApprovalQuerySchema,
@@ -20,6 +27,7 @@ import {
   BackupRestoreRequestSchema,
   BackupRestoreResponseSchema,
   BackupVerificationSchema,
+  ComplianceReportSchema,
   CreateRemoteBackupTargetSchema,
   AuthSessionSchema,
   ConnectorCommandSchema,
@@ -29,8 +37,11 @@ import {
   ConnectorSchema,
   CreateApiTokenSchema,
   CreateApprovalSchema,
+  CreateAccessPolicySchema,
+  CreateAlertSilenceSchema,
   CreateDatabaseConnectionSchema,
   CreateDirectoryRequestSchema,
+  CreateHostGroupSchema,
   CreateHostSchema,
   CreateAppDeploymentSchema,
   CreateConnectorCommandSchema,
@@ -41,6 +52,9 @@ import {
   DatabaseBackupRequestSchema,
   DatabaseBackupResultSchema,
   DatabaseConnectionSchema,
+  DatabaseRestoreDrillRequestSchema,
+  DatabaseRestoreDrillResultSchema,
+  DeliveryChecklistSchema,
   DismissAlertSchema,
   DeleteFileRequestSchema,
   CreateConnectorSchema,
@@ -53,6 +67,9 @@ import {
   FileReadRequestSchema,
   FileWriteRequestSchema,
   HostSchema,
+  HostBatchCommandSchema,
+  HostGroupSchema,
+  HostSshSessionRequestSchema,
   LogRootSchema,
   LogTailSchema,
   LoginResponseSchema,
@@ -62,11 +79,14 @@ import {
   NotificationDeliverySchema,
   NotificationSecretRotationResultSchema,
   NotificationSecretRotationSchema,
+  OpenApiSummarySchema,
   NotificationTestSchema,
   ProcessInfoSchema,
   RevokeApiTokenSchema,
   RollbackAppDeploymentSchema,
   SecurityHardeningPlanSchema,
+  SecurityRemediationRequestSchema,
+  SecurityRemediationRunSchema,
   SecurityPostureSchema,
   ServiceInfoSchema,
   SetupRequestSchema,
@@ -88,17 +108,22 @@ import {
   UpdateAlertThresholdSchema,
   UpdateTaskScheduleSchema,
   UpdateUserRoleSchema,
+  UpgradePlanSchema,
   type AuthUser,
+  type AccessEvaluationRequest,
   type ApprovalQuery,
   type AuditQuery,
   type AppDeploymentAction,
   type ChangeOwnPassword,
   type CreateApiToken,
+  type CreateAccessPolicy,
+  type CreateAlertSilence,
   type CreateApproval,
   type CreateAppDeployment,
   type CreateConnector,
   type CreateConnectorCommand,
   type CreateDatabaseConnection,
+  type CreateHostGroup,
   type CreateHost,
   type CreateNotificationChannel,
   type CreateRemoteBackupTarget,
@@ -139,8 +164,12 @@ const LogRootsResponseSchema = z.object({ roots: z.array(LogRootSchema) });
 const LogTailResponseSchema = z.object({ tail: LogTailSchema });
 const AuditResponseSchema = z.object({ events: z.array(AuditEventSchema) });
 const AuditPruneResponseSchema = z.object({ result: AuditPruneResultSchema });
+const AuditIntegrityResponseSchema = z.object({ report: AuditIntegrityReportSchema });
+const ComplianceResponseSchema = z.object({ report: ComplianceReportSchema });
 const AlertsResponseSchema = z.object({ events: z.array(AlertEventSchema), summary: AlertSummarySchema });
 const AlertThresholdsResponseSchema = z.object({ thresholds: z.array(AlertThresholdSchema) });
+const AlertSilencesResponseSchema = z.object({ silences: z.array(AlertSilenceSchema) });
+const AlertSilenceResponseSchema = z.object({ silence: AlertSilenceSchema });
 const AlertDismissResponseSchema = z.object({ event: AlertEventSchema });
 const SecurityResponseSchema = z.object({ posture: SecurityPostureSchema });
 const SecurityHardeningResponseSchema = z.object({ plan: SecurityHardeningPlanSchema });
@@ -155,13 +184,18 @@ const NotificationSecretRotationResponseSchema = z.object({ result: Notification
 const AppTemplatesResponseSchema = z.object({ templates: z.array(AppTemplateSchema) });
 const AppDeploymentsResponseSchema = z.object({ deployments: z.array(AppDeploymentSchema) });
 const AppDeploymentResponseSchema = z.object({ deployment: AppDeploymentSchema });
+const AppDeploymentHealthResponseSchema = z.object({ health: AppDeploymentHealthSchema });
 const DatabaseConnectionsResponseSchema = z.object({ connections: z.array(DatabaseConnectionSchema) });
 const DatabaseConnectionResponseSchema = z.object({ connection: DatabaseConnectionSchema });
 const DatabaseBackupResponseSchema = z.object({ result: DatabaseBackupResultSchema });
+const DatabaseRestoreDrillResponseSchema = z.object({ result: DatabaseRestoreDrillResultSchema });
+const HostGroupsResponseSchema = z.object({ groups: z.array(HostGroupSchema) });
+const HostGroupResponseSchema = z.object({ group: HostGroupSchema });
 const ConnectorsResponseSchema = z.object({ connectors: z.array(ConnectorSchema) });
 const ConnectorCommandsResponseSchema = z.object({ commands: z.array(ConnectorCommandSchema) });
 const CreatedConnectorResponseSchema = z.object({ connector: ConnectorSchema, token: z.string() });
 const ConnectorCommandResponseSchema = z.object({ command: ConnectorCommandSchema });
+const ConnectorCommandsOnlyResponseSchema = z.object({ commands: z.array(ConnectorCommandSchema) });
 const DockerStatusResponseSchema = z.object({ status: DockerStatusSchema });
 const DockerContainersResponseSchema = z.object({ containers: z.array(DockerContainerSchema) });
 const DockerImagesResponseSchema = z.object({ images: z.array(DockerImageSchema) });
@@ -175,6 +209,15 @@ const BackupVerificationResponseSchema = z.object({ verification: BackupVerifica
 const RemoteBackupTargetsResponseSchema = z.object({ targets: z.array(RemoteBackupTargetSchema) });
 const RemoteBackupTargetResponseSchema = z.object({ target: RemoteBackupTargetSchema });
 const RemoteBackupSyncResponseSchema = z.object({ results: z.array(RemoteBackupSyncResultSchema) });
+const AccessPoliciesResponseSchema = z.object({ policies: z.array(AccessPolicySchema) });
+const AccessPolicyResponseSchema = z.object({ policy: AccessPolicySchema });
+const AccessEvaluationResponseSchema = z.object({ evaluation: AccessEvaluationSchema });
+const RemediationRunsResponseSchema = z.object({ runs: z.array(SecurityRemediationRunSchema) });
+const RemediationRunResponseSchema = z.object({ run: SecurityRemediationRunSchema });
+const CapacityPlanResponseSchema = z.object({ plan: CapacityPlanSchema });
+const UpgradePlanResponseSchema = z.object({ plan: UpgradePlanSchema });
+const DeliveryChecklistResponseSchema = z.object({ checklist: DeliveryChecklistSchema });
+const OpenApiSummaryResponseSchema = z.object({ summary: OpenApiSummarySchema });
 const OkResponseSchema = z.object({ ok: z.boolean() });
 
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
@@ -241,19 +284,28 @@ export const api = {
     const input = AuditRetentionSchema.parse({ retainDays, approvalId });
     return request(`/api/audit?retainDays=${encodeURIComponent(String(input.retainDays))}&approvalId=${encodeURIComponent(input.approvalId)}`, AuditPruneResponseSchema, "DELETE");
   },
+  auditIntegrity: () => request("/api/audit/integrity", AuditIntegrityResponseSchema),
+  complianceReport: () => request("/api/audit/compliance", ComplianceResponseSchema),
   alerts: () => request("/api/alerts", AlertsResponseSchema),
   alertThresholds: () => request("/api/alerts/thresholds", AlertThresholdsResponseSchema),
+  alertSilences: () => request("/api/alerts/silences", AlertSilencesResponseSchema),
+  createAlertSilence: (input: CreateAlertSilence) => request("/api/alerts/silences", AlertSilenceResponseSchema, "POST", CreateAlertSilenceSchema.parse(input)),
   updateAlertThreshold: (input: UpdateAlertThreshold) => request("/api/alerts/thresholds", AlertThresholdsResponseSchema, "PATCH", UpdateAlertThresholdSchema.parse(input)),
   checkAlerts: () => request("/api/alerts/check", AlertsResponseSchema, "POST"),
   dismissAlert: (alertId: string) => request("/api/alerts/dismiss", AlertDismissResponseSchema, "POST", DismissAlertSchema.parse({ alertId })),
   security: () => request("/api/security/posture", SecurityResponseSchema),
   securityHardeningPlan: () => request("/api/security/hardening-plan", SecurityHardeningResponseSchema),
   hosts: () => request("/api/hosts", HostsResponseSchema),
+  hostGroups: () => request("/api/hosts/groups", HostGroupsResponseSchema),
+  createHostGroup: (input: CreateHostGroup) => request("/api/hosts/groups", HostGroupResponseSchema, "POST", CreateHostGroupSchema.parse(input)),
+  createHostBatchCommand: (input: z.infer<typeof HostBatchCommandSchema>) => request("/api/hosts/batch-command", ConnectorCommandsOnlyResponseSchema, "POST", HostBatchCommandSchema.parse(input)),
+  createHostSshSession: (input: z.infer<typeof HostSshSessionRequestSchema>) => request("/api/hosts/ssh-session", ConnectorCommandResponseSchema, "POST", HostSshSessionRequestSchema.parse(input)),
   createHost: (input: CreateHost) => request("/api/hosts", HostResponseSchema, "POST", CreateHostSchema.parse(input)),
   updateHost: (input: UpdateHost) => request("/api/hosts", HostResponseSchema, "PATCH", UpdateHostSchema.parse(input)),
   deleteHost: (hostId: string) => request(`/api/hosts?hostId=${encodeURIComponent(hostId)}`, OkResponseSchema, "DELETE"),
   monitoringSamples: (hostId = "local", limit = 288) => request(`/api/monitoring/samples?hostId=${encodeURIComponent(hostId)}&limit=${limit}`, MonitoringSamplesResponseSchema),
   monitoringLatest: (hostId = "local") => request(`/api/monitoring/latest?hostId=${encodeURIComponent(hostId)}`, MonitoringLatestResponseSchema),
+  monitoringPrometheus: () => download("/api/monitoring/prometheus"),
   notifications: () => request("/api/notifications", NotificationsResponseSchema),
   createNotificationChannel: (input: CreateNotificationChannel) => request("/api/notifications", NotificationChannelResponseSchema, "POST", CreateNotificationChannelSchema.parse(input)),
   updateNotificationChannel: (input: UpdateNotificationChannel) => request("/api/notifications", NotificationChannelResponseSchema, "PATCH", UpdateNotificationChannelSchema.parse(input)),
@@ -262,6 +314,7 @@ export const api = {
   rotateNotificationSecret: (input: NotificationSecretRotation) => request("/api/notifications/rotate-secret", NotificationSecretRotationResponseSchema, "POST", NotificationSecretRotationSchema.parse(input)),
   appTemplates: () => request("/api/apps/templates", AppTemplatesResponseSchema),
   appDeployments: () => request("/api/apps/deployments", AppDeploymentsResponseSchema),
+  appDeploymentHealth: (deploymentId: string) => request(`/api/apps/deployments/health?deploymentId=${encodeURIComponent(deploymentId)}`, AppDeploymentHealthResponseSchema),
   createAppDeployment: (input: CreateAppDeployment) => request("/api/apps/deployments", AppDeploymentResponseSchema, "POST", CreateAppDeploymentSchema.parse(input)),
   runAppDeploymentAction: (input: AppDeploymentAction) => request("/api/apps/deployments/action", AppDeploymentResponseSchema, "POST", AppDeploymentActionSchema.parse(input)),
   updateAppDeployment: (input: UpdateAppDeployment) => request("/api/apps/deployments", AppDeploymentResponseSchema, "PATCH", UpdateAppDeploymentSchema.parse(input)),
@@ -271,10 +324,20 @@ export const api = {
   updateDatabaseConnection: (input: UpdateDatabaseConnection) => request("/api/databases", DatabaseConnectionResponseSchema, "PATCH", UpdateDatabaseConnectionSchema.parse(input)),
   deleteDatabaseConnection: (connectionId: string) => request(`/api/databases?connectionId=${encodeURIComponent(connectionId)}`, OkResponseSchema, "DELETE"),
   backupDatabaseConnection: (connectionId: string) => request("/api/databases/backup", DatabaseBackupResponseSchema, "POST", DatabaseBackupRequestSchema.parse({ connectionId })),
+  drillDatabaseRestore: (connectionId: string) => request("/api/databases/restore-drill", DatabaseRestoreDrillResponseSchema, "POST", DatabaseRestoreDrillRequestSchema.parse({ connectionId })),
   connectors: () => request("/api/connectors", ConnectorsResponseSchema),
   connectorCommands: (connectorId?: string) => request(`/api/connectors/commands${connectorId ? `?connectorId=${encodeURIComponent(connectorId)}` : ""}`, ConnectorCommandsResponseSchema),
   createConnectorCommand: (input: CreateConnectorCommand) => request("/api/connectors/commands", ConnectorCommandResponseSchema, "POST", CreateConnectorCommandSchema.parse(input)),
-  createConnector: (input: CreateConnector) => request("/api/connectors", CreatedConnectorResponseSchema, "POST", CreateConnectorSchema.parse(input))
+  createConnector: (input: CreateConnector) => request("/api/connectors", CreatedConnectorResponseSchema, "POST", CreateConnectorSchema.parse(input)),
+  accessPolicies: () => request("/api/platform/access-policies", AccessPoliciesResponseSchema),
+  createAccessPolicy: (input: CreateAccessPolicy) => request("/api/platform/access-policies", AccessPolicyResponseSchema, "POST", CreateAccessPolicySchema.parse(input)),
+  evaluateAccess: (input: AccessEvaluationRequest) => request("/api/platform/access-evaluate", AccessEvaluationResponseSchema, "POST", AccessEvaluationRequestSchema.parse(input)),
+  remediationRuns: () => request("/api/platform/remediations", RemediationRunsResponseSchema),
+  createRemediationRun: (input: z.infer<typeof SecurityRemediationRequestSchema>) => request("/api/platform/remediations", RemediationRunResponseSchema, "POST", SecurityRemediationRequestSchema.parse(input)),
+  capacityPlan: () => request("/api/platform/capacity-plan", CapacityPlanResponseSchema),
+  upgradePlan: () => request("/api/platform/upgrade-plan", UpgradePlanResponseSchema),
+  deliveryChecklist: () => request("/api/platform/delivery-checklist", DeliveryChecklistResponseSchema),
+  openApiSummary: () => request("/api/platform/openapi-summary", OpenApiSummaryResponseSchema)
 };
 
 export type ApiClient = typeof api;

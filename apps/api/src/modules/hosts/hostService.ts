@@ -1,4 +1,4 @@
-import type { CreateHost, Host, UpdateHost } from "@lxpanel/shared";
+import type { CreateHost, CreateHostGroup, Host, HostGroup, UpdateHost } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import type { ConnectorRecord, HostRecord, PanelState } from "../state/panelState.js";
@@ -17,6 +17,44 @@ export class HostService {
       .filter((connector) => !linkedConnectorIds.has(connector.id))
       .map(toDiscoveredHost);
     return [...hosts, ...discovered].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async listGroups(): Promise<HostGroup[]> {
+    const state = await this.store.read();
+    return (state.hostGroups ?? []).slice().reverse();
+  }
+
+  async createGroup(input: CreateHostGroup, actor: string): Promise<HostGroup> {
+    return this.store.update((state) => {
+      const knownIds = new Set((state.hosts ?? []).map((host) => host.id));
+      for (const hostId of input.hostIds) {
+        if (!knownIds.has(hostId)) {
+          throw new Error("主机组包含不存在的主机。 ");
+        }
+      }
+      const now = new Date().toISOString();
+      const group: HostGroup = { id: randomToken(12), name: input.name, tags: input.tags, hostIds: input.hostIds, createdAt: now, updatedAt: now, updatedBy: actor };
+      return { data: { ...state, hostGroups: [...(state.hostGroups ?? []), group] }, result: group };
+    });
+  }
+
+  async getHost(hostId: string): Promise<Host | null> {
+    const hosts = await this.list();
+    return hosts.find((host) => host.id === hostId) ?? null;
+  }
+
+  async resolveCommandTargets(hostIds: string[]): Promise<Array<{ host: Host; connectorId: string }>> {
+    const hosts = await this.list();
+    return hostIds.map((hostId) => {
+      const host = hosts.find((item) => item.id === hostId);
+      if (!host) {
+        throw new Error("主机不存在。 ");
+      }
+      if (!host.connectorId) {
+        throw new Error(`主机 ${host.name} 未绑定连接器。`);
+      }
+      return { host, connectorId: host.connectorId };
+    });
   }
 
   async create(input: CreateHost): Promise<Host> {

@@ -16,13 +16,14 @@ import { HostsPage } from "./pages/HostsPage.js";
 import { LogsPage } from "./pages/LogsPage.js";
 import { MonitoringPage } from "./pages/MonitoringPage.js";
 import { NotificationsPage } from "./pages/NotificationsPage.js";
+import { PlatformPage } from "./pages/PlatformPage.js";
 import { ProcessesPage } from "./pages/ProcessesPage.js";
 import { SecurityPage } from "./pages/SecurityPage.js";
 import { ServicesPage } from "./pages/ServicesPage.js";
 import { TasksPage } from "./pages/TasksPage.js";
 import { UsersPage } from "./pages/UsersPage.js";
 
-export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "databases" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "approvals" | "users" | "backups" | "security" | "audit";
+export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "databases" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "approvals" | "users" | "backups" | "security" | "platform" | "audit";
 
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -80,6 +81,7 @@ function renderView(view: ViewId): JSX.Element {
     case "users": return <UsersPage />;
     case "backups": return <BackupsPage />;
     case "security": return <SecurityPage />;
+    case "platform": return <PlatformPage />;
     case "audit": return <AuditPage />;
     case "dashboard":
     default: return <DashboardPage />;

@@ -31,6 +31,8 @@ export const ApiTokenScopes = [
   "connectors:write",
   "databases:read",
   "databases:write",
+  "platform:read",
+  "platform:write",
   "users:write"
 ] as const;
 export const ApiTokenScopeSchema = z.enum(ApiTokenScopes);
@@ -139,7 +141,7 @@ export const RevokeApiTokenSchema = z.object({
 });
 export type RevokeApiToken = z.infer<typeof RevokeApiTokenSchema>;
 
-export const ApprovalActionSchema = z.enum(["backup.restore", "audit.prune"]);
+export const ApprovalActionSchema = z.enum(["backup.restore", "audit.prune", "security.remediate"]);
 export type ApprovalAction = z.infer<typeof ApprovalActionSchema>;
 
 export const ApprovalStatusSchema = z.enum(["pending", "approved", "rejected", "used", "expired"]);
@@ -311,7 +313,9 @@ export const AuditEventSchema = z.object({
   target: z.string(),
   ip: z.string().optional(),
   status: z.enum(["success", "denied", "error"]),
-  detail: z.string().optional()
+  detail: z.string().optional(),
+  previousHash: z.string().optional(),
+  chainHash: z.string().optional()
 });
 export type AuditEvent = z.infer<typeof AuditEventSchema>;
 
@@ -341,6 +345,26 @@ export const AuditPruneResultSchema = z.object({
   remaining: z.number()
 });
 export type AuditPruneResult = z.infer<typeof AuditPruneResultSchema>;
+
+export const AuditIntegrityReportSchema = z.object({
+  checkedAt: z.string(),
+  total: z.number().int().nonnegative(),
+  ok: z.boolean(),
+  firstBrokenId: z.string().optional(),
+  latestHash: z.string().optional(),
+  issues: z.array(z.string())
+});
+export type AuditIntegrityReport = z.infer<typeof AuditIntegrityReportSchema>;
+
+export const ComplianceReportSchema = z.object({
+  generatedAt: z.string(),
+  totalEvents: z.number().int().nonnegative(),
+  actions: z.array(z.object({ action: z.string(), count: z.number().int().nonnegative() })),
+  denied: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  integrity: AuditIntegrityReportSchema
+});
+export type ComplianceReport = z.infer<typeof ComplianceReportSchema>;
 
 export const AlertTypeSchema = z.enum(["cpu", "memory", "disk"]);
 export type AlertType = z.infer<typeof AlertTypeSchema>;
@@ -399,6 +423,26 @@ export const DismissAlertSchema = z.object({
   alertId: z.string().min(1)
 });
 export type DismissAlert = z.infer<typeof DismissAlertSchema>;
+
+export const AlertSilenceSchema = z.object({
+  id: z.string(),
+  type: AlertTypeSchema.optional(),
+  target: z.string().optional(),
+  reason: z.string(),
+  startsAt: z.string(),
+  endsAt: z.string(),
+  createdAt: z.string(),
+  createdBy: z.string()
+});
+export type AlertSilence = z.infer<typeof AlertSilenceSchema>;
+
+export const CreateAlertSilenceSchema = z.object({
+  type: AlertTypeSchema.optional(),
+  target: z.string().min(1).max(120).optional(),
+  reason: z.string().min(3).max(500),
+  minutes: z.number().int().min(5).max(10_080).default(60)
+});
+export type CreateAlertSilence = z.infer<typeof CreateAlertSilenceSchema>;
 
 export const NotificationChannelTypeSchema = z.enum(["webhook"]);
 export type NotificationChannelType = z.infer<typeof NotificationChannelTypeSchema>;
@@ -518,6 +562,37 @@ export const UpdateHostSchema = z.object({
 });
 export type UpdateHost = z.infer<typeof UpdateHostSchema>;
 
+export const HostGroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  tags: z.array(z.string()),
+  hostIds: z.array(z.string()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type HostGroup = z.infer<typeof HostGroupSchema>;
+
+export const CreateHostGroupSchema = z.object({
+  name: z.string().min(2).max(80),
+  tags: z.array(z.string().min(1).max(32)).max(16).default([]),
+  hostIds: z.array(z.string().min(1)).max(200).default([])
+});
+export type CreateHostGroup = z.infer<typeof CreateHostGroupSchema>;
+
+export const HostBatchCommandSchema = z.object({
+  hostIds: z.array(z.string().min(1)).min(1).max(100),
+  command: z.string().min(1).max(180).regex(/^[A-Za-z0-9_.:/\-]+$/u),
+  args: z.array(z.string().max(240)).max(24).default([])
+});
+export type HostBatchCommand = z.infer<typeof HostBatchCommandSchema>;
+
+export const HostSshSessionRequestSchema = z.object({
+  hostId: z.string().min(1),
+  username: z.string().min(1).max(80).optional()
+});
+export type HostSshSessionRequest = z.infer<typeof HostSshSessionRequestSchema>;
+
 export const CreateConnectorSchema = z.object({
   name: z.string().min(2).max(64),
   description: z.string().max(200).optional(),
@@ -616,6 +691,10 @@ export const AppTemplateSchema = z.object({
   category: z.string(),
   description: z.string(),
   image: z.string(),
+  source: z.string().optional(),
+  signature: z.string().optional(),
+  verified: z.boolean().default(true),
+  healthCheck: z.string().optional(),
   variables: z.array(AppTemplateVariableSchema)
 });
 export type AppTemplate = z.infer<typeof AppTemplateSchema>;
@@ -667,6 +746,14 @@ export const RollbackAppDeploymentSchema = z.object({
   autoRestart: z.boolean().default(false)
 });
 export type RollbackAppDeployment = z.infer<typeof RollbackAppDeploymentSchema>;
+
+export const AppDeploymentHealthSchema = z.object({
+  deploymentId: z.string(),
+  status: z.enum(["healthy", "unhealthy", "unknown"]),
+  checkedAt: z.string(),
+  detail: z.string()
+});
+export type AppDeploymentHealth = z.infer<typeof AppDeploymentHealthSchema>;
 
 export const CreateTaskSchema = z.object({
   name: z.string().min(2).max(80),
@@ -802,8 +889,14 @@ export type UpdateBackupSchedule = z.infer<typeof UpdateBackupScheduleSchema>;
 export const RemoteBackupTargetSchema = z.object({
   id: z.string(),
   name: z.string(),
-  type: z.enum(["filesystem"]),
+  type: z.enum(["filesystem", "s3"]),
   path: z.string(),
+  endpoint: z.string().url().optional(),
+  bucket: z.string().optional(),
+  prefix: z.string().optional(),
+  region: z.string().optional(),
+  accessKeyId: z.string().optional(),
+  secretConfigured: z.boolean().optional(),
   enabled: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -816,9 +909,23 @@ export type RemoteBackupTarget = z.infer<typeof RemoteBackupTargetSchema>;
 
 export const CreateRemoteBackupTargetSchema = z.object({
   name: z.string().min(2).max(80),
-  type: z.enum(["filesystem"]).default("filesystem"),
+  type: z.enum(["filesystem", "s3"]).default("filesystem"),
   path: z.string().min(1).max(500),
+  endpoint: z.string().url().optional(),
+  bucket: z.string().min(1).max(120).optional(),
+  prefix: z.string().max(240).optional(),
+  region: z.string().min(1).max(80).optional(),
+  accessKeyId: z.string().min(1).max(200).optional(),
+  secretAccessKey: z.string().min(1).max(500).optional(),
   enabled: z.boolean().default(true)
+}).superRefine((value, context) => {
+  if (value.type === "s3") {
+    for (const key of ["endpoint", "bucket", "accessKeyId", "secretAccessKey"] as const) {
+      if (!value[key]) {
+        context.addIssue({ code: "custom", path: [key], message: "S3 目标必须填写连接信息。" });
+      }
+    }
+  }
 });
 export type CreateRemoteBackupTarget = z.infer<typeof CreateRemoteBackupTargetSchema>;
 
@@ -826,6 +933,12 @@ export const UpdateRemoteBackupTargetSchema = z.object({
   targetId: z.string().min(1),
   name: z.string().min(2).max(80).optional(),
   path: z.string().min(1).max(500).optional(),
+  endpoint: z.string().url().optional(),
+  bucket: z.string().min(1).max(120).optional(),
+  prefix: z.string().max(240).optional(),
+  region: z.string().min(1).max(80).optional(),
+  accessKeyId: z.string().min(1).max(200).optional(),
+  secretAccessKey: z.string().min(1).max(500).optional(),
   enabled: z.boolean().optional()
 });
 export type UpdateRemoteBackupTarget = z.infer<typeof UpdateRemoteBackupTargetSchema>;
@@ -842,6 +955,7 @@ export const RemoteBackupSyncResultSchema = z.object({
   targetName: z.string(),
   status: z.enum(["success", "failed"]),
   copiedPath: z.string().optional(),
+  objectKey: z.string().optional(),
   error: z.string().optional()
 });
 export type RemoteBackupSyncResult = z.infer<typeof RemoteBackupSyncResultSchema>;
@@ -889,7 +1003,7 @@ export const SecurityHardeningPlanSchema = z.object({
 });
 export type SecurityHardeningPlan = z.infer<typeof SecurityHardeningPlanSchema>;
 
-export const DatabaseTypeSchema = z.enum(["postgres"]);
+export const DatabaseTypeSchema = z.enum(["postgres", "mysql", "mariadb"]);
 export type DatabaseType = z.infer<typeof DatabaseTypeSchema>;
 
 export const DatabaseConnectionSchema = z.object({
@@ -898,27 +1012,36 @@ export const DatabaseConnectionSchema = z.object({
   type: DatabaseTypeSchema,
   maskedUrl: z.string(),
   enabled: z.boolean(),
+  backupRetentionDays: z.number().int().min(1).max(3650).default(30),
   createdAt: z.string(),
   updatedAt: z.string(),
   updatedBy: z.string(),
   lastBackupAt: z.string().optional(),
   lastStatus: z.enum(["success", "failed"]).optional(),
-  lastError: z.string().optional()
+  lastError: z.string().optional(),
+  lastRestoreDrillAt: z.string().optional(),
+  lastRestoreDrillStatus: z.enum(["success", "failed", "skipped"]).optional()
 });
 export type DatabaseConnection = z.infer<typeof DatabaseConnectionSchema>;
 
 export const CreateDatabaseConnectionSchema = z.object({
   name: z.string().min(2).max(80),
   type: DatabaseTypeSchema.default("postgres"),
-  url: z.string().url().refine((value) => value.startsWith("postgres://") || value.startsWith("postgresql://"), "仅支持 PostgreSQL 连接 URL。"),
-  enabled: z.boolean().default(true)
+  url: z.string().url(),
+  enabled: z.boolean().default(true),
+  backupRetentionDays: z.number().int().min(1).max(3650).default(30)
+}).superRefine((value, context) => {
+  if (!isSupportedDatabaseUrl(value.type, value.url)) {
+    context.addIssue({ code: "custom", path: ["url"], message: "数据库 URL 协议与类型不匹配。" });
+  }
 });
 export type CreateDatabaseConnection = z.infer<typeof CreateDatabaseConnectionSchema>;
 
 export const UpdateDatabaseConnectionSchema = z.object({
   connectionId: z.string().min(1),
   name: z.string().min(2).max(80).optional(),
-  url: z.string().url().refine((value) => value.startsWith("postgres://") || value.startsWith("postgresql://"), "仅支持 PostgreSQL 连接 URL。").optional(),
+  url: z.string().url().optional(),
+  backupRetentionDays: z.number().int().min(1).max(3650).optional(),
   enabled: z.boolean().optional()
 });
 export type UpdateDatabaseConnection = z.infer<typeof UpdateDatabaseConnectionSchema>;
@@ -936,3 +1059,118 @@ export const DatabaseBackupResultSchema = z.object({
   error: z.string().optional()
 });
 export type DatabaseBackupResult = z.infer<typeof DatabaseBackupResultSchema>;
+
+export const DatabaseRestoreDrillRequestSchema = z.object({
+  connectionId: z.string().min(1)
+});
+export type DatabaseRestoreDrillRequest = z.infer<typeof DatabaseRestoreDrillRequestSchema>;
+
+export const DatabaseRestoreDrillResultSchema = z.object({
+  connectionId: z.string(),
+  checkedAt: z.string(),
+  status: z.enum(["success", "failed", "skipped"]),
+  backupPath: z.string().optional(),
+  outputTail: z.string().optional(),
+  error: z.string().optional()
+});
+export type DatabaseRestoreDrillResult = z.infer<typeof DatabaseRestoreDrillResultSchema>;
+
+export const ResourceTypeSchema = z.enum(["host", "app", "fileRoot", "database", "backupTarget", "workspace"]);
+export type ResourceType = z.infer<typeof ResourceTypeSchema>;
+
+export const AccessPolicySchema = z.object({
+  id: z.string(),
+  workspace: z.string(),
+  resourceType: ResourceTypeSchema,
+  resourceId: z.string(),
+  role: RoleSchema,
+  permissions: z.array(z.enum(["read", "write", "approve", "admin"])),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type AccessPolicy = z.infer<typeof AccessPolicySchema>;
+
+export const CreateAccessPolicySchema = z.object({
+  workspace: z.string().min(2).max(80),
+  resourceType: ResourceTypeSchema,
+  resourceId: z.string().min(1).max(240),
+  role: RoleSchema,
+  permissions: z.array(z.enum(["read", "write", "approve", "admin"])).min(1).max(4)
+});
+export type CreateAccessPolicy = z.infer<typeof CreateAccessPolicySchema>;
+
+export const AccessEvaluationSchema = z.object({
+  workspace: z.string(),
+  resourceType: ResourceTypeSchema,
+  resourceId: z.string(),
+  role: RoleSchema,
+  permission: z.enum(["read", "write", "approve", "admin"]),
+  allowed: z.boolean(),
+  matchedPolicyId: z.string().optional()
+});
+export type AccessEvaluation = z.infer<typeof AccessEvaluationSchema>;
+
+export const AccessEvaluationRequestSchema = z.object({
+  workspace: z.string().min(2).max(80),
+  resourceType: ResourceTypeSchema,
+  resourceId: z.string().min(1).max(240),
+  role: RoleSchema,
+  permission: z.enum(["read", "write", "approve", "admin"])
+});
+export type AccessEvaluationRequest = z.infer<typeof AccessEvaluationRequestSchema>;
+
+export const SecurityRemediationRequestSchema = z.object({
+  itemId: z.string().min(1),
+  dryRun: z.boolean().default(true),
+  approvalId: z.string().min(1).optional()
+});
+export type SecurityRemediationRequest = z.infer<typeof SecurityRemediationRequestSchema>;
+
+export const SecurityRemediationRunSchema = z.object({
+  id: z.string(),
+  itemId: z.string(),
+  dryRun: z.boolean(),
+  status: z.enum(["planned", "success", "failed"]),
+  command: z.string().optional(),
+  outputTail: z.string().optional(),
+  createdAt: z.string(),
+  createdBy: z.string()
+});
+export type SecurityRemediationRun = z.infer<typeof SecurityRemediationRunSchema>;
+
+export const CapacityPlanSchema = z.object({
+  generatedAt: z.string(),
+  stateBytes: z.number().int().nonnegative(),
+  metricSamples: z.number().int().nonnegative(),
+  hosts: z.number().int().nonnegative(),
+  recommendations: z.array(z.string())
+});
+export type CapacityPlan = z.infer<typeof CapacityPlanSchema>;
+
+export const UpgradePlanSchema = z.object({
+  generatedAt: z.string(),
+  currentVersion: z.string(),
+  steps: z.array(z.object({ id: z.string(), title: z.string(), status: z.enum(["ready", "warn"]), detail: z.string() }))
+});
+export type UpgradePlan = z.infer<typeof UpgradePlanSchema>;
+
+export const DeliveryChecklistSchema = z.object({
+  generatedAt: z.string(),
+  items: z.array(z.object({ id: z.string(), title: z.string(), ready: z.boolean(), detail: z.string() }))
+});
+export type DeliveryChecklist = z.infer<typeof DeliveryChecklistSchema>;
+
+export const OpenApiSummarySchema = z.object({
+  generatedAt: z.string(),
+  paths: z.array(z.object({ method: z.string(), path: z.string(), scope: z.string().optional() })),
+  webhookEvents: z.array(z.string())
+});
+export type OpenApiSummary = z.infer<typeof OpenApiSummarySchema>;
+
+function isSupportedDatabaseUrl(type: z.infer<typeof DatabaseTypeSchema>, value: string): boolean {
+  if (type === "postgres") {
+    return value.startsWith("postgres://") || value.startsWith("postgresql://");
+  }
+  return value.startsWith("mysql://") || value.startsWith("mariadb://");
+}

@@ -42,4 +42,19 @@ describe("审计日志", () => {
     expect(pruned).toEqual({ removed: 1, remaining: 1 });
     expect(remaining.map((event) => event.id)).toEqual(["recent"]);
   });
+
+  it("为新写入事件生成哈希链并可输出合规报表", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-audit-chain-"));
+    const auditLog = new AuditLog(join(root, "audit.jsonl"));
+
+    await auditLog.append({ actor: "admin", action: "auth.login", target: "session", status: "success" });
+    await auditLog.append({ actor: "admin", action: "backup.create", target: "state", status: "success" });
+    const events = await auditLog.list({ limit: 10 });
+    const integrity = await auditLog.verifyIntegrity();
+    const compliance = await auditLog.complianceReport();
+
+    expect(events[0]?.chainHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(integrity.ok).toBe(true);
+    expect(compliance.actions.some((item) => item.action === "backup.create" && item.count === 1)).toBe(true);
+  });
 });

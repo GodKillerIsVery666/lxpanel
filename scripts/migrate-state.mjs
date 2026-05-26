@@ -23,7 +23,9 @@ const state = {
   backupSchedule: { enabled: false, everyHours: 24 },
   alertThresholds: [],
   alertEvents: [],
+  alertSilences: [],
   hosts: [],
+  hostGroups: [],
   metricSamples: [],
   notificationChannels: [],
   notificationDeliveries: [],
@@ -31,6 +33,8 @@ const state = {
   approvals: [],
   remoteBackupTargets: [],
   databaseConnections: [],
+  accessPolicies: [],
+  securityRemediationRuns: [],
   ...parsed
 };
 
@@ -44,6 +48,15 @@ for (const deployment of state.appDeployments ?? []) {
   deployment.version ??= 1;
   deployment.revisionCount ??= deployment.revisions?.length ?? 0;
   deployment.revisions ??= [];
+}
+
+for (const connection of state.databaseConnections ?? []) {
+  connection.backupRetentionDays ??= 30;
+}
+
+for (const target of state.remoteBackupTargets ?? []) {
+  target.type ??= "filesystem";
+  target.secretConfigured ??= Boolean(target.secretAccessKey || target.encryptedSecretAccessKey);
 }
 
 await mkdir(dirname(target), { recursive: true });

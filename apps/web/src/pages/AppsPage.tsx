@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { History, Play, RotateCw, Square, UploadCloud } from "lucide-react";
+import { HeartPulse, History, Play, RotateCw, Square, UploadCloud } from "lucide-react";
 import type { AppDeployment, AppDeploymentAction, AppTemplate } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
@@ -12,6 +12,7 @@ export function AppsPage(): JSX.Element {
   const [name, setName] = useState("");
   const [autoStart, setAutoStart] = useState(false);
   const [variables, setVariables] = useState<Record<string, string>>({});
+  const [healthText, setHealthText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const selectedTemplate = useMemo(() => templates.find((template) => template.id === templateId), [templateId, templates]);
 
@@ -74,6 +75,15 @@ export function AppsPage(): JSX.Element {
     }
   }
 
+  async function checkHealth(deployment: AppDeployment): Promise<void> {
+    try {
+      const response = await api.appDeploymentHealth(deployment.id);
+      setHealthText(`${deployment.name}: ${response.health.status} - ${response.health.detail}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "健康检查失败。");
+    }
+  }
+
   useEffect(() => {
     void load();
   }, []);
@@ -82,6 +92,7 @@ export function AppsPage(): JSX.Element {
     <main className="page-stack">
       <div className="page-heading"><div><h1>应用商店</h1><p>基于受控 Docker Compose 模板部署应用</p></div></div>
       {error ? <div className="form-error">{error}</div> : null}
+      {healthText ? <p className="notice">{healthText}</p> : null}
       <section className="table-panel">
         <div className="panel-title">一键部署</div>
         <div className="inline-form wrap">
@@ -92,7 +103,7 @@ export function AppsPage(): JSX.Element {
           <label className="compact-check"><input type="checkbox" checked={autoStart} onChange={(event) => setAutoStart(event.target.checked)} /> 自动启动</label>
           <button type="button" onClick={() => void deploy()}><UploadCloud size={16} /> 部署</button>
         </div>
-        {selectedTemplate ? <p className="muted-text">{selectedTemplate.description}</p> : null}
+        {selectedTemplate ? <p className="muted-text">{selectedTemplate.description}；来源：{selectedTemplate.source ?? "builtin"}；签名：{selectedTemplate.signature ?? "-"}；{selectedTemplate.verified ? "已验证" : "未验证"}</p> : null}
         {selectedTemplate ? <div className="variable-grid">{selectedTemplate.variables.map((variable) => (
           <label key={variable.key}>{variable.label}<input value={variables[variable.key] ?? variable.defaultValue} onChange={(event) => setVariables((current) => ({ ...current, [variable.key]: event.target.value }))} /></label>
         ))}</div> : null}
@@ -111,7 +122,7 @@ export function AppsPage(): JSX.Element {
               <td>{deployment.createdBy}</td>
               <td>{deployment.lastActionAt ? formatDate(deployment.lastActionAt) : "-"}</td>
               <td><pre className="inline-log">{deployment.lastOutputTail ?? "-"}</pre></td>
-              <td className="row-actions"><button onClick={() => void action(deployment.id, "up")} title="启动"><Play size={14} /></button><button onClick={() => void action(deployment.id, "restart")} title="重启"><RotateCw size={14} /></button><button onClick={() => void action(deployment.id, "down")} title="停止"><Square size={14} /></button><button onClick={() => void upgrade(deployment)} title="升级"><UploadCloud size={14} /></button><button onClick={() => void rollback(deployment)} title="回滚" disabled={deployment.revisionCount === 0}><History size={14} /></button></td>
+              <td className="row-actions"><button onClick={() => void checkHealth(deployment)} title="健康检查"><HeartPulse size={14} /></button><button onClick={() => void action(deployment.id, "up")} title="启动"><Play size={14} /></button><button onClick={() => void action(deployment.id, "restart")} title="重启"><RotateCw size={14} /></button><button onClick={() => void action(deployment.id, "down")} title="停止"><Square size={14} /></button><button onClick={() => void upgrade(deployment)} title="升级"><UploadCloud size={14} /></button><button onClick={() => void rollback(deployment)} title="回滚" disabled={deployment.revisionCount === 0}><History size={14} /></button></td>
             </tr>
           ))}</tbody>
         </table>

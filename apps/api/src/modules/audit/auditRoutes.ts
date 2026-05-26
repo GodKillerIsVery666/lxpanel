@@ -28,6 +28,22 @@ export function registerAuditRoutes(app: FastifyInstance, services: Services): v
     return content;
   });
 
+  app.get("/api/audit/integrity", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { report: await services.auditLog.verifyIntegrity() };
+  });
+
+  app.get("/api/audit/compliance", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { report: await services.auditLog.complianceReport() };
+  });
+
   app.delete("/api/audit", async (request, reply) => {
     const user = await requireRole(request, reply, services, "owner");
     if (!user) {

@@ -22,7 +22,14 @@ try {
     await app.inject({ method: "GET", url: "/api/security/posture", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/security/hardening-plan", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/apps/templates", headers: { cookie } }),
-    await app.inject({ method: "GET", url: "/api/backups", headers: { cookie } })
+    await app.inject({ method: "GET", url: "/api/backups", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/audit/integrity", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/audit/compliance", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/monitoring/prometheus", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/capacity-plan", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/upgrade-plan", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/delivery-checklist", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/openapi-summary", headers: { cookie } })
   ];
   for (const response of checks) {
     if (response.statusCode !== 200) {

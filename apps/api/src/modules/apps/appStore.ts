@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AppDeployment, AppDeploymentAction, CreateAppDeployment, RollbackAppDeployment, UpdateAppDeployment } from "@lxpanel/shared";
+import type { AppDeployment, AppDeploymentAction, AppDeploymentHealth, CreateAppDeployment, RollbackAppDeployment, UpdateAppDeployment } from "@lxpanel/shared";
 import { runCommand, type CommandResult } from "../../lib/command.js";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
@@ -165,6 +165,23 @@ export class AppStore {
       return { data: { ...current, appDeployments: next }, result: toPublicDeployment(result) };
     });
     return input.autoRestart ? this.runAction({ deploymentId: updated.id, action: "restart" }, actor) : updated;
+  }
+
+  async checkHealth(deploymentId: string): Promise<AppDeploymentHealth> {
+    const deployment = await this.findDeployment(deploymentId);
+    const template = findTemplate(deployment.templateId);
+    if (deployment.status === "failed") {
+      return { deploymentId, status: "unhealthy", checkedAt: new Date().toISOString(), detail: deployment.lastOutputTail ?? "部署处于失败状态。" };
+    }
+    if (!template?.verified) {
+      return { deploymentId, status: "unknown", checkedAt: new Date().toISOString(), detail: "模板未通过签名校验，无法确认健康状态。" };
+    }
+    return {
+      deploymentId,
+      status: deployment.status === "running" ? "healthy" : "unknown",
+      checkedAt: new Date().toISOString(),
+      detail: deployment.status === "running" ? `模板签名 ${template.signature ?? "builtin"} 已验证，部署处于运行态。` : "部署尚未运行，可启动后再执行健康检查。"
+    };
   }
 
   private async findDeployment(deploymentId: string): Promise<AppDeploymentRecord> {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, RotateCw, Save } from "lucide-react";
-import type { AlertEvent, AlertThreshold, AlertType } from "@lxpanel/shared";
+import type { AlertEvent, AlertSilence, AlertThreshold, AlertType } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { formatDate } from "../utils/format.js";
@@ -21,15 +21,21 @@ const initialDrafts: ThresholdDrafts = {
 
 export function AlertsPage(): JSX.Element {
   const [events, setEvents] = useState<AlertEvent[]>([]);
+  const [silences, setSilences] = useState<AlertSilence[]>([]);
   const [thresholds, setThresholds] = useState<AlertThreshold[]>([]);
   const [drafts, setDrafts] = useState<ThresholdDrafts>(initialDrafts);
+  const [silenceType, setSilenceType] = useState<AlertType | "">("");
+  const [silenceTarget, setSilenceTarget] = useState("");
+  const [silenceReason, setSilenceReason] = useState("");
+  const [silenceMinutes, setSilenceMinutes] = useState("60");
   const [error, setError] = useState<string | null>(null);
 
   async function load(): Promise<void> {
     try {
-      const [alertsResponse, thresholdsResponse] = await Promise.all([api.alerts(), api.alertThresholds()]);
+      const [alertsResponse, thresholdsResponse, silencesResponse] = await Promise.all([api.alerts(), api.alertThresholds(), api.alertSilences()]);
       setEvents(alertsResponse.events);
       setThresholds(thresholdsResponse.thresholds);
+      setSilences(silencesResponse.silences);
       setDrafts(toDrafts(thresholdsResponse.thresholds));
       setError(null);
     } catch (caught) {
@@ -74,6 +80,18 @@ export function AlertsPage(): JSX.Element {
     }
   }
 
+  async function createSilence(): Promise<void> {
+    try {
+      await api.createAlertSilence({ ...(silenceType ? { type: silenceType } : {}), ...(silenceTarget ? { target: silenceTarget } : {}), reason: silenceReason, minutes: Number.parseInt(silenceMinutes, 10) || 60 });
+      setSilenceType("");
+      setSilenceTarget("");
+      setSilenceReason("");
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "创建静默失败。");
+    }
+  }
+
   useEffect(() => {
     void load();
   }, []);
@@ -103,6 +121,11 @@ export function AlertsPage(): JSX.Element {
             );
           })}</tbody>
         </table>
+      </section>
+      <section className="table-panel">
+        <div className="panel-title">告警静默</div>
+        <div className="inline-form wrap"><select value={silenceType} onChange={(event) => setSilenceType(event.target.value as AlertType | "")}><option value="">全部指标</option><option value="cpu">CPU</option><option value="memory">内存</option><option value="disk">磁盘</option></select><input value={silenceTarget} onChange={(event) => setSilenceTarget(event.target.value)} placeholder="目标，可选" /><input value={silenceReason} onChange={(event) => setSilenceReason(event.target.value)} placeholder="原因" /><input value={silenceMinutes} onChange={(event) => setSilenceMinutes(event.target.value)} inputMode="numeric" placeholder="分钟" /><button type="button" onClick={() => void createSilence()}>静默</button></div>
+        <table><thead><tr><th>范围</th><th>原因</th><th>结束时间</th><th>创建人</th></tr></thead><tbody>{silences.map((silence) => <tr key={silence.id}><td>{silence.type ?? "全部"} {silence.target ?? ""}</td><td>{silence.reason}</td><td>{formatDate(silence.endsAt)}</td><td>{silence.createdBy}</td></tr>)}</tbody></table>
       </section>
       <section className="table-panel">
         <div className="panel-title">告警历史</div>

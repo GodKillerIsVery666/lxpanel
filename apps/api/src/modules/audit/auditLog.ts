@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname } from "node:path";
-import { AuditEventSchema, type AuditEvent, type AuditExportQuery, type AuditQuery } from "@lxpanel/shared";
+import { AuditEventSchema, type AuditEvent, type AuditExportQuery, type AuditIntegrityReport, type AuditQuery, type ComplianceReport } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 
 export interface AuditPruneResult {
@@ -11,12 +12,15 @@ export interface AuditPruneResult {
 export class AuditLog {
   constructor(private readonly filePath: string) {}
 
-  async append(event: Omit<AuditEvent, "id" | "time">): Promise<void> {
-    const fullEvent: AuditEvent = {
+  async append(event: Omit<AuditEvent, "id" | "time" | "previousHash" | "chainHash">): Promise<void> {
+    const previous = (await this.readEvents()).at(-1);
+    const baseEvent: AuditEvent = {
       id: randomToken(12),
       time: new Date().toISOString(),
-      ...event
+      ...event,
+      ...(previous?.chainHash ? { previousHash: previous.chainHash } : {})
     };
+    const fullEvent: AuditEvent = { ...baseEvent, chainHash: hashAuditEvent(baseEvent) };
     try {
       await mkdir(dirname(this.filePath), { recursive: true });
       await appendFile(this.filePath, `${JSON.stringify(fullEvent)}\n`, "utf8");
@@ -44,6 +48,56 @@ export class AuditLog {
     await mkdir(dirname(this.filePath), { recursive: true });
     await writeFile(this.filePath, remainingEvents.map((event) => JSON.stringify(event)).join("\n") + (remainingEvents.length > 0 ? "\n" : ""), "utf8");
     return { removed: events.length - remainingEvents.length, remaining: remainingEvents.length };
+  }
+
+  async verifyIntegrity(): Promise<AuditIntegrityReport> {
+    const events = await this.readEvents();
+    const issues: string[] = [];
+    let previousHash = "";
+    let firstBrokenId: string | undefined;
+    for (const event of events) {
+      if (!event.chainHash) {
+        issues.push(`legacy event without chain hash: ${event.id}`);
+        firstBrokenId ??= event.id;
+        previousHash = "";
+        continue;
+      }
+      const expectedPrevious = previousHash || undefined;
+      if (event.previousHash !== expectedPrevious) {
+        issues.push(`previous hash mismatch: ${event.id}`);
+        firstBrokenId ??= event.id;
+      }
+      const expectedHash = hashAuditEvent(event);
+      if (event.chainHash !== expectedHash) {
+        issues.push(`chain hash mismatch: ${event.id}`);
+        firstBrokenId ??= event.id;
+      }
+      previousHash = event.chainHash;
+    }
+    return {
+      checkedAt: new Date().toISOString(),
+      total: events.length,
+      ok: issues.length === 0,
+      ...(firstBrokenId ? { firstBrokenId } : {}),
+      ...(previousHash ? { latestHash: previousHash } : {}),
+      issues
+    };
+  }
+
+  async complianceReport(): Promise<ComplianceReport> {
+    const events = await this.readEvents();
+    const counts = new Map<string, number>();
+    for (const event of events) {
+      counts.set(event.action, (counts.get(event.action) ?? 0) + 1);
+    }
+    return {
+      generatedAt: new Date().toISOString(),
+      totalEvents: events.length,
+      actions: [...counts.entries()].map(([action, count]) => ({ action, count })).sort((left, right) => right.count - left.count),
+      denied: events.filter((event) => event.status === "denied").length,
+      errors: events.filter((event) => event.status === "error").length,
+      integrity: await this.verifyIntegrity()
+    };
   }
 
   private async readEvents(): Promise<AuditEvent[]> {
@@ -87,7 +141,7 @@ function parseLine(line: string) {
 }
 
 function toCsv(events: AuditEvent[]): string {
-  const header = ["id", "time", "actor", "action", "target", "ip", "status", "detail"];
+  const header = ["id", "time", "actor", "action", "target", "ip", "status", "detail", "previousHash", "chainHash"];
   return [header.join(","), ...events.map((event) => header.map((key) => csvCell(event[key as keyof AuditEvent])).join(","))].join("\n");
 }
 
@@ -97,4 +151,10 @@ function csvCell(value: string | undefined): string {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function hashAuditEvent(event: AuditEvent): string {
+  const hashable = { ...event };
+  delete hashable.chainHash;
+  return createHash("sha256").update(JSON.stringify(hashable)).digest("hex");
 }

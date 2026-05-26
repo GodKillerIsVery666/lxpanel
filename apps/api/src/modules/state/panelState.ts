@@ -1,4 +1,4 @@
-import type { AlertEvent, AlertThreshold, ApiTokenScope, AppDeployment, Approval, DatabaseConnection, Host, MetricSample, NotificationChannel, NotificationDelivery, RemoteBackupTarget, Role } from "@lxpanel/shared";
+import type { AccessPolicy, AlertEvent, AlertSilence, AlertThreshold, ApiTokenScope, AppDeployment, Approval, DatabaseConnection, Host, HostGroup, MetricSample, NotificationChannel, NotificationDelivery, RemoteBackupTarget, Role, SecurityRemediationRun } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -110,7 +110,9 @@ export interface BackupScheduleRecord {
 
 export type AlertThresholdRecord = AlertThreshold;
 export type AlertEventRecord = AlertEvent;
+export type AlertSilenceRecord = AlertSilence;
 export type HostRecord = Omit<Host, "status" | "connectorName" | "lastSeenAt">;
+export type HostGroupRecord = HostGroup;
 export type MetricSampleRecord = MetricSample;
 export type NotificationChannelRecord = Omit<NotificationChannel, "url"> & { url?: string; encryptedUrl?: string };
 export type NotificationDeliveryRecord = NotificationDelivery;
@@ -124,8 +126,10 @@ export interface AppDeploymentRevisionRecord {
 
 export type AppDeploymentRecord = AppDeployment & { revisions?: AppDeploymentRevisionRecord[] };
 export type ApprovalRecord = Approval;
-export type RemoteBackupTargetRecord = RemoteBackupTarget;
-export type DatabaseConnectionRecord = Omit<DatabaseConnection, "maskedUrl"> & { encryptedUrl?: string; url?: string };
+export type RemoteBackupTargetRecord = RemoteBackupTarget & { encryptedSecretAccessKey?: string; secretAccessKey?: string };
+export type DatabaseConnectionRecord = Omit<DatabaseConnection, "maskedUrl"> & { encryptedUrl?: string; url?: string; lastBackupPath?: string };
+export type AccessPolicyRecord = AccessPolicy;
+export type SecurityRemediationRunRecord = SecurityRemediationRun;
 
 export interface PanelState {
   users: UserRecord[];
@@ -139,7 +143,9 @@ export interface PanelState {
   backupSchedule?: BackupScheduleRecord;
   alertThresholds?: AlertThresholdRecord[];
   alertEvents?: AlertEventRecord[];
+  alertSilences?: AlertSilenceRecord[];
   hosts?: HostRecord[];
+  hostGroups?: HostGroupRecord[];
   metricSamples?: MetricSampleRecord[];
   notificationChannels?: NotificationChannelRecord[];
   notificationDeliveries?: NotificationDeliveryRecord[];
@@ -147,6 +153,8 @@ export interface PanelState {
   approvals?: ApprovalRecord[];
   remoteBackupTargets?: RemoteBackupTargetRecord[];
   databaseConnections?: DatabaseConnectionRecord[];
+  accessPolicies?: AccessPolicyRecord[];
+  securityRemediationRuns?: SecurityRemediationRunRecord[];
 }
 
 export function createInitialPanelState(): PanelState {
@@ -162,14 +170,18 @@ export function createInitialPanelState(): PanelState {
     backupSchedule: { enabled: false, everyHours: 24 },
     alertThresholds: createDefaultAlertThresholds("system", new Date(0).toISOString()),
     alertEvents: [],
+    alertSilences: [],
     hosts: [],
+    hostGroups: [],
     metricSamples: [],
     notificationChannels: [],
     notificationDeliveries: [],
     appDeployments: [],
     approvals: [],
     remoteBackupTargets: [],
-    databaseConnections: []
+    databaseConnections: [],
+    accessPolicies: [],
+    securityRemediationRuns: []
   };
 }
 

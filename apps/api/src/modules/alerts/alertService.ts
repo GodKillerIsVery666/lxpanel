@@ -1,4 +1,5 @@
-import type { AlertEvent, AlertSummary, AlertThreshold, UpdateAlertThreshold, SystemOverview } from "@lxpanel/shared";
+import type { AlertEvent, AlertSilence, AlertSummary, AlertThreshold, CreateAlertSilence, UpdateAlertThreshold, SystemOverview } from "@lxpanel/shared";
+import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import type { PanelState } from "../state/panelState.js";
 import { createDefaultAlertThresholds } from "../state/panelState.js";
@@ -42,6 +43,28 @@ export class AlertService {
     return normalizeThresholds(state.alertThresholds);
   }
 
+  async listSilences(): Promise<AlertSilence[]> {
+    const state = await this.store.read();
+    return (state.alertSilences ?? []).slice().reverse();
+  }
+
+  async createSilence(input: CreateAlertSilence, actor: string): Promise<AlertSilence> {
+    return this.store.update((state) => {
+      const now = new Date();
+      const silence: AlertSilence = {
+        id: randomToken(12),
+        ...(input.type ? { type: input.type } : {}),
+        ...(input.target ? { target: input.target } : {}),
+        reason: input.reason,
+        startsAt: now.toISOString(),
+        endsAt: new Date(now.getTime() + input.minutes * 60_000).toISOString(),
+        createdAt: now.toISOString(),
+        createdBy: actor
+      };
+      return { data: { ...state, alertSilences: [...(state.alertSilences ?? []), silence].slice(-100) }, result: silence };
+    });
+  }
+
   async updateThreshold(input: UpdateAlertThreshold, actor: string): Promise<AlertThreshold[]> {
     return this.store.update((state) => {
       const now = new Date().toISOString();
@@ -80,7 +103,8 @@ export class AlertService {
     } catch (error) {
       console.error("[alerts] 采集磁盘使用率失败", error);
     }
-    const candidates = this.evaluator.evaluate({ overview, disks, thresholds, now });
+    const silences = state.alertSilences ?? [];
+    const candidates = this.evaluator.evaluate({ overview, disks, thresholds, now }).filter((event) => !isSilenced(event, silences, now));
     if (candidates.length === 0) {
       return [];
     }
@@ -96,6 +120,14 @@ export class AlertService {
       };
     });
   }
+}
+
+function isSilenced(event: AlertEvent, silences: AlertSilence[], now: Date): boolean {
+  const nowTime = now.getTime();
+  return silences.some((silence) => {
+    const active = new Date(silence.startsAt).getTime() <= nowTime && new Date(silence.endsAt).getTime() >= nowTime;
+    return active && (!silence.type || silence.type === event.type) && (!silence.target || silence.target === event.target);
+  });
 }
 
 export function normalizeThresholds(thresholds: AlertThreshold[] | undefined): AlertThreshold[] {

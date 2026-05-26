@@ -11,6 +11,10 @@ export const appTemplates: CatalogTemplate[] = [
     category: "Web",
     description: "部署一个轻量 Nginx 容器，可用于静态站点或反向代理前置。",
     image: "nginx:alpine",
+    source: "builtin",
+    signature: "builtin:nginx-static:v1",
+    verified: true,
+    healthCheck: "docker compose ps web",
     variables: [
       { key: "HTTP_PORT", label: "HTTP 端口", defaultValue: "8080", required: true }
     ],
@@ -30,6 +34,10 @@ export const appTemplates: CatalogTemplate[] = [
     category: "Database",
     description: "部署带 AOF 持久化的 Redis 7。",
     image: "redis:7-alpine",
+    source: "builtin",
+    signature: "builtin:redis:v1",
+    verified: true,
+    healthCheck: "docker compose ps redis",
     variables: [
       { key: "REDIS_PORT", label: "Redis 端口", defaultValue: "6379", required: true },
       { key: "REDIS_PASSWORD", label: "访问密码", defaultValue: "change-me", required: true }
@@ -60,6 +68,10 @@ export const appTemplates: CatalogTemplate[] = [
     category: "Database",
     description: "部署带本地卷持久化的 PostgreSQL 16。",
     image: "postgres:16-alpine",
+    source: "builtin",
+    signature: "builtin:postgres:v1",
+    verified: true,
+    healthCheck: "docker compose ps postgres",
     variables: [
       { key: "POSTGRES_PORT", label: "PostgreSQL 端口", defaultValue: "5432", required: true },
       { key: "POSTGRES_USER", label: "用户名", defaultValue: "app", required: true },
@@ -93,6 +105,10 @@ export function publicTemplates(): AppTemplate[] {
     category: template.category,
     description: template.description,
     image: template.image,
+    source: template.source,
+    signature: template.signature,
+    verified: template.verified,
+    healthCheck: template.healthCheck,
     variables: template.variables
   }));
 }

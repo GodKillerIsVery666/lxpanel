@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CreateDatabaseConnection, DatabaseBackupResult, DatabaseConnection, UpdateDatabaseConnection } from "@lxpanel/shared";
+import type { CreateDatabaseConnection, DatabaseBackupResult, DatabaseConnection, DatabaseRestoreDrillResult, DatabaseType, UpdateDatabaseConnection } from "@lxpanel/shared";
 import { runCommand, type CommandResult } from "../../lib/command.js";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
@@ -10,9 +10,29 @@ import type { DatabaseConnectionRecord, PanelState } from "../state/panelState.j
 const encryptedUrlPrefix = "dbenc:v1";
 const outputLimit = 12_000;
 
-export type DatabaseDumpRunner = (url: string, filePath: string) => Promise<CommandResult>;
+export type DatabaseDumpRunner = (type: DatabaseType, url: string, filePath: string) => Promise<CommandResult>;
+export type DatabaseRestoreDrillRunner = (type: DatabaseType, url: string, filePath: string) => Promise<CommandResult>;
 
-const defaultDumpRunner: DatabaseDumpRunner = (url, filePath) => runCommand("pg_dump", ["--dbname", url, "--file", filePath, "--format", "custom"], 120_000);
+const defaultDumpRunner: DatabaseDumpRunner = (type, url, filePath) => {
+  if (type === "postgres") {
+    return runCommand("pg_dump", ["--dbname", url, "--file", filePath, "--format", "custom"], 120_000);
+  }
+  const parsed = new URL(url);
+  const database = parsed.pathname.replace(/^\//u, "");
+  const command = type === "mariadb" ? "mariadb-dump" : "mysqldump";
+  return runCommand(command, [`--host=${parsed.hostname}`, `--port=${parsed.port || "3306"}`, `--user=${decodeURIComponent(parsed.username)}`, `--password=${decodeURIComponent(parsed.password)}`, `--result-file=${filePath}`, database], 120_000);
+};
+
+const defaultRestoreDrillRunner: DatabaseRestoreDrillRunner = async (type, _url, filePath) => {
+  if (type === "postgres") {
+    return runCommand("pg_restore", ["--list", filePath], 60_000);
+  }
+  const content = await readFile(filePath, "utf8");
+  if (!/CREATE|INSERT|MariaDB|MySQL|dump/iu.test(content.slice(0, 20_000))) {
+    throw new Error("未识别到 MySQL/MariaDB dump 结构。 ");
+  }
+  return { stdout: "SQL dump structure ok", stderr: "" };
+};
 
 export class DatabaseStore {
   private readonly encryptionKey: Buffer | null;
@@ -21,7 +41,8 @@ export class DatabaseStore {
     private readonly store: StateStore<PanelState>,
     private readonly dataDir: string,
     encryptionSecret = "",
-    private readonly dumpRunner: DatabaseDumpRunner = defaultDumpRunner
+    private readonly dumpRunner: DatabaseDumpRunner = defaultDumpRunner,
+    private readonly restoreDrillRunner: DatabaseRestoreDrillRunner = defaultRestoreDrillRunner
   ) {
     this.encryptionKey = encryptionSecret ? createHash("sha256").update(encryptionSecret).digest() : null;
   }
@@ -40,6 +61,7 @@ export class DatabaseStore {
         name: input.name,
         type: input.type,
         enabled: input.enabled,
+        backupRetentionDays: input.backupRetentionDays,
         createdAt: now,
         updatedAt: now,
         updatedBy: actor,
@@ -60,10 +82,12 @@ export class DatabaseStore {
         ...existing,
         ...(input.name ? { name: input.name } : {}),
         ...(typeof input.enabled === "boolean" ? { enabled: input.enabled } : {}),
+        ...(typeof input.backupRetentionDays === "number" ? { backupRetentionDays: input.backupRetentionDays } : {}),
         updatedAt: new Date().toISOString(),
         updatedBy: actor
       };
       if (input.url) {
+        assertUrlMatchesType(existing.type, input.url);
         updated = withStoredUrl(updated, this.toStoredUrl(input.url));
       }
       return {
@@ -95,12 +119,48 @@ export class DatabaseStore {
     const filePath = join(backupDir, `${sanitizeName(connection.name)}-${new Date().toISOString().replace(/[:.]/gu, "-")}.dump`);
     let result: DatabaseBackupResult;
     try {
-      const output = await this.dumpRunner(this.readUrl(connection), filePath);
+      const output = await this.dumpRunner(connection.type, this.readUrl(connection), filePath);
       result = { connectionId, filePath, status: "success", outputTail: tailOutput(`${output.stdout}\n${output.stderr}`.trim()) };
     } catch (error) {
       result = { connectionId, filePath, status: "failed", error: error instanceof Error ? error.message : String(error) };
     }
     await this.markBackupResult(connectionId, result, actor);
+    return result;
+  }
+
+  async runRestoreDrill(connectionId: string, actor: string): Promise<DatabaseRestoreDrillResult> {
+    const state = await this.store.read();
+    const connection = (state.databaseConnections ?? []).find((item) => item.id === connectionId);
+    if (!connection) {
+      throw new Error("数据库连接不存在。");
+    }
+    if (!connection.lastBackupPath) {
+      return this.markRestoreDrill(connectionId, { connectionId, checkedAt: new Date().toISOString(), status: "skipped", error: "尚无可演练的备份文件。" }, actor);
+    }
+    let result: DatabaseRestoreDrillResult;
+    try {
+      const output = await this.restoreDrillRunner(connection.type, this.readUrl(connection), connection.lastBackupPath);
+      result = { connectionId, checkedAt: new Date().toISOString(), status: "success", backupPath: connection.lastBackupPath, outputTail: tailOutput(`${output.stdout}\n${output.stderr}`.trim()) };
+    } catch (error) {
+      result = { connectionId, checkedAt: new Date().toISOString(), status: "failed", backupPath: connection.lastBackupPath, error: error instanceof Error ? error.message : String(error) };
+    }
+    return this.markRestoreDrill(connectionId, result, actor);
+  }
+
+  private async markRestoreDrill(connectionId: string, result: DatabaseRestoreDrillResult, actor: string): Promise<DatabaseRestoreDrillResult> {
+    await this.store.update((state) => ({
+      data: {
+        ...state,
+        databaseConnections: (state.databaseConnections ?? []).map((connection) => connection.id === connectionId ? {
+          ...connection,
+          lastRestoreDrillAt: result.checkedAt,
+          lastRestoreDrillStatus: result.status,
+          updatedAt: new Date().toISOString(),
+          updatedBy: actor
+        } : connection)
+      },
+      result: undefined
+    }));
     return result;
   }
 
@@ -137,6 +197,7 @@ function toUpdatedConnection(connection: DatabaseConnectionRecord, result: Datab
     ...connection,
     lastBackupAt: new Date().toISOString(),
     lastStatus: result.status,
+    ...(result.status === "success" ? { lastBackupPath: result.filePath } : {}),
     updatedAt: new Date().toISOString(),
     updatedBy: actor
   };
@@ -155,13 +216,23 @@ function toPublicConnection(connection: DatabaseConnectionRecord, url: string): 
     type: connection.type,
     maskedUrl: maskDatabaseUrl(url),
     enabled: connection.enabled,
+    backupRetentionDays: connection.backupRetentionDays ?? 30,
     createdAt: connection.createdAt,
     updatedAt: connection.updatedAt,
     updatedBy: connection.updatedBy,
     ...(connection.lastBackupAt ? { lastBackupAt: connection.lastBackupAt } : {}),
     ...(connection.lastStatus ? { lastStatus: connection.lastStatus } : {}),
-    ...(connection.lastError ? { lastError: connection.lastError } : {})
+    ...(connection.lastError ? { lastError: connection.lastError } : {}),
+    ...(connection.lastRestoreDrillAt ? { lastRestoreDrillAt: connection.lastRestoreDrillAt } : {}),
+    ...(connection.lastRestoreDrillStatus ? { lastRestoreDrillStatus: connection.lastRestoreDrillStatus } : {})
   };
+}
+
+function assertUrlMatchesType(type: DatabaseType, value: string): void {
+  const ok = type === "postgres" ? value.startsWith("postgres://") || value.startsWith("postgresql://") : value.startsWith("mysql://") || value.startsWith("mariadb://");
+  if (!ok) {
+    throw new Error("数据库 URL 协议与类型不匹配。");
+  }
 }
 
 function withStoredUrl(connection: DatabaseConnectionRecord, storedUrl: Pick<DatabaseConnectionRecord, "url" | "encryptedUrl">): DatabaseConnectionRecord {

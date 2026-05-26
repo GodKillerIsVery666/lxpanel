@@ -122,6 +122,9 @@ function requiredScopeForRequest(request: FastifyRequest): ApiTokenScope | null 
   if (path.startsWith("/api/databases")) {
     return write ? "databases:write" : "databases:read";
   }
+  if (path.startsWith("/api/platform")) {
+    return write ? "platform:write" : "platform:read";
+  }
   if (path.startsWith("/api/connectors")) {
     return write ? "connectors:write" : "connectors:read";
   }

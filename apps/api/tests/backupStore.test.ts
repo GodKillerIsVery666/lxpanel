@@ -1,4 +1,5 @@
 import { access, readFile, mkdtemp } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -110,5 +111,38 @@ describe("备份快照", () => {
     expect(copied).toContain("lxpanel-state");
     expect(checksum).toContain(backup.sha256);
     expect(targets[0]?.lastStatus).toBe("success");
+  });
+
+  it("将本地备份同步到 S3 兼容对象存储目标", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-backup-s3-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const backupStore = new BackupStore(store, root, "session-secret");
+    const backup = await backupStore.createBackup("admin");
+    const paths: string[] = [];
+    const server = createServer((request, response) => {
+      paths.push(request.url ?? "");
+      request.resume();
+      response.statusCode = 200;
+      response.end("ok");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("server listen failed");
+    }
+    try {
+      const target = await backupStore.createRemoteTarget({ name: "minio", type: "s3", path: "s3://bucket/panel", endpoint: `http://127.0.0.1:${address.port}`, bucket: "bucket", prefix: "panel", region: "us-east-1", accessKeyId: "access", secretAccessKey: "secret", enabled: true }, "admin");
+      const state = await store.read();
+
+      const result = await backupStore.syncRemote({ backupId: backup.id, targetId: target.id }, "admin");
+
+      expect(state.remoteBackupTargets?.[0]?.encryptedSecretAccessKey).toMatch(/^rbenc:v1:/u);
+      expect(result[0]?.status).toBe("success");
+      expect(result[0]?.objectKey).toBe(`panel/${backup.fileName}`);
+      expect(paths).toContain(`/bucket/panel/${backup.fileName}`);
+      expect(paths).toContain(`/bucket/panel/${backup.fileName}.sha256`);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

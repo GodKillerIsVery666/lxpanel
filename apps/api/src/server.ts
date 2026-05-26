@@ -38,6 +38,8 @@ import { registerMonitoringRoutes } from "./modules/monitoring/monitoringRoutes.
 import { MonitoringService } from "./modules/monitoring/monitoringService.js";
 import { registerNotificationRoutes } from "./modules/notifications/notificationRoutes.js";
 import { NotificationService } from "./modules/notifications/notificationService.js";
+import { registerPlatformRoutes } from "./modules/platform/platformRoutes.js";
+import { PlatformStore } from "./modules/platform/platformStore.js";
 import { SchedulerService } from "./modules/scheduler/schedulerService.js";
 import { registerSecurityRoutes } from "./modules/security/securityRoutes.js";
 import type { PanelState } from "./modules/state/panelState.js";
@@ -60,6 +62,7 @@ export interface Services {
   notificationService: NotificationService;
   appStore: AppStore;
   databaseStore: DatabaseStore;
+  platformStore: PlatformStore;
   approvalStore: ApprovalStore;
   auditLog: AuditLog;
 }
@@ -72,13 +75,14 @@ export async function createServices(config: AppConfig): Promise<Services> {
     authStore: new AuthStore(stateStore),
     connectorStore: new ConnectorStore(stateStore),
     taskStore: new TaskStore(stateStore, config.fileRoots),
-    backupStore: new BackupStore(stateStore, config.dataDir),
+    backupStore: new BackupStore(stateStore, config.dataDir, config.sessionSecret),
     alertService: new AlertService(stateStore),
     hostService: new HostService(stateStore),
     monitoringService: new MonitoringService(stateStore),
     notificationService: new NotificationService(stateStore, undefined, config.webhookAllowlist, config.sessionSecret),
     appStore: new AppStore(stateStore, config.dataDir),
     databaseStore: new DatabaseStore(stateStore, config.dataDir, config.sessionSecret),
+    platformStore: new PlatformStore(stateStore),
     approvalStore: new ApprovalStore(stateStore),
     auditLog: new AuditLog(join(config.dataDir, "audit.jsonl"))
   };
@@ -115,6 +119,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerDockerRoutes(app, services);
   registerAppRoutes(app, services);
   registerDatabaseRoutes(app, services);
+  registerPlatformRoutes(app, services);
   registerTaskRoutes(app, services);
   registerBackupRoutes(app, services);
   registerAlertRoutes(app, services);

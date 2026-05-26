@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { DismissAlertSchema, UpdateAlertThresholdSchema } from "@lxpanel/shared";
+import { CreateAlertSilenceSchema, DismissAlertSchema, UpdateAlertThresholdSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
 
@@ -18,6 +18,25 @@ export function registerAlertRoutes(app: FastifyInstance, services: Services): v
       return;
     }
     return { thresholds: await services.alertService.getThresholds() };
+  });
+
+  app.get("/api/alerts/silences", async (request, reply) => {
+    const user = await requireUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    return { silences: await services.alertService.listSilences() };
+  });
+
+  app.post("/api/alerts/silences", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const input = CreateAlertSilenceSchema.parse(request.body);
+    const silence = await services.alertService.createSilence(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "alerts.silence.create", target: silence.target ?? silence.type ?? "all", ip: request.ip, status: "success" });
+    return { silence };
   });
 
   app.patch("/api/alerts/thresholds", async (request, reply) => {

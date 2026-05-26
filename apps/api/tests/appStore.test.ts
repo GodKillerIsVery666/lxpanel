@@ -38,6 +38,20 @@ describe("应用商店", () => {
     expect(stopped.lastOutputTail).toContain("ok down");
   });
 
+  it("返回模板签名元数据并检查部署健康状态", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-apps-health-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const appStore = new AppStore(store, root);
+    const template = appStore.listTemplates()[0];
+    const deployment = await appStore.createDeployment({ templateId: "nginx-static", name: "web-health", variables: { HTTP_PORT: "8090" }, autoStart: false }, "admin");
+
+    const health = await appStore.checkHealth(deployment.id);
+
+    expect(template?.signature).toBeTruthy();
+    expect(template?.verified).toBe(true);
+    expect(health.status).toBe("unknown");
+  });
+
   it("支持重渲染升级并回滚到上一版本", async () => {
     const root = await mkdtemp(join(tmpdir(), "lxpanel-apps-upgrade-"));
     const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);

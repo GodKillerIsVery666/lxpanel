@@ -54,4 +54,16 @@ describe("资源告警服务", () => {
     expect(dismissed.dismissedBy).toBe("admin");
     expect(summary.activeCritical).toBe(1);
   });
+
+  it("静默规则会过滤匹配告警", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-alerts-silence-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const service = new AlertService(store, metricsProvider);
+
+    const silence = await service.createSilence({ type: "cpu", reason: "maintenance", minutes: 60 }, "admin");
+    const events = await service.check(new Date(silence.startsAt));
+
+    expect(events.some((event) => event.type === "cpu")).toBe(false);
+    expect(events.some((event) => event.type === "disk")).toBe(true);
+  });
 });
