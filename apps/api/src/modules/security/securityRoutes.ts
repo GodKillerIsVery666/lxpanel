@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { SecurityCheck, SecurityPosture } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireUser } from "../auth/authMiddleware.js";
+import type { ApiTokenExpirySummary } from "../auth/authStore.js";
 
 export function registerSecurityRoutes(app: FastifyInstance, services: Services): void {
   app.get("/api/security/posture", async (request, reply) => {
@@ -12,7 +13,8 @@ export function registerSecurityRoutes(app: FastifyInstance, services: Services)
       return;
     }
     const backupCount = await services.backupStore.countBackups();
-    const checks = await buildSecurityChecks(services, backupCount);
+    const apiTokenExpiry = await services.authStore.summarizeApiTokenExpiry();
+    const checks = await buildSecurityChecks(services, backupCount, apiTokenExpiry);
     const recommendations = checks
       .filter((check) => check.status === "warn" || check.status === "critical")
       .map((check) => check.detail);
@@ -34,7 +36,7 @@ export function registerSecurityRoutes(app: FastifyInstance, services: Services)
   });
 }
 
-async function buildSecurityChecks(services: Services, backupCount: number): Promise<SecurityCheck[]> {
+async function buildSecurityChecks(services: Services, backupCount: number, apiTokenExpiry: ApiTokenExpirySummary): Promise<SecurityCheck[]> {
   const checks: SecurityCheck[] = [
     {
       id: "session-secret",
@@ -66,10 +68,42 @@ async function buildSecurityChecks(services: Services, backupCount: number): Pro
       status: backupCount > 0 ? "secure" : "warn",
       detail: backupCount > 0 ? `已有 ${backupCount} 个状态备份。` : "建议在上线前创建至少一个状态备份并启用自动备份。"
     },
+    buildApiTokenExpiryCheck(apiTokenExpiry),
     await dockerSocketCheck(),
     ...(await sshChecks())
   ];
   return checks;
+}
+
+function buildApiTokenExpiryCheck(summary: ApiTokenExpirySummary): SecurityCheck {
+  if (summary.total === 0) {
+    return { id: "api-token-expiry", label: "API Token 到期", status: "info", detail: "当前没有 API Token。" };
+  }
+  if (summary.expired > 0) {
+    return {
+      id: "api-token-expiry",
+      label: "API Token 到期",
+      status: "critical",
+      detail: `发现 ${summary.expired} 个已过期 API Token，请撤销或重新签发。`
+    };
+  }
+  if (summary.expiring > 0) {
+    return {
+      id: "api-token-expiry",
+      label: "API Token 到期",
+      status: "warn",
+      detail: `${summary.expiring} 个 API Token 将在 ${summary.warningDays} 天内到期，请提前轮换。`
+    };
+  }
+  if (summary.withoutExpiry > 0) {
+    return {
+      id: "api-token-expiry",
+      label: "API Token 到期",
+      status: "warn",
+      detail: `${summary.withoutExpiry} 个 API Token 未设置到期时间，建议为自动化密钥设置有效期。`
+    };
+  }
+  return { id: "api-token-expiry", label: "API Token 到期", status: "secure", detail: "API Token 均设置有效期，且当前没有即将到期项。" };
 }
 
 async function dockerSocketCheck(): Promise<SecurityCheck> {

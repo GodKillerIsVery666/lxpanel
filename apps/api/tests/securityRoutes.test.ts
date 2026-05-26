@@ -32,11 +32,18 @@ describe("安全态势路由", () => {
       payload: JSON.stringify({ username: "admin", password: "Admin-Password-2026" })
     });
     const cookie = setup.cookies.map((item) => `${item.name}=${item.value}`).join("; ");
+    await app.inject({
+      method: "POST",
+      url: "/api/auth/tokens",
+      headers: { "content-type": "application/json", cookie },
+      payload: JSON.stringify({ name: "soon-expiring", expiresInDays: 1, scopes: ["system:read"] })
+    });
     const response = await app.inject({ method: "GET", url: "/api/security/posture", headers: { cookie } });
     const posture = SecurityResponseSchema.parse(response.json()).posture;
 
     expect(response.statusCode).toBe(200);
     expect(posture.checks.some((check) => check.id === "session-secret" && check.status === "critical")).toBe(true);
+    expect(posture.checks.some((check) => check.id === "api-token-expiry" && check.status === "warn")).toBe(true);
     expect(posture.recommendations.length).toBeGreaterThan(0);
     await app.close();
   });

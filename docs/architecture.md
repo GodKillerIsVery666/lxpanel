@@ -27,7 +27,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 17. 应用商店使用受控 Docker Compose 模板，不接受任意 YAML 输入；模板变量经过校验后写入 `LXPANEL_DATA_DIR/apps` 下的 compose 文件，再通过参数化 `docker compose` 命令执行动作。
 18. API Token 复用认证中间件的 RBAC 判断，自动化请求通过 Bearer Token 进入同一套接口权限模型。
 19. 安全态势接口输出结构化检查项，前端直接展示检查状态和建议，避免把生产风险只写在文档里。
-20. API Token 在认证后会按路由映射校验作用域；Cookie 会话仍走原角色模型，自动化请求额外受 scope 约束。
+20. API Token 在认证后会按路由映射校验作用域；Cookie 会话仍走原角色模型，自动化请求额外受 scope 约束。Token 列表会派生正常、即将到期和已过期状态，安全态势会提示到期风险。
 21. Webhook 通知服务在创建、更新和投递前校验出站主机白名单，列表接口只返回脱敏 URL，新渠道 URL 使用会话密钥派生密钥后加密保存。
 22. 审计日志支持结构化查询、CSV/JSONL 导出和按保留天数压缩写回。
 23. 审批中心独立于具体业务模块保存审批单，高风险路由通过一次性消费审批单完成准入校验。
@@ -59,4 +59,4 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 
 ## 自动化访问
 
-API Token 由 `AuthStore` 生成并保存在 `PanelState.apiTokens` 中，状态内只保存哈希、归属用户、角色快照、创建时间、过期时间和最近使用时间。认证中间件先尝试 Cookie 会话，再尝试 `Authorization: Bearer lxpat_...`；Token 成功认证后返回的用户角色不会高于当前用户角色，避免用户降权后旧 Token 继续拥有旧权限。
+API Token 由 `AuthStore` 生成并保存在 `PanelState.apiTokens` 中，状态内只保存哈希、归属用户、角色快照、创建时间、过期时间和最近使用时间。认证中间件先尝试 Cookie 会话，再尝试 `Authorization: Bearer lxpat_...`；Token 成功认证后返回的用户角色不会高于当前用户角色，避免用户降权后旧 Token 继续拥有旧权限。Token 到期状态由读取时派生，不写回状态文件；过期 Token 会拒绝认证，7 天内到期或未设置有效期的 Token 会进入安全巡检提醒。

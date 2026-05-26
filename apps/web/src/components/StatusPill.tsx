@@ -1,5 +1,6 @@
 interface StatusPillProps {
   status: string;
+  label?: string;
 }
 
 const toneMap: Record<string, string> = {
@@ -10,6 +11,7 @@ const toneMap: Record<string, string> = {
   success: "good",
   approved: "good",
   pending: "warn",
+  expiring: "warn",
   used: "muted",
   expired: "bad",
   rejected: "bad",
@@ -25,7 +27,7 @@ const toneMap: Record<string, string> = {
   error: "bad"
 };
 
-export function StatusPill({ status }: StatusPillProps): JSX.Element {
+export function StatusPill({ status, label }: StatusPillProps): JSX.Element {
   const tone = toneMap[status.toLowerCase()] ?? "muted";
-  return <span className={`status-pill ${tone}`}>{status}</span>;
+  return <span className={`status-pill ${tone}`}>{label ?? status}</span>;
 }

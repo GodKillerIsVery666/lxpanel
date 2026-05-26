@@ -34,6 +34,9 @@ export const ApiTokenScopes = [
 export const ApiTokenScopeSchema = z.enum(ApiTokenScopes);
 export type ApiTokenScope = z.infer<typeof ApiTokenScopeSchema>;
 
+export const ApiTokenStatusSchema = z.enum(["active", "expiring", "expired"]);
+export type ApiTokenStatus = z.infer<typeof ApiTokenStatusSchema>;
+
 export const AuthUserSchema = z.object({
   id: z.string(),
   username: z.string(),
@@ -108,8 +111,10 @@ export const ApiTokenSchema = z.object({
   username: z.string(),
   role: RoleSchema,
   scopes: z.array(ApiTokenScopeSchema),
+  status: ApiTokenStatusSchema,
   createdAt: z.string(),
   expiresAt: z.string().optional(),
+  daysUntilExpiry: z.number().int().optional(),
   lastUsedAt: z.string().optional()
 });
 export type ApiToken = z.infer<typeof ApiTokenSchema>;

@@ -1,16 +1,27 @@
-import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type AuthSession, type AuthUser, type CreatedApiToken, type CreateApiToken, type CreateUser, type Role } from "@lxpanel/shared";
+import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type ApiTokenStatus, type AuthSession, type AuthUser, type CreatedApiToken, type CreateApiToken, type CreateUser, type Role } from "@lxpanel/shared";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from "../../lib/totp.js";
 import type { ApiTokenRecord, PanelState, UserRecord } from "../state/panelState.js";
 
 const sessionTtlMs = 1000 * 60 * 60 * 12;
+const apiTokenExpiryWarningMs = 1000 * 60 * 60 * 24 * 7;
+const oneDayMs = 1000 * 60 * 60 * 24;
 
 export type LoginVerification = { status: "ok"; user: AuthUser } | { status: "totp_required" } | null;
 
 export interface TotpSetupResult {
   secret: string;
   uri: string;
+}
+
+export interface ApiTokenExpirySummary {
+  total: number;
+  active: number;
+  expiring: number;
+  expired: number;
+  withoutExpiry: number;
+  warningDays: number;
 }
 
 export class AuthStore {
@@ -215,6 +226,27 @@ export class AuthStore {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  async summarizeApiTokenExpiry(): Promise<ApiTokenExpirySummary> {
+    const state = await this.store.read();
+    const tokens = state.apiTokens ?? [];
+    const summary: ApiTokenExpirySummary = {
+      total: tokens.length,
+      active: 0,
+      expiring: 0,
+      expired: 0,
+      withoutExpiry: 0,
+      warningDays: Math.ceil(apiTokenExpiryWarningMs / oneDayMs)
+    };
+    for (const token of tokens) {
+      if (!token.expiresAt) {
+        summary.withoutExpiry += 1;
+      }
+      const status = getApiTokenStatus(token.expiresAt);
+      summary[status] += 1;
+    }
+    return summary;
+  }
+
   async revokeApiToken(userId: string, tokenId: string): Promise<boolean> {
     return this.store.update((state) => {
       const tokens = state.apiTokens ?? [];
@@ -336,6 +368,8 @@ function countOwners(users: UserRecord[]): number {
 }
 
 function toApiToken(token: ApiTokenRecord, user: Pick<AuthUser, "id" | "username"> | UserRecord | undefined): ApiToken {
+  const status = getApiTokenStatus(token.expiresAt);
+  const daysUntilExpiry = token.expiresAt ? Math.ceil((new Date(token.expiresAt).getTime() - Date.now()) / oneDayMs) : undefined;
   return {
     id: token.id,
     name: token.name,
@@ -343,10 +377,23 @@ function toApiToken(token: ApiTokenRecord, user: Pick<AuthUser, "id" | "username
     username: user?.username ?? "unknown",
     role: token.role,
     scopes: normalizeScopes(token.scopes),
+    status,
     createdAt: token.createdAt,
     ...(token.expiresAt ? { expiresAt: token.expiresAt } : {}),
+    ...(typeof daysUntilExpiry === "number" ? { daysUntilExpiry } : {}),
     ...(token.lastUsedAt ? { lastUsedAt: token.lastUsedAt } : {})
   };
+}
+
+function getApiTokenStatus(expiresAt: string | undefined): ApiTokenStatus {
+  if (!expiresAt) {
+    return "active";
+  }
+  const remainingMs = new Date(expiresAt).getTime() - Date.now();
+  if (remainingMs <= 0) {
+    return "expired";
+  }
+  return remainingMs <= apiTokenExpiryWarningMs ? "expiring" : "active";
 }
 
 function lowerRole(left: Role, right: Role): Role {

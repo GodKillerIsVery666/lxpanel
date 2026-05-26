@@ -106,6 +106,8 @@ export function SecurityPage(): JSX.Element {
     load().catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "加载失败。"));
   }, []);
 
+  const attentionTokens = apiTokens.filter((token) => token.status === "expired" || token.status === "expiring");
+
   return (
     <main className="page-stack">
       <div className="page-heading"><div><h1>安全</h1><p>会话、文件根目录与部署状态</p></div></div>
@@ -140,9 +142,33 @@ export function SecurityPage(): JSX.Element {
         <div className="inline-form wrap"><input value={tokenName} onChange={(event) => setTokenName(event.target.value)} placeholder="Token 名称" /><input value={tokenDays} onChange={(event) => setTokenDays(event.target.value)} inputMode="numeric" placeholder="有效天数" /><button type="button" onClick={() => void createToken()}>创建</button></div>
         <div className="scope-grid">{ApiTokenScopes.map((scope) => <label className="compact-check" key={scope}><input type="checkbox" checked={tokenScopes.includes(scope)} onChange={() => toggleScope(scope)} />{scope}</label>)}</div>
         {newTokenSecret ? <code className="path-code">{newTokenSecret}</code> : null}
-        <table><thead><tr><th>名称</th><th>角色</th><th>作用域</th><th>创建时间</th><th>过期时间</th><th>最近使用</th><th>操作</th></tr></thead><tbody>{apiTokens.map((token) => <tr key={token.id}><td>{token.name}</td><td>{token.role}</td><td>{token.scopes.join(", ")}</td><td>{formatDate(token.createdAt)}</td><td>{token.expiresAt ? formatDate(token.expiresAt) : "永不过期"}</td><td>{token.lastUsedAt ? formatDate(token.lastUsedAt) : "-"}</td><td><button className="mini-button" onClick={() => void revokeToken(token.id)}>撤销</button></td></tr>)}</tbody></table>
+        {attentionTokens.length ? <p className="notice">{attentionTokens.length} 个 API Token 已过期或将在 7 天内到期，请提前轮换。</p> : null}
+        <table><thead><tr><th>名称</th><th>角色</th><th>状态</th><th>作用域</th><th>创建时间</th><th>过期时间</th><th>最近使用</th><th>操作</th></tr></thead><tbody>{apiTokens.map((token) => <tr key={token.id}><td>{token.name}</td><td>{token.role}</td><td><StatusPill status={token.status} label={apiTokenStatusLabel(token)} /></td><td>{token.scopes.join(", ")}</td><td>{formatDate(token.createdAt)}</td><td>{formatApiTokenExpiry(token)}</td><td>{token.lastUsedAt ? formatDate(token.lastUsedAt) : "-"}</td><td><button className="mini-button" onClick={() => void revokeToken(token.id)}>撤销</button></td></tr>)}</tbody></table>
       </section>
       <section className="table-panel"><div className="panel-title">建议</div>{posture?.recommendations.length ? posture.recommendations.map((item) => <p className="notice" key={item}>{item}</p>) : <p className="muted-text">无。</p>}</section>
     </main>
   );
+}
+
+function apiTokenStatusLabel(token: ApiToken): string {
+  if (token.status === "expired") {
+    return "已过期";
+  }
+  if (token.status === "expiring") {
+    return "即将到期";
+  }
+  return "正常";
+}
+
+function formatApiTokenExpiry(token: ApiToken): string {
+  if (!token.expiresAt) {
+    return "永不过期";
+  }
+  if (token.status === "expired") {
+    return `${formatDate(token.expiresAt)}（已过期）`;
+  }
+  if (typeof token.daysUntilExpiry === "number" && token.daysUntilExpiry <= 7) {
+    return `${formatDate(token.expiresAt)}（剩余 ${Math.max(token.daysUntilExpiry, 0)} 天）`;
+  }
+  return formatDate(token.expiresAt);
 }
