@@ -24,6 +24,17 @@ export function registerBackupRoutes(app: FastifyInstance, services: Services): 
     return { backup };
   });
 
+  app.post("/api/backups/verify", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = BackupRequestSchema.parse(request.body);
+    const verification = await services.backupStore.verifyBackup(input.backupId);
+    await services.auditLog.append({ actor: user.username, action: "backup.verify", target: verification.fileName, ip: request.ip, status: verification.ok ? "success" : "error", detail: verification.issues.join("; ") });
+    return { verification };
+  });
+
   app.get<{ Querystring: { backupId?: string } }>("/api/backups/download", async (request, reply) => {
     const user = await requireRole(request, reply, services, "owner");
     if (!user) {

@@ -712,6 +712,23 @@ export const BackupRestoreResponseSchema = z.object({
 });
 export type BackupRestoreResponse = z.infer<typeof BackupRestoreResponseSchema>;
 
+export const BackupVerificationSchema = z.object({
+  backupId: z.string(),
+  fileName: z.string(),
+  checkedAt: z.string(),
+  ok: z.boolean(),
+  sha256: z.string(),
+  expectedSha256: z.string().optional(),
+  sizeBytes: z.number(),
+  expectedSizeBytes: z.number(),
+  sizeOk: z.boolean(),
+  checksumOk: z.boolean(),
+  formatOk: z.boolean(),
+  stateKeys: z.array(z.string()),
+  issues: z.array(z.string())
+});
+export type BackupVerification = z.infer<typeof BackupVerificationSchema>;
+
 export const BackupScheduleSchema = z.object({
   enabled: z.boolean(),
   everyHours: z.number().int().min(1).max(720),

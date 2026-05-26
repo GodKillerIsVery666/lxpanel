@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { BackupSchedule, BackupSnapshot, UpdateBackupSchedule } from "@lxpanel/shared";
+import type { BackupSchedule, BackupSnapshot, BackupVerification, UpdateBackupSchedule } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import { createInitialPanelState, type BackupRecord, type BackupScheduleRecord, type PanelState } from "../state/panelState.js";
@@ -53,6 +53,52 @@ export class BackupStore {
     const backup = await this.findBackup(backupId);
     const content = await readFile(backup.path, "utf8");
     return { backup, content };
+  }
+
+  async verifyBackup(backupId: string): Promise<BackupVerification> {
+    const backup = await this.findBackup(backupId);
+    const issues: string[] = [];
+    let content = "";
+    let sha256 = "";
+    let sizeBytes = 0;
+    let formatOk = false;
+    let stateKeys: string[] = [];
+    try {
+      content = await readFile(backup.path, "utf8");
+      const info = await stat(backup.path);
+      sizeBytes = info.size;
+      sha256 = createHash("sha256").update(content).digest("hex");
+      stateKeys = Object.keys(parseBackupEnvelope(content)).sort();
+      parseBackupState(content);
+      formatOk = true;
+    } catch (error) {
+      issues.push(error instanceof Error ? error.message : "备份文件无法读取或解析。");
+    }
+    const sizeOk = sizeBytes === backup.sizeBytes;
+    const checksumOk = Boolean(backup.sha256) && sha256 === backup.sha256;
+    if (!sizeOk) {
+      issues.push("备份文件大小与记录不一致。");
+    }
+    if (!backup.sha256) {
+      issues.push("备份记录缺少 SHA-256 校验值。");
+    } else if (!checksumOk) {
+      issues.push("备份文件 SHA-256 与记录不一致。");
+    }
+    return {
+      backupId: backup.id,
+      fileName: backup.fileName,
+      checkedAt: new Date().toISOString(),
+      ok: issues.length === 0,
+      sha256,
+      ...(backup.sha256 ? { expectedSha256: backup.sha256 } : {}),
+      sizeBytes,
+      expectedSizeBytes: backup.sizeBytes,
+      sizeOk,
+      checksumOk,
+      formatOk,
+      stateKeys,
+      issues
+    };
   }
 
   async restoreBackup(backupId: string, actor: string): Promise<{ restored: BackupSnapshot; preRestore: BackupSnapshot }> {
@@ -165,26 +211,40 @@ function toBackupRecord(snapshot: BackupSnapshot): BackupRecord {
 }
 
 function parseBackupState(content: string): PanelState {
+  const state = parseBackupEnvelope(content);
+  const initial = createInitialPanelState();
+  return {
+    ...initial,
+    users: readArrayOrDefault<PanelState["users"]>(state.users, initial.users),
+    sessions: [],
+    apiTokens: readArrayOrDefault<NonNullable<PanelState["apiTokens"]>>(state.apiTokens, initial.apiTokens ?? []),
+    connectors: readArrayOrDefault<PanelState["connectors"]>(state.connectors, initial.connectors),
+    connectorCommands: readArrayOrDefault<NonNullable<PanelState["connectorCommands"]>>(state.connectorCommands, initial.connectorCommands ?? []),
+    tasks: readArrayOrDefault<NonNullable<PanelState["tasks"]>>(state.tasks, initial.tasks ?? []),
+    taskRuns: readArrayOrDefault<NonNullable<PanelState["taskRuns"]>>(state.taskRuns, initial.taskRuns ?? []),
+    backups: readArrayOrDefault<NonNullable<PanelState["backups"]>>(state.backups, initial.backups ?? []),
+    backupSchedule: readBackupSchedule(state.backupSchedule) ?? initial.backupSchedule ?? { enabled: false, everyHours: 24 },
+    alertThresholds: readArrayOrDefault<NonNullable<PanelState["alertThresholds"]>>(state.alertThresholds, initial.alertThresholds ?? []),
+    alertEvents: readArrayOrDefault<NonNullable<PanelState["alertEvents"]>>(state.alertEvents, initial.alertEvents ?? []),
+    hosts: readArrayOrDefault<NonNullable<PanelState["hosts"]>>(state.hosts, initial.hosts ?? []),
+    metricSamples: readArrayOrDefault<NonNullable<PanelState["metricSamples"]>>(state.metricSamples, initial.metricSamples ?? []),
+    notificationChannels: readArrayOrDefault<NonNullable<PanelState["notificationChannels"]>>(state.notificationChannels, initial.notificationChannels ?? []),
+    notificationDeliveries: readArrayOrDefault<NonNullable<PanelState["notificationDeliveries"]>>(state.notificationDeliveries, initial.notificationDeliveries ?? []),
+    appDeployments: readArrayOrDefault<NonNullable<PanelState["appDeployments"]>>(state.appDeployments, initial.appDeployments ?? []),
+    approvals: readArrayOrDefault<NonNullable<PanelState["approvals"]>>(state.approvals, initial.approvals ?? [])
+  };
+}
+
+function parseBackupEnvelope(content: string): Record<string, unknown> {
   const parsed = JSON.parse(content) as unknown;
   if (!isRecord(parsed) || parsed.kind !== "lxpanel-state" || !isRecord(parsed.state)) {
     throw new Error("备份文件格式不正确。");
   }
-  const initial = createInitialPanelState();
-  const state = parsed.state;
-  return {
-    ...initial,
-    users: readArray<PanelState["users"]>(state.users),
-    sessions: [],
-    connectors: readArray<PanelState["connectors"]>(state.connectors),
-    tasks: readArray<NonNullable<PanelState["tasks"]>>(state.tasks),
-    taskRuns: readArray<NonNullable<PanelState["taskRuns"]>>(state.taskRuns),
-    backups: readArray<NonNullable<PanelState["backups"]>>(state.backups),
-    backupSchedule: readBackupSchedule(state.backupSchedule) ?? initial.backupSchedule ?? { enabled: false, everyHours: 24 }
-  };
+  return parsed.state;
 }
 
-function readArray<TValue extends unknown[]>(value: unknown): TValue {
-  return (Array.isArray(value) ? value : []) as TValue;
+function readArrayOrDefault<TValue extends unknown[]>(value: unknown, fallback: TValue): TValue {
+  return (Array.isArray(value) ? value : fallback) as TValue;
 }
 
 function readBackupSchedule(value: unknown): BackupScheduleRecord | undefined {

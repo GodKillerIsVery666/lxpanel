@@ -15,9 +15,12 @@ describe("备份快照", () => {
 
     const backup = await backupStore.createBackup("admin");
     const content = await readFile(backup.path, "utf8");
+    const verification = await backupStore.verifyBackup(backup.id);
 
     expect(backup.fileName).toContain("lxpanel-state");
     expect(backup.sha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(verification.ok).toBe(true);
+    expect(verification.sha256).toBe(backup.sha256);
     expect(content).toContain("admin");
     await expect(backupStore.listBackups()).resolves.toHaveLength(1);
   });
@@ -28,7 +31,11 @@ describe("备份快照", () => {
     await store.write({
       ...createInitialPanelState(),
       users: [{ id: "u1", username: "admin", role: "owner", passwordHash: "hash", createdAt: new Date().toISOString() }],
-      sessions: [{ id: "s1", idHash: "hash", userId: "u1", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() }]
+      sessions: [{ id: "s1", idHash: "hash", userId: "u1", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() }],
+      apiTokens: [{ id: "t1", name: "ci", userId: "u1", role: "owner", scopes: ["system:read"], tokenHash: "hash", createdAt: new Date().toISOString() }],
+      hosts: [{ id: "h1", name: "edge", address: "10.0.0.2", tags: ["prod"], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+      notificationChannels: [{ id: "n1", name: "ops", type: "webhook", url: "https://hooks.example.com/token", enabled: true, minLevel: "warning", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), updatedBy: "admin" }],
+      approvals: [{ id: "a1", action: "audit.prune", target: "30d", reason: "cleanup", status: "approved", requestedBy: "admin", requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() }]
     });
     const backupStore = new BackupStore(store, root);
     const backup = await backupStore.createBackup("admin");
@@ -46,6 +53,10 @@ describe("备份快照", () => {
     expect(restored.preRestore.createdBy).toBe("admin");
     expect(state.users[0]?.username).toBe("admin");
     expect(state.sessions).toHaveLength(0);
+    expect(state.apiTokens?.[0]?.name).toBe("ci");
+    expect(state.hosts?.[0]?.name).toBe("edge");
+    expect(state.notificationChannels?.[0]?.name).toBe("ops");
+    expect(state.approvals?.[0]?.id).toBe("a1");
   });
 
   it("按计划生成自动备份并推进下次运行时间", async () => {

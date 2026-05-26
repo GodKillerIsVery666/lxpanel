@@ -35,6 +35,12 @@ describe("备份路由", () => {
 
     const createdResponse = await app.inject({ method: "POST", url: "/api/backups", headers: { cookie } });
     const backup = BackupResponseSchema.parse(createdResponse.json()).backup;
+    const verified = await app.inject({
+      method: "POST",
+      url: "/api/backups/verify",
+      headers: { "content-type": "application/json", cookie },
+      payload: JSON.stringify({ backupId: backup.id })
+    });
     const approvalResponse = await app.inject({
       method: "POST",
       url: "/api/approvals",
@@ -63,6 +69,8 @@ describe("备份路由", () => {
     });
 
     expect(createdResponse.statusCode).toBe(200);
+    expect(verified.statusCode).toBe(200);
+    expect(z.object({ verification: z.object({ ok: z.boolean() }) }).parse(verified.json()).verification.ok).toBe(true);
     expect(approvalResponse.statusCode).toBe(200);
     expect(approved.statusCode).toBe(200);
     expect(missingConfirmation.statusCode).toBe(400);

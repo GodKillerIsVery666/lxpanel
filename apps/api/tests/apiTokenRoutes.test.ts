@@ -128,4 +128,42 @@ describe("API Token 路由", () => {
     expect(prune.statusCode).toBe(403);
     await app.close();
   });
+
+  it("备份校验只需要 backups:read scope", async () => {
+    const dataDir = await createTempDir();
+    const app = await buildApp(loadConfig({ LXPANEL_DATA_DIR: dataDir, LXPANEL_SESSION_SECRET: "test-secret-with-enough-length" }));
+
+    const setup = await app.inject({
+      method: "POST",
+      url: "/api/auth/setup",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ username: "admin", password: "Admin-Password-2026" })
+    });
+    const cookie = setup.cookies.map((item) => `${item.name}=${item.value}`).join("; ");
+    const backup = await app.inject({ method: "POST", url: "/api/backups", headers: { cookie } });
+    const backupId = backup.json<{ backup: { id: string } }>().backup.id;
+    const createdResponse = await app.inject({
+      method: "POST",
+      url: "/api/auth/tokens",
+      headers: { "content-type": "application/json", cookie },
+      payload: JSON.stringify({ name: "backup-read", scopes: ["backups:read"] })
+    });
+    const created = CreatedApiTokenSchema.parse(createdResponse.json());
+
+    const verified = await app.inject({
+      method: "POST",
+      url: "/api/backups/verify",
+      headers: { "content-type": "application/json", authorization: `Bearer ${created.secret}` },
+      payload: JSON.stringify({ backupId })
+    });
+    const createDenied = await app.inject({
+      method: "POST",
+      url: "/api/backups",
+      headers: { authorization: `Bearer ${created.secret}` }
+    });
+
+    expect(verified.statusCode).toBe(200);
+    expect(createDenied.statusCode).toBe(403);
+    await app.close();
+  });
 });

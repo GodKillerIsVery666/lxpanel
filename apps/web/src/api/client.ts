@@ -19,6 +19,7 @@ import {
   BackupRequestSchema,
   BackupRestoreRequestSchema,
   BackupRestoreResponseSchema,
+  BackupVerificationSchema,
   AuthSessionSchema,
   ConnectorCommandSchema,
   AuthUserSchema,
@@ -143,6 +144,7 @@ const TaskRunResponseSchema = z.object({ run: TaskRunSchema });
 const BackupsResponseSchema = z.object({ backups: z.array(BackupSnapshotSchema), schedule: BackupScheduleSchema });
 const BackupResponseSchema = z.object({ backup: BackupSnapshotSchema });
 const BackupScheduleResponseSchema = z.object({ schedule: BackupScheduleSchema });
+const BackupVerificationResponseSchema = z.object({ verification: BackupVerificationSchema });
 const OkResponseSchema = z.object({ ok: z.boolean() });
 
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
@@ -195,6 +197,7 @@ export const api = {
   deleteTask: (taskId: string) => request(`/api/tasks?taskId=${encodeURIComponent(taskId)}`, OkResponseSchema, "DELETE"),
   backups: () => request("/api/backups", BackupsResponseSchema),
   createBackup: () => request("/api/backups", BackupResponseSchema, "POST"),
+  verifyBackup: (backupId: string) => request("/api/backups/verify", BackupVerificationResponseSchema, "POST", BackupRequestSchema.parse({ backupId })),
   downloadBackup: (backupId: string) => download(`/api/backups/download?backupId=${encodeURIComponent(BackupRequestSchema.parse({ backupId }).backupId)}`),
   restoreBackup: (backupId: string, approvalId: string) => request("/api/backups/restore", BackupRestoreResponseSchema, "POST", BackupRestoreRequestSchema.parse({ backupId, approvalId, confirmation: "RESTORE" })),
   updateBackupSchedule: (input: UpdateBackupSchedule) => request("/api/backups/schedule", BackupScheduleResponseSchema, "PATCH", UpdateBackupScheduleSchema.parse(input)),

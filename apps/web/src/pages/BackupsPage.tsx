@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Archive, Clock, Download, PauseCircle, RotateCw, Undo2 } from "lucide-react";
-import type { BackupSchedule, BackupSnapshot } from "@lxpanel/shared";
+import { Archive, Clock, Download, PauseCircle, RotateCw, ShieldCheck, Undo2 } from "lucide-react";
+import type { BackupSchedule, BackupSnapshot, BackupVerification } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { formatBytes, formatDate } from "../utils/format.js";
 
@@ -9,6 +9,7 @@ export function BackupsPage(): JSX.Element {
   const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
   const [everyHours, setEveryHours] = useState("24");
   const [restoreApprovalId, setRestoreApprovalId] = useState("");
+  const [verification, setVerification] = useState<BackupVerification | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load(): Promise<void> {
@@ -57,6 +58,16 @@ export function BackupsPage(): JSX.Element {
     }
   }
 
+  async function verifyBackup(backup: BackupSnapshot): Promise<void> {
+    try {
+      const response = await api.verifyBackup(backup.id);
+      setVerification(response.verification);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "校验失败。");
+    }
+  }
+
   async function restoreBackup(backup: BackupSnapshot): Promise<void> {
     if (!restoreApprovalId) {
       setError("恢复备份需要审批单 ID。");
@@ -90,7 +101,8 @@ export function BackupsPage(): JSX.Element {
         <div className="panel-title">恢复审批</div>
         <div className="inline-form wrap"><input value={restoreApprovalId} onChange={(event) => setRestoreApprovalId(event.target.value)} placeholder="审批单 ID" /></div>
       </section>
-      <section className="table-panel"><table><thead><tr><th>文件</th><th>大小</th><th>创建者</th><th>时间</th><th>校验</th><th>操作</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{backup.fileName}<div className="muted-text"><code>{backup.path}</code></div></td><td>{formatBytes(backup.sizeBytes)}</td><td>{backup.createdBy}</td><td>{formatDate(backup.createdAt)}</td><td><code>{backup.sha256?.slice(0, 16) ?? "-"}</code></td><td className="row-actions"><button title="下载" onClick={() => void downloadBackup(backup)}><Download size={15} /></button><button title="恢复" onClick={() => void restoreBackup(backup)}><Undo2 size={15} /></button></td></tr>)}</tbody></table></section>
+      {verification ? <section className="table-panel"><div className="panel-title">校验结果</div><p className={verification.ok ? "status-line good" : "status-line bad"}>{verification.ok ? "通过" : "失败"}：{verification.fileName}</p><p className="muted-text">SHA-256：<code>{verification.sha256 || "-"}</code></p><p className="muted-text">状态字段：{verification.stateKeys.join(", ") || "-"}</p>{verification.issues.length ? <ul>{verification.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : null}</section> : null}
+      <section className="table-panel"><table><thead><tr><th>文件</th><th>大小</th><th>创建者</th><th>时间</th><th>校验</th><th>操作</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{backup.fileName}<div className="muted-text"><code>{backup.path}</code></div></td><td>{formatBytes(backup.sizeBytes)}</td><td>{backup.createdBy}</td><td>{formatDate(backup.createdAt)}</td><td><code>{backup.sha256?.slice(0, 16) ?? "-"}</code></td><td className="row-actions"><button title="校验" onClick={() => void verifyBackup(backup)}><ShieldCheck size={15} /></button><button title="下载" onClick={() => void downloadBackup(backup)}><Download size={15} /></button><button title="恢复" onClick={() => void restoreBackup(backup)}><Undo2 size={15} /></button></td></tr>)}</tbody></table></section>
     </main>
   );
 }

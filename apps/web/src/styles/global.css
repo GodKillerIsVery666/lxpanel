@@ -69,6 +69,9 @@ td { font-size: 14px; }
 .status-pill.bad { color: #9e332e; background: #ffe4df; }
 .status-pill.muted { color: var(--muted); background: #ece8df; }
 .notice { margin: 8px 0; padding: 10px 12px; border-left: 3px solid var(--amber); background: #fff7ea; }
+.status-line { margin: 0 0 8px; font-weight: 800; }
+.status-line.good { color: var(--green); }
+.status-line.bad { color: var(--red); }
 .alert-summary { display: grid; gap: 6px; border-left: 3px solid var(--red); background: #fff0ee; color: var(--ink); padding: 10px 12px; border-radius: 6px; }
 .alert-summary span { color: var(--muted); }
 .muted-text { color: var(--muted); }

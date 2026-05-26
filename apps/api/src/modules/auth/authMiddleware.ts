@@ -89,6 +89,9 @@ function requiredScopeForRequest(request: FastifyRequest): ApiTokenScope | null 
   if (path.startsWith("/api/tasks")) {
     return write ? "tasks:write" : "tasks:read";
   }
+  if (path === "/api/backups/verify") {
+    return "backups:read";
+  }
   if (path.startsWith("/api/backups")) {
     return write ? "backups:write" : "backups:read";
   }
