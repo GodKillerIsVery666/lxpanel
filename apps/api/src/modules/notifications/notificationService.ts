@@ -1,3 +1,4 @@
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import type { AlertEvent, CreateNotificationChannel, NotificationChannel, NotificationDelivery, NotificationTest, UpdateNotificationChannel } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
@@ -5,6 +6,7 @@ import type { NotificationChannelRecord, NotificationDeliveryRecord, PanelState 
 
 const maxDeliveries = 300;
 const defaultDeliveryLimit = 100;
+const encryptedUrlPrefix = "enc:v1";
 
 export interface WebhookResult {
   ok: boolean;
@@ -31,15 +33,20 @@ const defaultWebhookSender: WebhookSender = async (url, payload) => {
 };
 
 export class NotificationService {
+  private readonly encryptionKey: Buffer | null;
+
   constructor(
     private readonly store: StateStore<PanelState>,
     private readonly webhookSender: WebhookSender = defaultWebhookSender,
-    private readonly webhookAllowlist: readonly string[] = []
-  ) {}
+    private readonly webhookAllowlist: readonly string[] = [],
+    encryptionSecret = ""
+  ) {
+    this.encryptionKey = encryptionSecret ? createHash("sha256").update(encryptionSecret).digest() : null;
+  }
 
   async listChannels(): Promise<NotificationChannel[]> {
     const state = await this.store.read();
-    return (state.notificationChannels ?? []).map(toPublicChannel);
+    return (state.notificationChannels ?? []).map((channel) => toPublicChannel(channel, this.readWebhookUrl(channel)));
   }
 
   async listDeliveries(limit = defaultDeliveryLimit): Promise<NotificationDelivery[]> {
@@ -49,20 +56,21 @@ export class NotificationService {
 
   async createChannel(input: CreateNotificationChannel, actor: string): Promise<NotificationChannel> {
     this.assertWebhookAllowed(input.url);
+    const storedUrl = this.toStoredUrl(input.url);
     return this.store.update((state) => {
       const now = new Date().toISOString();
       const channel: NotificationChannelRecord = {
         id: randomToken(12),
         name: input.name,
         type: input.type,
-        url: input.url,
+        ...storedUrl,
         enabled: input.enabled,
         minLevel: input.minLevel,
         createdAt: now,
         updatedAt: now,
         updatedBy: actor
       };
-      return { data: { ...state, notificationChannels: [...(state.notificationChannels ?? []), channel] }, result: toPublicChannel(channel) };
+      return { data: { ...state, notificationChannels: [...(state.notificationChannels ?? []), channel] }, result: toPublicChannel(channel, input.url) };
     });
   }
 
@@ -75,18 +83,20 @@ export class NotificationService {
       if (!existing) {
         throw new Error("通知渠道不存在。");
       }
-      const updated: NotificationChannelRecord = {
+      let updated: NotificationChannelRecord = {
         ...existing,
         ...(input.name ? { name: input.name } : {}),
-        ...(input.url ? { url: input.url } : {}),
         ...(typeof input.enabled === "boolean" ? { enabled: input.enabled } : {}),
         ...(input.minLevel ? { minLevel: input.minLevel } : {}),
         updatedAt: new Date().toISOString(),
         updatedBy: actor
       };
+      if (input.url) {
+        updated = withStoredUrl(updated, this.toStoredUrl(input.url));
+      }
       return {
         data: { ...state, notificationChannels: (state.notificationChannels ?? []).map((channel) => channel.id === input.channelId ? updated : channel) },
-        result: toPublicChannel(updated)
+        result: toPublicChannel(updated, input.url ?? this.readWebhookUrl(existing))
       };
     });
   }
@@ -133,13 +143,14 @@ export class NotificationService {
     return deliveries;
   }
 
-  private async sendToChannel(channel: NotificationChannel, alert: AlertEvent): Promise<NotificationDelivery> {
+  private async sendToChannel(channel: NotificationChannelRecord, alert: AlertEvent): Promise<NotificationDelivery> {
     const now = new Date().toISOString();
     let status: NotificationDelivery["status"] = "success";
     let errorMessage: string | undefined;
     try {
-      this.assertWebhookAllowed(channel.url);
-      const response = await this.webhookSender(channel.url, createPayload(channel, alert, now));
+      const url = this.readWebhookUrl(channel);
+      this.assertWebhookAllowed(url);
+      const response = await this.webhookSender(url, createPayload(channel, alert, now));
       if (!response.ok) {
         status = "failed";
         errorMessage = `HTTP ${response.status}${response.body ? ` ${response.body.slice(0, 200)}` : ""}`;
@@ -174,6 +185,23 @@ export class NotificationService {
     }
   }
 
+  private toStoredUrl(value: string): Pick<NotificationChannelRecord, "url" | "encryptedUrl"> {
+    return this.encryptionKey ? { encryptedUrl: encryptSecret(value, this.encryptionKey) } : { url: value };
+  }
+
+  private readWebhookUrl(channel: NotificationChannelRecord): string {
+    if (channel.encryptedUrl) {
+      if (!this.encryptionKey) {
+        throw new Error("通知渠道已加密，但当前未配置解密密钥。");
+      }
+      return decryptSecret(channel.encryptedUrl, this.encryptionKey);
+    }
+    if (channel.url) {
+      return channel.url;
+    }
+    throw new Error("通知渠道缺少 Webhook URL。");
+  }
+
   private async recordDelivery(channelId: string, delivery: NotificationDeliveryRecord): Promise<void> {
     await this.store.update((state) => {
       const channels = (state.notificationChannels ?? []).map((channel) => {
@@ -199,7 +227,7 @@ export class NotificationService {
   }
 }
 
-function createPayload(channel: NotificationChannel, alert: AlertEvent, time: string): unknown {
+function createPayload(channel: NotificationChannelRecord, alert: AlertEvent, time: string): unknown {
   return {
     product: "LXPanel",
     time,
@@ -217,8 +245,39 @@ function createPayload(channel: NotificationChannel, alert: AlertEvent, time: st
   };
 }
 
-function toPublicChannel(channel: NotificationChannelRecord): NotificationChannel {
-  return { ...channel, url: maskWebhookUrl(channel.url) };
+function toPublicChannel(channel: NotificationChannelRecord, url: string): NotificationChannel {
+  const publicChannel = { ...channel };
+  delete publicChannel.encryptedUrl;
+  return { ...publicChannel, url: maskWebhookUrl(url) };
+}
+
+function withStoredUrl(channel: NotificationChannelRecord, storedUrl: Pick<NotificationChannelRecord, "url" | "encryptedUrl">): NotificationChannelRecord {
+  const next = { ...channel, ...storedUrl };
+  if (storedUrl.encryptedUrl) {
+    delete next.url;
+  }
+  if (storedUrl.url) {
+    delete next.encryptedUrl;
+  }
+  return next;
+}
+
+function encryptSecret(value: string, key: Buffer): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${encryptedUrlPrefix}:${iv.toString("base64url")}:${tag.toString("base64url")}:${ciphertext.toString("base64url")}`;
+}
+
+function decryptSecret(value: string, key: Buffer): string {
+  const [prefix, version, ivText, tagText, ciphertextText] = value.split(":");
+  if (`${prefix}:${version}` !== encryptedUrlPrefix || !ivText || !tagText || !ciphertextText) {
+    throw new Error("通知渠道加密 URL 格式不正确。");
+  }
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivText, "base64url"));
+  decipher.setAuthTag(Buffer.from(tagText, "base64url"));
+  return Buffer.concat([decipher.update(Buffer.from(ciphertextText, "base64url")), decipher.final()]).toString("utf8");
 }
 
 function maskWebhookUrl(value: string): string {

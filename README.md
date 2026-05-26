@@ -18,7 +18,7 @@ LXPanel 是一个从零开始搭建的轻量服务器运维面板原型，目标
 - 受控任务运行器：使用参数化命令执行维护任务，记录运行历史。
 - 计划任务与自动备份：按固定间隔运行维护任务、生成面板状态快照，并支持下载、SHA-256 完整性校验、带审批恢复和保留最近 100 份快照。
 - 资源告警：按 CPU、内存、磁盘阈值自动检查，保留最近告警历史，支持手动检查、确认与审计。
-- 监控趋势与通知渠道：调度器采样本机资源曲线，告警可投递到 HTTP/HTTPS Webhook，并支持出站目标白名单与 URL 脱敏展示。
+- 监控趋势与通知渠道：调度器采样本机资源曲线，告警可投递到 HTTP/HTTPS Webhook，并支持出站目标白名单、URL 脱敏展示和服务端加密保存。
 - 可配置状态存储：默认使用 JSON 文件，生产可切换到 SQLite，并自动从已有 `state.json` 导入初始状态。
 - 连接器登记、心跳令牌与命令队列，为本地客户端分担远程连接负载预留协议。
 - 轻量连接器 agent：`scripts/lxpanel-connector.mjs` 可用令牌心跳、轮询命令并在本机 allowlist 内参数化执行。
@@ -44,7 +44,7 @@ npm run dev
 | `LXPANEL_DATA_DIR` | `./data` | 状态与审计数据目录 |
 | `LXPANEL_STATE_STORE` | `json` | 状态存储驱动，可选 `json` 或 `sqlite` |
 | `LXPANEL_STATE_SQLITE_PATH` | `LXPANEL_DATA_DIR/lxpanel.db` | SQLite 状态库路径；也兼容 `LXPANEL_DATABASE_PATH` |
-| `LXPANEL_SESSION_SECRET` | 开发默认值 | 生产环境必须设置强随机值 |
+| `LXPANEL_SESSION_SECRET` | 开发默认值 | 生产环境必须设置强随机值；同时用于派生通知 URL 加密密钥 |
 | `LXPANEL_COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
 | `LXPANEL_ALLOWED_ORIGINS` | Vite 本地地址 | CORS 白名单，分号或逗号分隔 |
 | `LXPANEL_IP_ALLOWLIST` | 空 | 面板访问源 IP 白名单，分号或逗号分隔 |
@@ -54,6 +54,8 @@ npm run dev
 | `LXPANEL_LOG_ROOTS` | `./data` 和系统日志目录 | 允许日志查看器访问的根目录 |
 
 启用 SQLite 时，服务首次启动会在数据库为空且 `LXPANEL_DATA_DIR/state.json` 存在时导入旧状态文件，但不会删除原 JSON 文件，方便回滚和人工核对。Node 当前会对内置 `node:sqlite` 输出实验特性警告，生产部署建议先在预发环境验证运行时版本。
+
+通知 Webhook URL 会用 `LXPANEL_SESSION_SECRET` 派生密钥后加密保存。旧版本明文通知渠道仍可读取；生产环境更换会话密钥前，应先重新保存通知渠道或保留旧密钥用于迁移。
 
 ## 验证
 

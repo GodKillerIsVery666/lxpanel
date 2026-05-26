@@ -73,7 +73,7 @@ export async function createServices(config: AppConfig): Promise<Services> {
     alertService: new AlertService(stateStore),
     hostService: new HostService(stateStore),
     monitoringService: new MonitoringService(stateStore),
-    notificationService: new NotificationService(stateStore, undefined, config.webhookAllowlist),
+    notificationService: new NotificationService(stateStore, undefined, config.webhookAllowlist, config.sessionSecret),
     appStore: new AppStore(stateStore, config.dataDir),
     approvalStore: new ApprovalStore(stateStore),
     auditLog: new AuditLog(join(config.dataDir, "audit.jsonl"))

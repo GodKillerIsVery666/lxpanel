@@ -72,4 +72,38 @@ describe("通知服务", () => {
     expect(channels[0]?.url).toBe("https://hooks.example.com/...");
     expect(sentUrls[0]).toBe("https://hooks.example.com/token/secret?key=hidden");
   });
+
+  it("加密保存 Webhook URL 并兼容旧明文渠道", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-notify-encrypted-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const sentUrls: string[] = [];
+    const sender: WebhookSender = (url) => {
+      sentUrls.push(url);
+      return Promise.resolve({ ok: true, status: 200, body: "ok" });
+    };
+    const service = new NotificationService(store, sender, [], "test-secret-with-enough-length");
+
+    const channel = await service.createChannel({ name: "ops", type: "webhook", url: "https://hooks.example.com/token/secret?key=hidden", enabled: true, minLevel: "warning" }, "admin");
+    await store.update((state) => ({
+      data: {
+        ...state,
+        notificationChannels: [
+          ...(state.notificationChannels ?? []),
+          { id: "legacy", name: "legacy", type: "webhook", url: "https://legacy.example.com/raw-secret", enabled: true, minLevel: "warning", createdAt: "2026-05-22T00:00:00.000Z", updatedAt: "2026-05-22T00:00:00.000Z", updatedBy: "admin" }
+        ]
+      },
+      result: undefined
+    }));
+    const state = await store.read();
+    const channels = await service.listChannels();
+    await service.notifyAlerts([alert]);
+
+    expect(channel.url).toBe("https://hooks.example.com/...");
+    expect(state.notificationChannels?.[0]?.url).toBeUndefined();
+    expect(state.notificationChannels?.[0]?.encryptedUrl).toMatch(/^enc:v1:/u);
+    expect(JSON.stringify(state.notificationChannels?.[0])).not.toContain("hidden");
+    expect(channels.map((item) => item.url)).toEqual(["https://hooks.example.com/...", "https://legacy.example.com/..."]);
+    expect(sentUrls).toContain("https://hooks.example.com/token/secret?key=hidden");
+    expect(sentUrls).toContain("https://legacy.example.com/raw-secret");
+  });
 });
