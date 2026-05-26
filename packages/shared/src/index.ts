@@ -404,6 +404,57 @@ export const DockerContainerActionSchema = z.object({
 });
 export type DockerContainerAction = z.infer<typeof DockerContainerActionSchema>;
 
+export const AppTemplateVariableSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  defaultValue: z.string(),
+  required: z.boolean().default(true)
+});
+export type AppTemplateVariable = z.infer<typeof AppTemplateVariableSchema>;
+
+export const AppTemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  category: z.string(),
+  description: z.string(),
+  image: z.string(),
+  variables: z.array(AppTemplateVariableSchema)
+});
+export type AppTemplate = z.infer<typeof AppTemplateSchema>;
+
+export const AppDeploymentStatusSchema = z.enum(["created", "running", "stopped", "failed"]);
+export type AppDeploymentStatus = z.infer<typeof AppDeploymentStatusSchema>;
+
+export const AppDeploymentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  templateId: z.string(),
+  templateName: z.string(),
+  status: AppDeploymentStatusSchema,
+  composePath: z.string(),
+  variables: z.record(z.string(), z.string()),
+  createdAt: z.string(),
+  createdBy: z.string(),
+  lastActionAt: z.string().optional(),
+  lastActionBy: z.string().optional(),
+  lastOutputTail: z.string().optional()
+});
+export type AppDeployment = z.infer<typeof AppDeploymentSchema>;
+
+export const CreateAppDeploymentSchema = z.object({
+  templateId: z.string().min(1),
+  name: z.string().min(2).max(80).regex(/^[A-Za-z0-9_.-]+$/u),
+  variables: z.record(z.string(), z.string().max(240)).default({}),
+  autoStart: z.boolean().default(false)
+});
+export type CreateAppDeployment = z.infer<typeof CreateAppDeploymentSchema>;
+
+export const AppDeploymentActionSchema = z.object({
+  deploymentId: z.string().min(1),
+  action: z.enum(["up", "down", "restart"])
+});
+export type AppDeploymentAction = z.infer<typeof AppDeploymentActionSchema>;
+
 export const CreateTaskSchema = z.object({
   name: z.string().min(2).max(80),
   command: z.string().min(1).max(180).regex(/^[A-Za-z0-9_.:/\\-]+$/u),

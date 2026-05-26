@@ -74,6 +74,8 @@ td { font-size: 14px; }
 .path-form, .inline-form { display: flex; gap: 10px; }
 .inline-form.wrap { flex-wrap: wrap; }
 .path-form button, .inline-form button { background: var(--ink); color: white; }
+.compact-check { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--ink); }
+.variable-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .task-form { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.2fr 110px 140px auto; gap: 10px; }
 .task-form button, .mini-button { border: 1px solid transparent; border-radius: 6px; background: var(--ink); color: white; padding: 8px 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .mini-button { margin-left: 6px; }
@@ -88,6 +90,7 @@ td { font-size: 14px; }
 .log-panel pre { margin: 0; padding: 14px; overflow: auto; max-height: 58vh; font-family: "Cascadia Mono", "Consolas", monospace; font-size: 13px; line-height: 1.55; }
 .log-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .inline-log { max-width: 520px; max-height: 120px; margin: 0; overflow: auto; white-space: pre-wrap; font-family: "Cascadia Mono", "Consolas", monospace; font-size: 12px; }
+.inline-code { display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "Cascadia Mono", "Consolas", monospace; }
 .trend-chart { width: 100%; min-width: 620px; height: 240px; display: block; background: #fffdf8; }
 .trend-grid line { stroke: #ebe5d8; stroke-width: 1; }
 .trend-legend text { font-size: 13px; font-weight: 700; }
@@ -97,7 +100,7 @@ td { font-size: 14px; }
   .sidebar { position: sticky; top: 0; z-index: 3; padding: 12px; }
   .sidebar nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .sidebar button { justify-content: center; font-size: 13px; }
-  .metric-grid, .security-grid { grid-template-columns: 1fr; }
+  .metric-grid, .security-grid, .variable-grid { grid-template-columns: 1fr; }
   .topbar, .page-stack { padding-left: 16px; padding-right: 16px; }
 }
 

@@ -4,6 +4,9 @@ import {
   AlertEventSchema,
   AlertSummarySchema,
   AlertThresholdSchema,
+  AppDeploymentActionSchema,
+  AppDeploymentSchema,
+  AppTemplateSchema,
   BackupScheduleSchema,
   BackupRequestSchema,
   BackupRestoreResponseSchema,
@@ -14,6 +17,7 @@ import {
   ChangeOwnPasswordSchema,
   ConnectorSchema,
   CreateHostSchema,
+  CreateAppDeploymentSchema,
   CreateConnectorCommandSchema,
   CreateNotificationChannelSchema,
   CreateTaskSchema,
@@ -51,7 +55,9 @@ import {
   UpdateTaskScheduleSchema,
   UpdateUserRoleSchema,
   type AuthUser,
+  type AppDeploymentAction,
   type ChangeOwnPassword,
+  type CreateAppDeployment,
   type CreateConnector,
   type CreateConnectorCommand,
   type CreateHost,
@@ -94,6 +100,9 @@ const MonitoringLatestResponseSchema = z.object({ sample: MetricSampleSchema.opt
 const NotificationsResponseSchema = z.object({ channels: z.array(NotificationChannelSchema), deliveries: z.array(NotificationDeliverySchema) });
 const NotificationChannelResponseSchema = z.object({ channel: NotificationChannelSchema });
 const NotificationDeliveryResponseSchema = z.object({ delivery: NotificationDeliverySchema });
+const AppTemplatesResponseSchema = z.object({ templates: z.array(AppTemplateSchema) });
+const AppDeploymentsResponseSchema = z.object({ deployments: z.array(AppDeploymentSchema) });
+const AppDeploymentResponseSchema = z.object({ deployment: AppDeploymentSchema });
 const ConnectorsResponseSchema = z.object({ connectors: z.array(ConnectorSchema) });
 const ConnectorCommandsResponseSchema = z.object({ commands: z.array(ConnectorCommandSchema) });
 const CreatedConnectorResponseSchema = z.object({ connector: ConnectorSchema, token: z.string() });
@@ -169,6 +178,10 @@ export const api = {
   updateNotificationChannel: (input: UpdateNotificationChannel) => request("/api/notifications", NotificationChannelResponseSchema, "PATCH", UpdateNotificationChannelSchema.parse(input)),
   deleteNotificationChannel: (channelId: string) => request(`/api/notifications?channelId=${encodeURIComponent(channelId)}`, OkResponseSchema, "DELETE"),
   testNotificationChannel: (channelId: string) => request("/api/notifications/test", NotificationDeliveryResponseSchema, "POST", NotificationTestSchema.parse({ channelId })),
+  appTemplates: () => request("/api/apps/templates", AppTemplatesResponseSchema),
+  appDeployments: () => request("/api/apps/deployments", AppDeploymentsResponseSchema),
+  createAppDeployment: (input: CreateAppDeployment) => request("/api/apps/deployments", AppDeploymentResponseSchema, "POST", CreateAppDeploymentSchema.parse(input)),
+  runAppDeploymentAction: (input: AppDeploymentAction) => request("/api/apps/deployments/action", AppDeploymentResponseSchema, "POST", AppDeploymentActionSchema.parse(input)),
   connectors: () => request("/api/connectors", ConnectorsResponseSchema),
   connectorCommands: (connectorId?: string) => request(`/api/connectors/commands${connectorId ? `?connectorId=${encodeURIComponent(connectorId)}` : ""}`, ConnectorCommandsResponseSchema),
   createConnectorCommand: (input: CreateConnectorCommand) => request("/api/connectors/commands", ConnectorCommandResponseSchema, "POST", CreateConnectorCommandSchema.parse(input)),

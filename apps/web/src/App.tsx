@@ -4,6 +4,7 @@ import { LoginPanel } from "./components/LoginPanel.js";
 import { Shell } from "./components/Shell.js";
 import { AuditPage } from "./pages/AuditPage.js";
 import { AlertsPage } from "./pages/AlertsPage.js";
+import { AppsPage } from "./pages/AppsPage.js";
 import { BackupsPage } from "./pages/BackupsPage.js";
 import { ConnectorsPage } from "./pages/ConnectorsPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
@@ -19,7 +20,7 @@ import { ServicesPage } from "./pages/ServicesPage.js";
 import { TasksPage } from "./pages/TasksPage.js";
 import { UsersPage } from "./pages/UsersPage.js";
 
-export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "users" | "backups" | "security" | "audit";
+export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "users" | "backups" | "security" | "audit";
 
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -65,6 +66,7 @@ function renderView(view: ViewId): JSX.Element {
     case "processes": return <ProcessesPage />;
     case "services": return <ServicesPage />;
     case "docker": return <DockerPage />;
+    case "apps": return <AppsPage />;
     case "files": return <FilesPage />;
     case "logs": return <LogsPage />;
     case "connectors": return <ConnectorsPage />;

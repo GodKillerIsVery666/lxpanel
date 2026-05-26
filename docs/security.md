@@ -18,6 +18,7 @@
 - RBAC 将用户分为 `owner`、`operator`、`viewer`，高风险动作至少需要 `operator`。
 - 用户管理和备份创建仅允许 `owner`。
 - 任务运行器不使用 shell 拼接，工作目录限制在 `LXPANEL_FILE_ROOTS`。
+- 应用商店只允许内置 Docker Compose 模板，变量禁止换行和控制字符，动作通过参数化 `docker compose` 执行。
 - 通知渠道仅支持 HTTP/HTTPS Webhook，创建、测试、删除均需要 `operator` 并记录审计。
 - 主机资产写操作需要 `operator`，viewer 只能只读查看。
 - 审计日志记录登录、初始化、连接器创建和服务动作。
@@ -32,6 +33,7 @@
 6. 配置 `LXPANEL_IP_ALLOWLIST`，只允许管理网络访问。
 7. 使用独立低权限用户运行 API 服务，谨慎授予 Docker socket 权限。
 8. Webhook URL 可能包含令牌，应限制可配置人员并优先使用内网通知入口。
+9. 使用应用商店前确认 Docker socket 权限边界，生产环境建议只开放给可信 operator。
 
 ## 后续强化
 

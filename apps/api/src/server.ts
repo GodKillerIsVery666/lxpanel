@@ -16,6 +16,8 @@ import { AuditLog } from "./modules/audit/auditLog.js";
 import { registerAuditRoutes } from "./modules/audit/auditRoutes.js";
 import { registerAlertRoutes } from "./modules/alerts/alertRoutes.js";
 import { AlertService } from "./modules/alerts/alertService.js";
+import { registerAppRoutes } from "./modules/apps/appRoutes.js";
+import { AppStore } from "./modules/apps/appStore.js";
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
 import { AuthStore } from "./modules/auth/authStore.js";
 import { BackupStore } from "./modules/backups/backupStore.js";
@@ -52,6 +54,7 @@ export interface Services {
   hostService: HostService;
   monitoringService: MonitoringService;
   notificationService: NotificationService;
+  appStore: AppStore;
   auditLog: AuditLog;
 }
 
@@ -68,6 +71,7 @@ export async function createServices(config: AppConfig): Promise<Services> {
     hostService: new HostService(stateStore),
     monitoringService: new MonitoringService(stateStore),
     notificationService: new NotificationService(stateStore),
+    appStore: new AppStore(stateStore, config.dataDir),
     auditLog: new AuditLog(join(config.dataDir, "audit.jsonl"))
   };
 }
@@ -101,6 +105,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerFileRoutes(app, services);
   registerLogRoutes(app, services);
   registerDockerRoutes(app, services);
+  registerAppRoutes(app, services);
   registerTaskRoutes(app, services);
   registerBackupRoutes(app, services);
   registerAlertRoutes(app, services);

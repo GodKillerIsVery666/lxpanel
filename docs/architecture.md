@@ -24,6 +24,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 14. 资源告警通过调度器周期检查 CPU、内存和磁盘阈值，告警历史保存在面板状态内并进入审计日志，避免只在前端临时展示风险。
 15. 主机资产独立于连接器状态保存，未绑定连接器会作为发现主机展示，便于从单机面板过渡到多主机管理。
 16. 监控样本和通知投递记录随状态保存，调度器负责采样、告警、通知投递三段闭环。
+17. 应用商店使用受控 Docker Compose 模板，不接受任意 YAML 输入；模板变量经过校验后写入 `LXPANEL_DATA_DIR/apps` 下的 compose 文件，再通过参数化 `docker compose` 命令执行动作。
 
 ## 状态存储
 
@@ -44,3 +45,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 ## 监控与通知
 
 `MonitoringService` 每分钟保留一条本机资源样本，最近 1440 条样本随状态存储，用于前端展示趋势曲线。`NotificationService` 目前支持 HTTP/HTTPS Webhook，按告警级别过滤投递，并保存最近 300 条投递记录；调度器会在产生新告警后自动调用通知服务。
+
+## 应用商店
+
+`AppStore` 暴露模板列表、部署记录和部署动作。首批模板覆盖 Nginx、Redis、PostgreSQL，部署时只渲染内置模板变量，生成的 `docker-compose.yml` 落在数据目录下。启动、停止、重启统一调用 `docker compose -f <composePath> ...` 参数数组，并把执行结果写回部署记录和审计日志。

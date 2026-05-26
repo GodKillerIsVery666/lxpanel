@@ -1,4 +1,4 @@
-import type { AlertEvent, AlertThreshold, Host, MetricSample, NotificationChannel, NotificationDelivery, Role } from "@lxpanel/shared";
+import type { AlertEvent, AlertThreshold, AppDeployment, Host, MetricSample, NotificationChannel, NotificationDelivery, Role } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -102,6 +102,7 @@ export type HostRecord = Omit<Host, "status" | "connectorName" | "lastSeenAt">;
 export type MetricSampleRecord = MetricSample;
 export type NotificationChannelRecord = NotificationChannel;
 export type NotificationDeliveryRecord = NotificationDelivery;
+export type AppDeploymentRecord = AppDeployment;
 
 export interface PanelState {
   users: UserRecord[];
@@ -118,6 +119,7 @@ export interface PanelState {
   metricSamples?: MetricSampleRecord[];
   notificationChannels?: NotificationChannelRecord[];
   notificationDeliveries?: NotificationDeliveryRecord[];
+  appDeployments?: AppDeploymentRecord[];
 }
 
 export function createInitialPanelState(): PanelState {
@@ -135,7 +137,8 @@ export function createInitialPanelState(): PanelState {
     hosts: [],
     metricSamples: [],
     notificationChannels: [],
-    notificationDeliveries: []
+    notificationDeliveries: [],
+    appDeployments: []
   };
 }
 
