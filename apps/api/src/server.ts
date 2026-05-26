@@ -25,7 +25,13 @@ import { ConnectorStore } from "./modules/connectors/connectorStore.js";
 import { registerDockerRoutes } from "./modules/docker/dockerRoutes.js";
 import { registerFileRoutes } from "./modules/files/fileRoutes.js";
 import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
+import { registerHostRoutes } from "./modules/hosts/hostRoutes.js";
+import { HostService } from "./modules/hosts/hostService.js";
 import { registerLogRoutes } from "./modules/logs/logRoutes.js";
+import { registerMonitoringRoutes } from "./modules/monitoring/monitoringRoutes.js";
+import { MonitoringService } from "./modules/monitoring/monitoringService.js";
+import { registerNotificationRoutes } from "./modules/notifications/notificationRoutes.js";
+import { NotificationService } from "./modules/notifications/notificationService.js";
 import { SchedulerService } from "./modules/scheduler/schedulerService.js";
 import { registerSecurityRoutes } from "./modules/security/securityRoutes.js";
 import type { PanelState } from "./modules/state/panelState.js";
@@ -43,6 +49,9 @@ export interface Services {
   taskStore: TaskStore;
   backupStore: BackupStore;
   alertService: AlertService;
+  hostService: HostService;
+  monitoringService: MonitoringService;
+  notificationService: NotificationService;
   auditLog: AuditLog;
 }
 
@@ -56,6 +65,9 @@ export async function createServices(config: AppConfig): Promise<Services> {
     taskStore: new TaskStore(stateStore, config.fileRoots),
     backupStore: new BackupStore(stateStore, config.dataDir),
     alertService: new AlertService(stateStore),
+    hostService: new HostService(stateStore),
+    monitoringService: new MonitoringService(stateStore),
+    notificationService: new NotificationService(stateStore),
     auditLog: new AuditLog(join(config.dataDir, "audit.jsonl"))
   };
 }
@@ -63,7 +75,7 @@ export async function createServices(config: AppConfig): Promise<Services> {
 export async function buildApp(config: AppConfig = loadConfig()): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel } });
   const services = await createServices(config);
-  const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.alertService, services.auditLog, app.log);
+  const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.alertService, services.monitoringService, services.notificationService, services.auditLog, app.log);
 
   await app.register(cookie);
   await app.register(cors, { credentials: true, origin: config.allowedOrigins });
@@ -84,12 +96,15 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerAuthRoutes(app, services);
   registerUserRoutes(app, services);
   registerSystemRoutes(app, services);
+  registerHostRoutes(app, services);
+  registerMonitoringRoutes(app, services);
   registerFileRoutes(app, services);
   registerLogRoutes(app, services);
   registerDockerRoutes(app, services);
   registerTaskRoutes(app, services);
   registerBackupRoutes(app, services);
   registerAlertRoutes(app, services);
+  registerNotificationRoutes(app, services);
   registerConnectorRoutes(app, services);
   registerAuditRoutes(app, services);
   registerSecurityRoutes(app, services);

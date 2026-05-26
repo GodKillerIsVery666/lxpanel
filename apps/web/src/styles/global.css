@@ -88,6 +88,9 @@ td { font-size: 14px; }
 .log-panel pre { margin: 0; padding: 14px; overflow: auto; max-height: 58vh; font-family: "Cascadia Mono", "Consolas", monospace; font-size: 13px; line-height: 1.55; }
 .log-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .inline-log { max-width: 520px; max-height: 120px; margin: 0; overflow: auto; white-space: pre-wrap; font-family: "Cascadia Mono", "Consolas", monospace; font-size: 12px; }
+.trend-chart { width: 100%; min-width: 620px; height: 240px; display: block; background: #fffdf8; }
+.trend-grid line { stroke: #ebe5d8; stroke-width: 1; }
+.trend-legend text { font-size: 13px; font-weight: 700; }
 
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }

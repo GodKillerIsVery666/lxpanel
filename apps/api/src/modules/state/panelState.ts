@@ -1,4 +1,4 @@
-import type { AlertEvent, AlertThreshold, Role } from "@lxpanel/shared";
+import type { AlertEvent, AlertThreshold, Host, MetricSample, NotificationChannel, NotificationDelivery, Role } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -98,6 +98,10 @@ export interface BackupScheduleRecord {
 
 export type AlertThresholdRecord = AlertThreshold;
 export type AlertEventRecord = AlertEvent;
+export type HostRecord = Omit<Host, "status" | "connectorName" | "lastSeenAt">;
+export type MetricSampleRecord = MetricSample;
+export type NotificationChannelRecord = NotificationChannel;
+export type NotificationDeliveryRecord = NotificationDelivery;
 
 export interface PanelState {
   users: UserRecord[];
@@ -110,6 +114,10 @@ export interface PanelState {
   backupSchedule?: BackupScheduleRecord;
   alertThresholds?: AlertThresholdRecord[];
   alertEvents?: AlertEventRecord[];
+  hosts?: HostRecord[];
+  metricSamples?: MetricSampleRecord[];
+  notificationChannels?: NotificationChannelRecord[];
+  notificationDeliveries?: NotificationDeliveryRecord[];
 }
 
 export function createInitialPanelState(): PanelState {
@@ -123,7 +131,11 @@ export function createInitialPanelState(): PanelState {
     backups: [],
     backupSchedule: { enabled: false, everyHours: 24 },
     alertThresholds: createDefaultAlertThresholds("system", new Date(0).toISOString()),
-    alertEvents: []
+    alertEvents: [],
+    hosts: [],
+    metricSamples: [],
+    notificationChannels: [],
+    notificationDeliveries: []
   };
 }
 

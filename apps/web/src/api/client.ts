@@ -13,7 +13,9 @@ import {
   BackupSnapshotSchema,
   ChangeOwnPasswordSchema,
   ConnectorSchema,
+  CreateHostSchema,
   CreateConnectorCommandSchema,
+  CreateNotificationChannelSchema,
   CreateTaskSchema,
   CreateUserSchema,
   DismissAlertSchema,
@@ -23,10 +25,15 @@ import {
   DockerImageSchema,
   DockerStatusSchema,
   FileEntrySchema,
+  HostSchema,
   LogRootSchema,
   LogTailSchema,
   LoginResponseSchema,
   LoginRequestSchema,
+  MetricSampleSchema,
+  NotificationChannelSchema,
+  NotificationDeliverySchema,
+  NotificationTestSchema,
   ProcessInfoSchema,
   SecurityPostureSchema,
   ServiceInfoSchema,
@@ -37,6 +44,8 @@ import {
   TotpConfirmSchema,
   PanelTaskSchema,
   ResetUserPasswordSchema,
+  UpdateHostSchema,
+  UpdateNotificationChannelSchema,
   UpdateBackupScheduleSchema,
   UpdateAlertThresholdSchema,
   UpdateTaskScheduleSchema,
@@ -45,9 +54,13 @@ import {
   type ChangeOwnPassword,
   type CreateConnector,
   type CreateConnectorCommand,
+  type CreateHost,
+  type CreateNotificationChannel,
   type CreateTask,
   type CreateUser,
   type UpdateAlertThreshold,
+  type UpdateHost,
+  type UpdateNotificationChannel,
   type DockerContainerAction,
   type LoginRequest,
   type ResetUserPassword,
@@ -74,6 +87,13 @@ const AlertsResponseSchema = z.object({ events: z.array(AlertEventSchema), summa
 const AlertThresholdsResponseSchema = z.object({ thresholds: z.array(AlertThresholdSchema) });
 const AlertDismissResponseSchema = z.object({ event: AlertEventSchema });
 const SecurityResponseSchema = z.object({ posture: SecurityPostureSchema });
+const HostsResponseSchema = z.object({ hosts: z.array(HostSchema) });
+const HostResponseSchema = z.object({ host: HostSchema });
+const MonitoringSamplesResponseSchema = z.object({ samples: z.array(MetricSampleSchema) });
+const MonitoringLatestResponseSchema = z.object({ sample: MetricSampleSchema.optional() });
+const NotificationsResponseSchema = z.object({ channels: z.array(NotificationChannelSchema), deliveries: z.array(NotificationDeliverySchema) });
+const NotificationChannelResponseSchema = z.object({ channel: NotificationChannelSchema });
+const NotificationDeliveryResponseSchema = z.object({ delivery: NotificationDeliverySchema });
 const ConnectorsResponseSchema = z.object({ connectors: z.array(ConnectorSchema) });
 const ConnectorCommandsResponseSchema = z.object({ commands: z.array(ConnectorCommandSchema) });
 const CreatedConnectorResponseSchema = z.object({ connector: ConnectorSchema, token: z.string() });
@@ -138,6 +158,17 @@ export const api = {
   checkAlerts: () => request("/api/alerts/check", AlertsResponseSchema, "POST"),
   dismissAlert: (alertId: string) => request("/api/alerts/dismiss", AlertDismissResponseSchema, "POST", DismissAlertSchema.parse({ alertId })),
   security: () => request("/api/security/posture", SecurityResponseSchema),
+  hosts: () => request("/api/hosts", HostsResponseSchema),
+  createHost: (input: CreateHost) => request("/api/hosts", HostResponseSchema, "POST", CreateHostSchema.parse(input)),
+  updateHost: (input: UpdateHost) => request("/api/hosts", HostResponseSchema, "PATCH", UpdateHostSchema.parse(input)),
+  deleteHost: (hostId: string) => request(`/api/hosts?hostId=${encodeURIComponent(hostId)}`, OkResponseSchema, "DELETE"),
+  monitoringSamples: (hostId = "local", limit = 288) => request(`/api/monitoring/samples?hostId=${encodeURIComponent(hostId)}&limit=${limit}`, MonitoringSamplesResponseSchema),
+  monitoringLatest: (hostId = "local") => request(`/api/monitoring/latest?hostId=${encodeURIComponent(hostId)}`, MonitoringLatestResponseSchema),
+  notifications: () => request("/api/notifications", NotificationsResponseSchema),
+  createNotificationChannel: (input: CreateNotificationChannel) => request("/api/notifications", NotificationChannelResponseSchema, "POST", CreateNotificationChannelSchema.parse(input)),
+  updateNotificationChannel: (input: UpdateNotificationChannel) => request("/api/notifications", NotificationChannelResponseSchema, "PATCH", UpdateNotificationChannelSchema.parse(input)),
+  deleteNotificationChannel: (channelId: string) => request(`/api/notifications?channelId=${encodeURIComponent(channelId)}`, OkResponseSchema, "DELETE"),
+  testNotificationChannel: (channelId: string) => request("/api/notifications/test", NotificationDeliveryResponseSchema, "POST", NotificationTestSchema.parse({ channelId })),
   connectors: () => request("/api/connectors", ConnectorsResponseSchema),
   connectorCommands: (connectorId?: string) => request(`/api/connectors/commands${connectorId ? `?connectorId=${encodeURIComponent(connectorId)}` : ""}`, ConnectorCommandsResponseSchema),
   createConnectorCommand: (input: CreateConnectorCommand) => request("/api/connectors/commands", ConnectorCommandResponseSchema, "POST", CreateConnectorCommandSchema.parse(input)),

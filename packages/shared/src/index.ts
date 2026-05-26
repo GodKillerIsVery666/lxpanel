@@ -94,6 +94,17 @@ export const SystemOverviewSchema = z.object({
 });
 export type SystemOverview = z.infer<typeof SystemOverviewSchema>;
 
+export const MetricSampleSchema = z.object({
+  id: z.string(),
+  hostId: z.string(),
+  hostName: z.string(),
+  time: z.string(),
+  cpuPercent: z.number(),
+  memoryPercent: z.number(),
+  diskUsedPercent: z.number().optional()
+});
+export type MetricSample = z.infer<typeof MetricSampleSchema>;
+
 export const ProcessInfoSchema = z.object({
   pid: z.number(),
   name: z.string(),
@@ -206,6 +217,61 @@ export const DismissAlertSchema = z.object({
 });
 export type DismissAlert = z.infer<typeof DismissAlertSchema>;
 
+export const NotificationChannelTypeSchema = z.enum(["webhook"]);
+export type NotificationChannelType = z.infer<typeof NotificationChannelTypeSchema>;
+
+export const NotificationChannelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: NotificationChannelTypeSchema,
+  url: z.string().url(),
+  enabled: z.boolean(),
+  minLevel: AlertLevelSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string(),
+  lastStatus: z.enum(["success", "failed"]).optional(),
+  lastError: z.string().optional(),
+  lastSentAt: z.string().optional()
+});
+export type NotificationChannel = z.infer<typeof NotificationChannelSchema>;
+
+export const CreateNotificationChannelSchema = z.object({
+  name: z.string().min(2).max(80),
+  type: NotificationChannelTypeSchema.default("webhook"),
+  url: z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "仅支持 HTTP/HTTPS Webhook。"),
+  enabled: z.boolean().default(true),
+  minLevel: AlertLevelSchema.default("warning")
+});
+export type CreateNotificationChannel = z.infer<typeof CreateNotificationChannelSchema>;
+
+export const UpdateNotificationChannelSchema = z.object({
+  channelId: z.string().min(1),
+  name: z.string().min(2).max(80).optional(),
+  url: z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "仅支持 HTTP/HTTPS Webhook。").optional(),
+  enabled: z.boolean().optional(),
+  minLevel: AlertLevelSchema.optional()
+});
+export type UpdateNotificationChannel = z.infer<typeof UpdateNotificationChannelSchema>;
+
+export const NotificationTestSchema = z.object({
+  channelId: z.string().min(1)
+});
+export type NotificationTest = z.infer<typeof NotificationTestSchema>;
+
+export const NotificationDeliverySchema = z.object({
+  id: z.string(),
+  channelId: z.string(),
+  channelName: z.string(),
+  alertId: z.string(),
+  level: AlertLevelSchema,
+  target: z.string(),
+  status: z.enum(["success", "failed", "skipped"]),
+  time: z.string(),
+  error: z.string().optional()
+});
+export type NotificationDelivery = z.infer<typeof NotificationDeliverySchema>;
+
 export const ConnectorSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -216,6 +282,43 @@ export const ConnectorSchema = z.object({
   lastSeenAt: z.string().optional()
 });
 export type Connector = z.infer<typeof ConnectorSchema>;
+
+export const HostStatusSchema = z.enum(["online", "stale", "offline", "unknown"]);
+export type HostStatus = z.infer<typeof HostStatusSchema>;
+
+export const HostSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  address: z.string().optional(),
+  tags: z.array(z.string()),
+  status: HostStatusSchema,
+  connectorId: z.string().optional(),
+  connectorName: z.string().optional(),
+  notes: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  lastSeenAt: z.string().optional()
+});
+export type Host = z.infer<typeof HostSchema>;
+
+export const CreateHostSchema = z.object({
+  name: z.string().min(2).max(80),
+  address: z.string().max(200).optional(),
+  tags: z.array(z.string().min(1).max(32)).max(16).default([]),
+  connectorId: z.string().min(1).optional(),
+  notes: z.string().max(500).optional()
+});
+export type CreateHost = z.infer<typeof CreateHostSchema>;
+
+export const UpdateHostSchema = z.object({
+  hostId: z.string().min(1),
+  name: z.string().min(2).max(80).optional(),
+  address: z.string().max(200).optional(),
+  tags: z.array(z.string().min(1).max(32)).max(16).optional(),
+  connectorId: z.string().min(1).optional(),
+  notes: z.string().max(500).optional()
+});
+export type UpdateHost = z.infer<typeof UpdateHostSchema>;
 
 export const CreateConnectorSchema = z.object({
   name: z.string().min(2).max(64),
