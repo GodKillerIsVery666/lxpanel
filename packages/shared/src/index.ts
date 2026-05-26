@@ -428,6 +428,21 @@ export const NotificationTestSchema = z.object({
 });
 export type NotificationTest = z.infer<typeof NotificationTestSchema>;
 
+export const NotificationSecretRotationSchema = z.object({
+  previousSecret: z.string().min(8).max(512).optional()
+});
+export type NotificationSecretRotation = z.infer<typeof NotificationSecretRotationSchema>;
+
+export const NotificationSecretRotationResultSchema = z.object({
+  total: z.number().int().nonnegative(),
+  rotated: z.number().int().nonnegative(),
+  plaintextMigrated: z.number().int().nonnegative(),
+  alreadyCurrent: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  issues: z.array(z.string())
+});
+export type NotificationSecretRotationResult = z.infer<typeof NotificationSecretRotationResultSchema>;
+
 export const NotificationDeliverySchema = z.object({
   id: z.string(),
   channelId: z.string(),

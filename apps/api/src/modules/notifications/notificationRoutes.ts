@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { CreateNotificationChannelSchema, NotificationTestSchema, UpdateNotificationChannelSchema } from "@lxpanel/shared";
+import { CreateNotificationChannelSchema, NotificationSecretRotationSchema, NotificationTestSchema, UpdateNotificationChannelSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole } from "../auth/authMiddleware.js";
 
@@ -68,6 +68,20 @@ export function registerNotificationRoutes(app: FastifyInstance, services: Servi
     const delivery = await services.notificationService.testChannel(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "notification.test", target: input.channelId, ip: request.ip, status: delivery.status === "success" ? "success" : "error", detail: delivery.error });
     return { delivery };
+  });
+
+  app.post("/api/notifications/rotate-secret", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = NotificationSecretRotationSchema.parse(request.body ?? {});
+    const result = await tryNotificationWrite(reply, () => services.notificationService.rotateWebhookSecrets(input, user.username));
+    if (!result) {
+      return;
+    }
+    await services.auditLog.append({ actor: user.username, action: "notification.secret.rotate", target: "webhook", ip: request.ip, status: result.failed > 0 ? "error" : "success", detail: JSON.stringify({ rotated: result.rotated, failed: result.failed }) });
+    return { result };
   });
 }
 

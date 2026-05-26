@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Bell, Send, Trash2 } from "lucide-react";
-import type { NotificationChannel, NotificationDelivery } from "@lxpanel/shared";
+import { Bell, KeyRound, Send, Trash2 } from "lucide-react";
+import type { NotificationChannel, NotificationDelivery, NotificationSecretRotationResult } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { formatDate } from "../utils/format.js";
@@ -11,6 +11,8 @@ export function NotificationsPage(): JSX.Element {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [minLevel, setMinLevel] = useState<"warning" | "critical">("warning");
+  const [previousSecret, setPreviousSecret] = useState("");
+  const [rotationResult, setRotationResult] = useState<NotificationSecretRotationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load(): Promise<void> {
@@ -63,6 +65,17 @@ export function NotificationsPage(): JSX.Element {
     }
   }
 
+  async function rotateSecret(): Promise<void> {
+    try {
+      const response = await api.rotateNotificationSecret(previousSecret.trim() ? { previousSecret: previousSecret.trim() } : {});
+      setPreviousSecret("");
+      setRotationResult(response.result);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "迁移失败。");
+    }
+  }
+
   useEffect(() => {
     void load();
   }, []);
@@ -82,6 +95,15 @@ export function NotificationsPage(): JSX.Element {
           </select>
           <button type="button" onClick={() => void create()}><Bell size={16} /> 新增</button>
         </div>
+      </section>
+      <section className="table-panel">
+        <div className="panel-title">通知密钥迁移</div>
+        <div className="inline-form wrap">
+          <input value={previousSecret} onChange={(event) => setPreviousSecret(event.target.value)} type="password" placeholder="旧 LXPANEL_SESSION_SECRET" />
+          <button type="button" onClick={() => void rotateSecret()}><KeyRound size={16} /> 迁移/重加密</button>
+        </div>
+        {rotationResult ? <p className="notice">共 {rotationResult.total} 个渠道，重加密 {rotationResult.rotated} 个，明文迁移 {rotationResult.plaintextMigrated} 个，已是当前密钥 {rotationResult.alreadyCurrent} 个，失败 {rotationResult.failed} 个。</p> : null}
+        {rotationResult?.issues.length ? rotationResult.issues.map((issue) => <p className="form-error" key={issue}>{issue}</p>) : null}
       </section>
       <section className="table-panel">
         <div className="panel-title">渠道</div>

@@ -55,6 +55,8 @@ import {
   MetricSampleSchema,
   NotificationChannelSchema,
   NotificationDeliverySchema,
+  NotificationSecretRotationResultSchema,
+  NotificationSecretRotationSchema,
   NotificationTestSchema,
   ProcessInfoSchema,
   RevokeApiTokenSchema,
@@ -85,6 +87,7 @@ import {
   type CreateConnectorCommand,
   type CreateHost,
   type CreateNotificationChannel,
+  type NotificationSecretRotation,
   type CreateTask,
   type CreateUser,
   type UpdateAlertThreshold,
@@ -128,6 +131,7 @@ const MonitoringLatestResponseSchema = z.object({ sample: MetricSampleSchema.opt
 const NotificationsResponseSchema = z.object({ channels: z.array(NotificationChannelSchema), deliveries: z.array(NotificationDeliverySchema) });
 const NotificationChannelResponseSchema = z.object({ channel: NotificationChannelSchema });
 const NotificationDeliveryResponseSchema = z.object({ delivery: NotificationDeliverySchema });
+const NotificationSecretRotationResponseSchema = z.object({ result: NotificationSecretRotationResultSchema });
 const AppTemplatesResponseSchema = z.object({ templates: z.array(AppTemplateSchema) });
 const AppDeploymentsResponseSchema = z.object({ deployments: z.array(AppDeploymentSchema) });
 const AppDeploymentResponseSchema = z.object({ deployment: AppDeploymentSchema });
@@ -224,6 +228,7 @@ export const api = {
   updateNotificationChannel: (input: UpdateNotificationChannel) => request("/api/notifications", NotificationChannelResponseSchema, "PATCH", UpdateNotificationChannelSchema.parse(input)),
   deleteNotificationChannel: (channelId: string) => request(`/api/notifications?channelId=${encodeURIComponent(channelId)}`, OkResponseSchema, "DELETE"),
   testNotificationChannel: (channelId: string) => request("/api/notifications/test", NotificationDeliveryResponseSchema, "POST", NotificationTestSchema.parse({ channelId })),
+  rotateNotificationSecret: (input: NotificationSecretRotation) => request("/api/notifications/rotate-secret", NotificationSecretRotationResponseSchema, "POST", NotificationSecretRotationSchema.parse(input)),
   appTemplates: () => request("/api/apps/templates", AppTemplatesResponseSchema),
   appDeployments: () => request("/api/apps/deployments", AppDeploymentsResponseSchema),
   createAppDeployment: (input: CreateAppDeployment) => request("/api/apps/deployments", AppDeploymentResponseSchema, "POST", CreateAppDeploymentSchema.parse(input)),

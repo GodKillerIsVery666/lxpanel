@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import type { AlertEvent, CreateNotificationChannel, NotificationChannel, NotificationDelivery, NotificationTest, UpdateNotificationChannel } from "@lxpanel/shared";
+import type { AlertEvent, CreateNotificationChannel, NotificationChannel, NotificationDelivery, NotificationSecretRotation, NotificationSecretRotationResult, NotificationTest, UpdateNotificationChannel } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import type { NotificationChannelRecord, NotificationDeliveryRecord, PanelState } from "../state/panelState.js";
@@ -41,7 +41,7 @@ export class NotificationService {
     private readonly webhookAllowlist: readonly string[] = [],
     encryptionSecret = ""
   ) {
-    this.encryptionKey = encryptionSecret ? createHash("sha256").update(encryptionSecret).digest() : null;
+    this.encryptionKey = encryptionSecret ? deriveEncryptionKey(encryptionSecret) : null;
   }
 
   async listChannels(): Promise<NotificationChannel[]> {
@@ -143,6 +143,52 @@ export class NotificationService {
     return deliveries;
   }
 
+  async rotateWebhookSecrets(input: NotificationSecretRotation, actor: string): Promise<NotificationSecretRotationResult> {
+    const encryptionKey = this.encryptionKey;
+    if (!encryptionKey) {
+      throw new Error("当前未配置通知 URL 加密密钥，无法执行迁移。");
+    }
+    const previousKey = input.previousSecret ? deriveEncryptionKey(input.previousSecret) : null;
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const result: NotificationSecretRotationResult = {
+        total: (state.notificationChannels ?? []).length,
+        rotated: 0,
+        plaintextMigrated: 0,
+        alreadyCurrent: 0,
+        failed: 0,
+        issues: []
+      };
+      const channels = (state.notificationChannels ?? []).map((channel) => {
+        const target = `${channel.name}(${channel.id})`;
+        try {
+          if (channel.url) {
+            result.rotated += 1;
+            result.plaintextMigrated += 1;
+            return withStoredUrl({ ...channel, updatedAt: now, updatedBy: actor }, { encryptedUrl: encryptSecret(channel.url, encryptionKey) });
+          }
+          if (channel.encryptedUrl) {
+            const decrypted = this.tryDecryptWebhookUrl(channel.encryptedUrl, previousKey);
+            if (!decrypted.rotated) {
+              result.alreadyCurrent += 1;
+              return channel;
+            }
+            result.rotated += 1;
+            return withStoredUrl({ ...channel, updatedAt: now, updatedBy: actor }, { encryptedUrl: encryptSecret(decrypted.url, encryptionKey) });
+          }
+          result.failed += 1;
+          result.issues.push(`${target} 缺少 Webhook URL。`);
+          return channel;
+        } catch (error) {
+          result.failed += 1;
+          result.issues.push(`${target} ${error instanceof Error ? error.message : "迁移失败。"}`);
+          return channel;
+        }
+      });
+      return { data: { ...state, notificationChannels: channels }, result };
+    });
+  }
+
   private async sendToChannel(channel: NotificationChannelRecord, alert: AlertEvent): Promise<NotificationDelivery> {
     const now = new Date().toISOString();
     let status: NotificationDelivery["status"] = "success";
@@ -200,6 +246,20 @@ export class NotificationService {
       return channel.url;
     }
     throw new Error("通知渠道缺少 Webhook URL。");
+  }
+
+  private tryDecryptWebhookUrl(encryptedUrl: string, previousKey: Buffer | null): { url: string; rotated: boolean } {
+    if (this.encryptionKey) {
+      try {
+        return { url: decryptSecret(encryptedUrl, this.encryptionKey), rotated: false };
+      } catch {
+        // Continue with the previous key path below.
+      }
+    }
+    if (!previousKey) {
+      throw new Error("无法使用当前密钥解密，请提供旧 LXPANEL_SESSION_SECRET。");
+    }
+    return { url: decryptSecret(encryptedUrl, previousKey), rotated: true };
   }
 
   private async recordDelivery(channelId: string, delivery: NotificationDeliveryRecord): Promise<void> {
@@ -260,6 +320,10 @@ function withStoredUrl(channel: NotificationChannelRecord, storedUrl: Pick<Notif
     delete next.encryptedUrl;
   }
   return next;
+}
+
+function deriveEncryptionKey(secret: string): Buffer {
+  return createHash("sha256").update(secret).digest();
 }
 
 function encryptSecret(value: string, key: Buffer): string {
