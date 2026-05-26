@@ -627,6 +627,17 @@ export const UpdateBackupScheduleSchema = z.object({
 });
 export type UpdateBackupSchedule = z.infer<typeof UpdateBackupScheduleSchema>;
 
+export const SecurityCheckStatusSchema = z.enum(["secure", "warn", "critical", "info"]);
+export type SecurityCheckStatus = z.infer<typeof SecurityCheckStatusSchema>;
+
+export const SecurityCheckSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: SecurityCheckStatusSchema,
+  detail: z.string()
+});
+export type SecurityCheck = z.infer<typeof SecurityCheckSchema>;
+
 export const SecurityPostureSchema = z.object({
   setupRequired: z.boolean(),
   cookieSecure: z.boolean(),
@@ -638,6 +649,7 @@ export const SecurityPostureSchema = z.object({
   userCount: z.number(),
   taskCount: z.number(),
   backupCount: z.number(),
+  checks: z.array(SecurityCheckSchema),
   recommendations: z.array(z.string())
 });
 export type SecurityPosture = z.infer<typeof SecurityPostureSchema>;

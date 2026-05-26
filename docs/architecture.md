@@ -26,6 +26,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 16. 监控样本和通知投递记录随状态保存，调度器负责采样、告警、通知投递三段闭环。
 17. 应用商店使用受控 Docker Compose 模板，不接受任意 YAML 输入；模板变量经过校验后写入 `LXPANEL_DATA_DIR/apps` 下的 compose 文件，再通过参数化 `docker compose` 命令执行动作。
 18. API Token 复用认证中间件的 RBAC 判断，自动化请求通过 Bearer Token 进入同一套接口权限模型。
+19. 安全态势接口输出结构化检查项，前端直接展示检查状态和建议，避免把生产风险只写在文档里。
 
 ## 状态存储
 

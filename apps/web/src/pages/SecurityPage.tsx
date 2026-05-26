@@ -113,6 +113,10 @@ export function SecurityPage(): JSX.Element {
       <section className="table-panel"><div className="panel-title">IP 白名单</div>{posture?.ipAllowlist.length ? posture.ipAllowlist.map((item) => <code className="path-code" key={item}>{item}</code>) : <p className="muted-text">未启用。</p>}</section>
       <section className="table-panel"><div className="panel-title">备份快照</div><strong>{posture?.backupCount ?? 0}</strong></section>
       <section className="table-panel">
+        <div className="panel-title">安全巡检</div>
+        <table><thead><tr><th>项目</th><th>状态</th><th>详情</th></tr></thead><tbody>{posture?.checks.map((check) => <tr key={check.id}><td>{check.label}</td><td><StatusPill status={check.status} /></td><td>{check.detail}</td></tr>)}</tbody></table>
+      </section>
+      <section className="table-panel">
         <div className="panel-title">双因素认证</div>
         <div className="inline-form wrap"><button type="button" onClick={() => void beginTotp()}>生成密钥</button><input value={totpCode} onChange={(event) => setTotpCode(event.target.value)} inputMode="numeric" maxLength={6} placeholder="验证码" /><button type="button" onClick={() => void confirmTotp()}>确认启用</button><button type="button" onClick={() => void disableTotp()}>关闭</button></div>
         {totpSecret ? <code className="path-code">{totpSecret}</code> : null}

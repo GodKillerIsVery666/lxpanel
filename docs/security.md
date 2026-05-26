@@ -23,6 +23,7 @@
 - 通知渠道仅支持 HTTP/HTTPS Webhook，创建、测试、删除均需要 `operator` 并记录审计。
 - 主机资产写操作需要 `operator`，viewer 只能只读查看。
 - 审计日志记录登录、初始化、连接器创建和服务动作。
+- 安全态势页输出结构化检查项，覆盖会话密钥、HTTPS Cookie、IP 白名单、状态存储、备份、Docker socket 和 SSH 基础配置。
 
 ## 生产部署要求
 
