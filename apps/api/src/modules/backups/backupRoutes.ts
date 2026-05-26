@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { BackupRequestSchema, BackupRestoreRequestSchema, UpdateBackupScheduleSchema } from "@lxpanel/shared";
+import { BackupRequestSchema, BackupRestoreRequestSchema, CreateRemoteBackupTargetSchema, RemoteBackupSyncSchema, UpdateBackupScheduleSchema, UpdateRemoteBackupTargetSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole } from "../auth/authMiddleware.js";
@@ -77,5 +77,46 @@ export function registerBackupRoutes(app: FastifyInstance, services: Services): 
     const schedule = await services.backupStore.updateSchedule(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "backup.schedule", target: `every-${schedule.everyHours}h`, ip: request.ip, status: "success" });
     return { schedule };
+  });
+
+  app.get("/api/backups/remote-targets", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { targets: await services.backupStore.listRemoteTargets() };
+  });
+
+  app.post("/api/backups/remote-targets", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = CreateRemoteBackupTargetSchema.parse(request.body);
+    const target = await services.backupStore.createRemoteTarget(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "backup.remote.create", target: target.name, ip: request.ip, status: "success" });
+    return { target };
+  });
+
+  app.patch("/api/backups/remote-targets", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = UpdateRemoteBackupTargetSchema.parse(request.body);
+    const target = await services.backupStore.updateRemoteTarget(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "backup.remote.update", target: target.name, ip: request.ip, status: "success" });
+    return { target };
+  });
+
+  app.post("/api/backups/remote-sync", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = RemoteBackupSyncSchema.parse(request.body);
+    const results = await services.backupStore.syncRemote(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "backup.remote.sync", target: input.backupId, ip: request.ip, status: results.some((result) => result.status === "failed") ? "error" : "success", detail: JSON.stringify(results.map((result) => ({ target: result.targetName, status: result.status }))) });
+    return { results };
   });
 }

@@ -143,6 +143,20 @@ export class NotificationService {
     return deliveries;
   }
 
+  async notifySystemEvent(input: { level: AlertEvent["level"]; target: string; message: string }): Promise<NotificationDelivery[]> {
+    const event: AlertEvent = {
+      id: `system-${randomToken(8)}`,
+      time: new Date().toISOString(),
+      type: "disk",
+      level: input.level,
+      target: input.target,
+      currentValue: 1,
+      threshold: 1,
+      message: input.message
+    };
+    return this.notifyAlerts([event]);
+  }
+
   async rotateWebhookSecrets(input: NotificationSecretRotation, actor: string): Promise<NotificationSecretRotationResult> {
     const encryptionKey = this.encryptionKey;
     if (!encryptionKey) {

@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { platform } from "node:os";
 import type { FastifyInstance } from "fastify";
-import type { SecurityCheck, SecurityPosture } from "@lxpanel/shared";
+import type { SecurityCheck, SecurityHardeningItem, SecurityHardeningPlan, SecurityPosture } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireUser } from "../auth/authMiddleware.js";
 import type { ApiTokenExpirySummary } from "../auth/authStore.js";
@@ -34,6 +34,51 @@ export function registerSecurityRoutes(app: FastifyInstance, services: Services)
     };
     return { posture };
   });
+
+  app.get("/api/security/hardening-plan", async (request, reply) => {
+    const user = await requireUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    const plan: SecurityHardeningPlan = {
+      generatedAt: new Date().toISOString(),
+      items: [
+        withOptionalCommand({
+          id: "firewall-management-network",
+          title: "限制面板管理入口",
+          risk: services.config.ipAllowlist.length > 0 ? "low" : "high",
+          status: services.config.ipAllowlist.length > 0 ? "secure" : "warn",
+          recommendation: services.config.ipAllowlist.length > 0 ? "面板已配置访问源 IP 白名单。" : "仅允许管理网段访问面板端口，并同步配置 LXPANEL_IP_ALLOWLIST。"
+        }, platform() === "linux" ? `ufw allow from <管理网段> to any port ${services.config.port}` : undefined),
+        withOptionalCommand({
+          id: "ssh-disable-password",
+          title: "关闭 SSH 密码登录",
+          risk: "medium",
+          status: platform() === "win32" ? "info" : "warn",
+          recommendation: "生产环境建议优先使用密钥登录，并在确认应急账号可用后关闭 SSH PasswordAuthentication。"
+        }, platform() === "linux" ? "sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && systemctl reload sshd" : undefined),
+        withOptionalCommand({
+          id: "ssh-disable-root",
+          title: "关闭 SSH root 直登",
+          risk: "high",
+          status: platform() === "win32" ? "info" : "warn",
+          recommendation: "生产环境建议禁用 root 直登，改用普通账号加 sudo 审计。"
+        }, platform() === "linux" ? "sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config && systemctl reload sshd" : undefined),
+        {
+          id: "docker-socket-boundary",
+          title: "收敛 Docker Socket 权限",
+          risk: "high",
+          status: "warn",
+          recommendation: "只有可信 operator 才应拥有应用商店和 Docker socket 操作权限；生产可考虑 rootless Docker 或独立执行节点。"
+        }
+      ]
+    };
+    return { plan };
+  });
+}
+
+function withOptionalCommand(item: Omit<SecurityHardeningItem, "command">, command: string | undefined): SecurityHardeningItem {
+  return command ? { ...item, command } : item;
 }
 
 async function buildSecurityChecks(services: Services, backupCount: number, apiTokenExpiry: ApiTokenExpirySummary): Promise<SecurityCheck[]> {

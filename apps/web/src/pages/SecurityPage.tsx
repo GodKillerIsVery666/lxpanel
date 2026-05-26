@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type AuthSession, type SecurityPosture } from "@lxpanel/shared";
+import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type AuthSession, type SecurityHardeningPlan, type SecurityPosture } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { formatDate } from "../utils/format.js";
 
 export function SecurityPage(): JSX.Element {
   const [posture, setPosture] = useState<SecurityPosture | null>(null);
+  const [hardeningPlan, setHardeningPlan] = useState<SecurityHardeningPlan | null>(null);
   const [sessions, setSessions] = useState<AuthSession[]>([]);
   const [apiTokens, setApiTokens] = useState<ApiToken[]>([]);
   const [totpSecret, setTotpSecret] = useState<string | null>(null);
@@ -18,7 +19,7 @@ export function SecurityPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   async function load(): Promise<void> {
-    const [securityResponse, sessionResponse, tokenResponse] = await Promise.allSettled([api.security(), api.sessions(), api.apiTokens()]);
+    const [securityResponse, hardeningResponse, sessionResponse, tokenResponse] = await Promise.allSettled([api.security(), api.securityHardeningPlan(), api.sessions(), api.apiTokens()]);
     if (securityResponse.status === "fulfilled") {
       setPosture(securityResponse.value.posture);
     } else {
@@ -26,6 +27,9 @@ export function SecurityPage(): JSX.Element {
     }
     if (sessionResponse.status === "fulfilled") {
       setSessions(sessionResponse.value.sessions);
+    }
+    if (hardeningResponse.status === "fulfilled") {
+      setHardeningPlan(hardeningResponse.value.plan);
     }
     if (tokenResponse.status === "fulfilled") {
       setApiTokens(tokenResponse.value.tokens);
@@ -126,6 +130,10 @@ export function SecurityPage(): JSX.Element {
       <section className="table-panel">
         <div className="panel-title">安全巡检</div>
         <table><thead><tr><th>项目</th><th>状态</th><th>详情</th></tr></thead><tbody>{posture?.checks.map((check) => <tr key={check.id}><td>{check.label}</td><td><StatusPill status={check.status} /></td><td>{check.detail}</td></tr>)}</tbody></table>
+      </section>
+      <section className="table-panel">
+        <div className="panel-title">加固计划</div>
+        <table><thead><tr><th>项目</th><th>风险</th><th>状态</th><th>建议</th><th>命令</th></tr></thead><tbody>{hardeningPlan?.items.map((item) => <tr key={item.id}><td>{item.title}</td><td>{item.risk}</td><td><StatusPill status={item.status} /></td><td>{item.recommendation}</td><td>{item.command ? <code className="inline-code">{item.command}</code> : "-"}</td></tr>)}</tbody></table>
       </section>
       <section className="table-panel">
         <div className="panel-title">双因素认证</div>

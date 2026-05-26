@@ -26,7 +26,7 @@ const includePaths = [
   "packages/shared/dist",
   "deploy",
   "docs",
-  "scripts/install-linux.sh"
+  "scripts"
 ];
 
 const requiredPaths = [

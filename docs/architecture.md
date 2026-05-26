@@ -32,6 +32,11 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 22. 审计日志支持结构化查询、CSV/JSONL 导出和按保留天数压缩写回。
 23. 审批中心独立于具体业务模块保存审批单，高风险路由通过一次性消费审批单完成准入校验。
 24. 备份校验会读取快照文件并检查大小、SHA-256、备份包格式和状态字段，恢复解析会保留后续新增的状态域。
+25. 审批单支持多人批准阈值和逐条 review 记录，通知服务提供系统事件入口，让审批创建、批准进度和驳回复用现有 Webhook 渠道。
+26. 远程备份目标纳入状态存储，当前以文件系统路径为首个实现，复制备份文件时同步生成 `.sha256` 旁路校验文件。
+27. 数据库模块只登记连接元数据和受控备份入口，连接 URL 可加密保存，备份通过参数化 `pg_dump` 执行，避免在前端暴露真实连接串。
+28. 应用部署记录保存版本号和 compose 修订，升级时重渲染当前模板变量，回滚时恢复上一份 compose 和变量快照。
+29. 安全加固计划与安全态势拆分：态势负责检查当前风险，加固计划输出防火墙、SSH 和 Docker socket 的可执行治理建议。
 
 ## 状态存储
 
@@ -40,6 +45,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 - `JsonStore`：写入 `LXPANEL_DATA_DIR/state.json`，使用临时文件和 rename 保持单文件写入原子性。
 - `SqliteStateStore`：写入 `LXPANEL_STATE_SQLITE_PATH`，启用 WAL，并在 `kv` 表中保存 `state` JSON 文档。这样先获得 SQLite 的文件锁、WAL 和后续迁移基础，同时保持备份恢复语义稳定。
 - 迁移策略：当 `LXPANEL_STATE_STORE=sqlite` 且数据库尚无状态时，读取 legacy `state.json` 作为 seed，不删除原文件。
+- 显式迁移：`scripts/migrate-state.mjs` 可对旧 `state.json` 补齐新增顶层数组和审批/应用版本字段，写入前会为目标文件生成带时间戳的 `.bak-*` 备份。
 
 ## 连接器方向
 
@@ -51,12 +57,18 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 
 ## 监控与通知
 
-`MonitoringService` 每分钟保留一条本机资源样本，最近 1440 条样本随状态存储，用于前端展示趋势曲线。`NotificationService` 目前支持 HTTP/HTTPS Webhook，按告警级别过滤投递，并保存最近 300 条投递记录；调度器会在产生新告警后自动调用通知服务。Webhook URL 新写入时加密保存，旧明文状态保持兼容读取；`owner` 可触发迁移任务，把旧明文字段转为加密字段，或在更换 `LXPANEL_SESSION_SECRET` 后使用旧密钥解密并用当前密钥重加密。
+`MonitoringService` 每分钟保留一条本机资源样本，最近 1440 条样本随状态存储，用于前端展示趋势曲线。`NotificationService` 目前支持 HTTP/HTTPS Webhook，按告警级别过滤投递，并保存最近 300 条投递记录；调度器会在产生新告警后自动调用通知服务。Webhook URL 新写入时加密保存，旧明文状态保持兼容读取；`owner` 可触发迁移任务，把旧明文字段转为加密字段，或在更换 `LXPANEL_SESSION_SECRET` 后使用旧密钥解密并用当前密钥重加密。审批模块通过 `notifySystemEvent` 复用同一投递链路，把审批创建、进度和驳回变成可订阅系统事件。
 
 ## 应用商店
 
-`AppStore` 暴露模板列表、部署记录和部署动作。首批模板覆盖 Nginx、Redis、PostgreSQL，部署时只渲染内置模板变量，生成的 `docker-compose.yml` 落在数据目录下。启动、停止、重启统一调用 `docker compose -f <composePath> ...` 参数数组，并把执行结果写回部署记录和审计日志。
+`AppStore` 暴露模板列表、部署记录和部署动作。首批模板覆盖 Nginx、Redis、PostgreSQL，部署时只渲染内置模板变量，生成的 `docker-compose.yml` 落在数据目录下。启动、停止、重启统一调用 `docker compose -f <composePath> ...` 参数数组，并把执行结果写回部署记录和审计日志。升级会把当前 compose、变量和版本保存为 revision，再用新变量重渲染；回滚只恢复上一 revision，必要时再重启 compose。
 
 ## 自动化访问
 
 API Token 由 `AuthStore` 生成并保存在 `PanelState.apiTokens` 中，状态内只保存哈希、归属用户、角色快照、创建时间、过期时间和最近使用时间。认证中间件先尝试 Cookie 会话，再尝试 `Authorization: Bearer lxpat_...`；Token 成功认证后返回的用户角色不会高于当前用户角色，避免用户降权后旧 Token 继续拥有旧权限。Token 到期状态由读取时派生，不写回状态文件；过期 Token 会拒绝认证，7 天内到期或未设置有效期的 Token 会进入安全巡检提醒。
+
+## 数据库与远程备份
+
+`DatabaseStore` 保存 PostgreSQL 连接登记信息，状态中优先存放 `encryptedUrl`，无加密密钥时才保留兼容 `url` 字段。列表接口始终通过共享契约返回 `maskedUrl`，手动备份时在 `LXPANEL_DATA_DIR/database-backups` 下生成 dump 文件，并把最近备份状态写回连接记录。
+
+`BackupStore` 除本地快照外还管理远程目标。首个远程实现是文件系统目标，适合挂载 NAS、对象存储网关或备份卷；同步时复制指定快照并写入同名 `.sha256` 文件，目标最近同步状态会随状态保存，方便前端快速判断外部备份是否健康。

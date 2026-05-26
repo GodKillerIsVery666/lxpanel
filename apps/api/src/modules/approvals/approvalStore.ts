@@ -39,6 +39,9 @@ export class ApprovalStore {
         target: input.target,
         reason: input.reason,
         status: "pending",
+        requiredApprovals: input.requiredApprovals,
+        approvedCount: 0,
+        reviews: [],
         requestedBy: actor,
         requestedAt: requestedAt.toISOString(),
         expiresAt: new Date(requestedAt.getTime() + input.expiresInMinutes * 60_000).toISOString()
@@ -72,6 +75,9 @@ export class ApprovalStore {
       if (current.status !== "approved") {
         throw new ApprovalError("审批单尚未批准或已被使用。");
       }
+      if (readApprovedCount(current) < readRequiredApprovals(current)) {
+        throw new ApprovalError("审批单批准人数不足。");
+      }
       if (isExpired(current)) {
         throw new ApprovalError("审批单已过期。");
       }
@@ -102,11 +108,24 @@ export class ApprovalStore {
       if (isExpired(current)) {
         throw new ApprovalError("审批单已过期。");
       }
+      if ((current.reviews ?? []).some((review) => review.reviewedBy === actor)) {
+        throw new ApprovalError("当前账号已处理过该审批单。");
+      }
+      const reviewedAt = new Date().toISOString();
+      const reviews = [
+        ...(current.reviews ?? []),
+        { reviewedBy: actor, reviewedAt, decision: status, ...(comment ? { comment } : {}) }
+      ];
+      const approvedCount = reviews.filter((review) => review.decision === "approved").length;
+      const finalStatus = status === "rejected" ? "rejected" : approvedCount >= readRequiredApprovals(current) ? "approved" : "pending";
       const reviewed: ApprovalRecord = {
         ...current,
-        status,
+        requiredApprovals: readRequiredApprovals(current),
+        approvedCount,
+        reviews,
+        status: finalStatus,
         reviewedBy: actor,
-        reviewedAt: new Date().toISOString(),
+        reviewedAt,
         ...(comment ? { reviewComment: comment } : {})
       };
       return { data: { ...state, approvals: replaceAt(approvals, index, reviewed) }, result: toApproval(reviewed) };
@@ -115,7 +134,21 @@ export class ApprovalStore {
 }
 
 function toApproval(record: ApprovalRecord): Approval {
-  return isExpired(record) && (record.status === "pending" || record.status === "approved") ? { ...record, status: "expired" } : { ...record };
+  const approval = {
+    ...record,
+    requiredApprovals: readRequiredApprovals(record),
+    approvedCount: readApprovedCount(record),
+    reviews: record.reviews ?? []
+  };
+  return isExpired(record) && (record.status === "pending" || record.status === "approved") ? { ...approval, status: "expired" } : approval;
+}
+
+function readRequiredApprovals(record: ApprovalRecord): number {
+  return record.requiredApprovals ?? 1;
+}
+
+function readApprovedCount(record: ApprovalRecord): number {
+  return record.approvedCount ?? (record.status === "approved" ? readRequiredApprovals(record) : 0);
 }
 
 function isExpired(record: ApprovalRecord): boolean {

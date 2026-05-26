@@ -90,4 +90,25 @@ describe("备份快照", () => {
     await expect(backupStore.listBackups()).resolves.toHaveLength(100);
     await expect(access(first.path)).rejects.toThrow();
   });
+
+  it("将本地备份同步到文件系统远程目标并写入校验文件", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-backup-remote-"));
+    const remoteRoot = await mkdtemp(join(tmpdir(), "lxpanel-backup-target-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const backupStore = new BackupStore(store, root);
+    const backup = await backupStore.createBackup("admin");
+    const target = await backupStore.createRemoteTarget({ name: "nas", type: "filesystem", path: remoteRoot, enabled: true }, "admin");
+
+    const result = await backupStore.syncRemote({ backupId: backup.id }, "admin");
+    const copied = await readFile(join(remoteRoot, backup.fileName), "utf8");
+    const checksum = await readFile(join(remoteRoot, `${backup.fileName}.sha256`), "utf8");
+    const targets = await backupStore.listRemoteTargets();
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.status).toBe("success");
+    expect(result[0]?.targetId).toBe(target.id);
+    expect(copied).toContain("lxpanel-state");
+    expect(checksum).toContain(backup.sha256);
+    expect(targets[0]?.lastStatus).toBe("success");
+  });
 });

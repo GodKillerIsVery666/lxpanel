@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { AppDeploymentActionSchema, CreateAppDeploymentSchema } from "@lxpanel/shared";
+import { AppDeploymentActionSchema, CreateAppDeploymentSchema, RollbackAppDeploymentSchema, UpdateAppDeploymentSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
 
@@ -39,6 +39,28 @@ export function registerAppRoutes(app: FastifyInstance, services: Services): voi
     const input = AppDeploymentActionSchema.parse(request.body);
     const deployment = await services.appStore.runAction(input, user.username);
     await services.auditLog.append({ actor: user.username, action: `app.${input.action}`, target: deployment.name, ip: request.ip, status: deployment.status === "failed" ? "error" : "success", detail: deployment.lastOutputTail });
+    return { deployment };
+  });
+
+  app.patch("/api/apps/deployments", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const input = UpdateAppDeploymentSchema.parse(request.body);
+    const deployment = await services.appStore.updateDeployment(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "app.upgrade", target: deployment.name, ip: request.ip, status: deployment.status === "failed" ? "error" : "success", detail: deployment.lastOutputTail });
+    return { deployment };
+  });
+
+  app.post("/api/apps/deployments/rollback", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const input = RollbackAppDeploymentSchema.parse(request.body);
+    const deployment = await services.appStore.rollbackDeployment(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "app.rollback", target: deployment.name, ip: request.ip, status: deployment.status === "failed" ? "error" : "success", detail: deployment.lastOutputTail });
     return { deployment };
   });
 }

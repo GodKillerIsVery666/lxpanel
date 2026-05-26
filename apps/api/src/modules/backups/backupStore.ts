@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { BackupSchedule, BackupSnapshot, BackupVerification, UpdateBackupSchedule } from "@lxpanel/shared";
+import type { BackupSchedule, BackupSnapshot, BackupVerification, CreateRemoteBackupTarget, RemoteBackupSync, RemoteBackupSyncResult, RemoteBackupTarget, UpdateBackupSchedule, UpdateRemoteBackupTarget } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
-import { createInitialPanelState, type BackupRecord, type BackupScheduleRecord, type PanelState } from "../state/panelState.js";
+import { createInitialPanelState, type BackupRecord, type BackupScheduleRecord, type PanelState, type RemoteBackupTargetRecord } from "../state/panelState.js";
 
 const maxBackups = 100;
 
@@ -47,6 +47,63 @@ export class BackupStore {
   async countBackups(): Promise<number> {
     const state = await this.store.read();
     return (state.backups ?? []).length;
+  }
+
+  async listRemoteTargets(): Promise<RemoteBackupTarget[]> {
+    const state = await this.store.read();
+    return (state.remoteBackupTargets ?? []).slice().reverse();
+  }
+
+  async createRemoteTarget(input: CreateRemoteBackupTarget, actor: string): Promise<RemoteBackupTarget> {
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const target: RemoteBackupTargetRecord = {
+        id: randomToken(12),
+        name: input.name,
+        type: input.type,
+        path: input.path,
+        enabled: input.enabled,
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: actor
+      };
+      return { data: { ...state, remoteBackupTargets: [...(state.remoteBackupTargets ?? []), target] }, result: target };
+    });
+  }
+
+  async updateRemoteTarget(input: UpdateRemoteBackupTarget, actor: string): Promise<RemoteBackupTarget> {
+    return this.store.update((state) => {
+      const targets = state.remoteBackupTargets ?? [];
+      const target = targets.find((item) => item.id === input.targetId);
+      if (!target) {
+        throw new Error("远程备份目标不存在。");
+      }
+      const updated: RemoteBackupTargetRecord = {
+        ...target,
+        ...(input.name ? { name: input.name } : {}),
+        ...(input.path ? { path: input.path } : {}),
+        ...(typeof input.enabled === "boolean" ? { enabled: input.enabled } : {}),
+        updatedAt: new Date().toISOString(),
+        updatedBy: actor
+      };
+      return { data: { ...state, remoteBackupTargets: targets.map((item) => item.id === input.targetId ? updated : item) }, result: updated };
+    });
+  }
+
+  async syncRemote(input: RemoteBackupSync, actor: string): Promise<RemoteBackupSyncResult[]> {
+    const backup = await this.findBackup(input.backupId);
+    const state = await this.store.read();
+    const targets = (state.remoteBackupTargets ?? []).filter((target) => target.enabled && (!input.targetId || target.id === input.targetId));
+    if (targets.length === 0) {
+      throw new Error("没有可用的远程备份目标。");
+    }
+    const results: RemoteBackupSyncResult[] = [];
+    for (const target of targets) {
+      const result = await this.copyBackupToTarget(backup, target);
+      results.push(result);
+      await this.markRemoteTarget(target.id, result, actor);
+    }
+    return results;
   }
 
   async readBackupFile(backupId: string): Promise<{ backup: BackupSnapshot; content: string }> {
@@ -191,6 +248,46 @@ export class BackupStore {
     }
     return toBackup(backup);
   }
+
+  private async copyBackupToTarget(backup: BackupSnapshot, target: RemoteBackupTargetRecord): Promise<RemoteBackupSyncResult> {
+    const copiedPath = join(target.path, backup.fileName);
+    try {
+      await mkdir(target.path, { recursive: true });
+      await copyFile(backup.path, copiedPath);
+      if (backup.sha256) {
+        await writeFile(`${copiedPath}.sha256`, `${backup.sha256}  ${backup.fileName}\n`, "utf8");
+      }
+      return { backupId: backup.id, targetId: target.id, targetName: target.name, status: "success", copiedPath };
+    } catch (error) {
+      return { backupId: backup.id, targetId: target.id, targetName: target.name, status: "failed", error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private async markRemoteTarget(targetId: string, result: RemoteBackupSyncResult, actor: string): Promise<void> {
+    await this.store.update((state) => ({
+      data: {
+        ...state,
+        remoteBackupTargets: (state.remoteBackupTargets ?? []).map((target) => target.id === targetId ? toUpdatedRemoteTarget(target, result, actor) : target)
+      },
+      result: undefined
+    }));
+  }
+}
+
+function toUpdatedRemoteTarget(target: RemoteBackupTargetRecord, result: RemoteBackupSyncResult, actor: string): RemoteBackupTargetRecord {
+  const updated: RemoteBackupTargetRecord = {
+    ...target,
+    lastSyncedAt: new Date().toISOString(),
+    lastStatus: result.status,
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor
+  };
+  if (result.error) {
+    updated.lastError = result.error;
+  } else {
+    delete updated.lastError;
+  }
+  return updated;
 }
 
 function toBackup(record: BackupRecord): BackupSnapshot {
@@ -231,7 +328,9 @@ function parseBackupState(content: string): PanelState {
     notificationChannels: readArrayOrDefault<NonNullable<PanelState["notificationChannels"]>>(state.notificationChannels, initial.notificationChannels ?? []),
     notificationDeliveries: readArrayOrDefault<NonNullable<PanelState["notificationDeliveries"]>>(state.notificationDeliveries, initial.notificationDeliveries ?? []),
     appDeployments: readArrayOrDefault<NonNullable<PanelState["appDeployments"]>>(state.appDeployments, initial.appDeployments ?? []),
-    approvals: readArrayOrDefault<NonNullable<PanelState["approvals"]>>(state.approvals, initial.approvals ?? [])
+    approvals: readArrayOrDefault<NonNullable<PanelState["approvals"]>>(state.approvals, initial.approvals ?? []),
+    remoteBackupTargets: readArrayOrDefault<NonNullable<PanelState["remoteBackupTargets"]>>(state.remoteBackupTargets, initial.remoteBackupTargets ?? []),
+    databaseConnections: readArrayOrDefault<NonNullable<PanelState["databaseConnections"]>>(state.databaseConnections, initial.databaseConnections ?? [])
   };
 }
 

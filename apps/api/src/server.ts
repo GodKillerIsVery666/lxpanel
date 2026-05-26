@@ -26,6 +26,8 @@ import { BackupStore } from "./modules/backups/backupStore.js";
 import { registerBackupRoutes } from "./modules/backups/backupRoutes.js";
 import { registerConnectorRoutes } from "./modules/connectors/connectorRoutes.js";
 import { ConnectorStore } from "./modules/connectors/connectorStore.js";
+import { registerDatabaseRoutes } from "./modules/databases/databaseRoutes.js";
+import { DatabaseStore } from "./modules/databases/databaseStore.js";
 import { registerDockerRoutes } from "./modules/docker/dockerRoutes.js";
 import { registerFileRoutes } from "./modules/files/fileRoutes.js";
 import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
@@ -57,6 +59,7 @@ export interface Services {
   monitoringService: MonitoringService;
   notificationService: NotificationService;
   appStore: AppStore;
+  databaseStore: DatabaseStore;
   approvalStore: ApprovalStore;
   auditLog: AuditLog;
 }
@@ -75,6 +78,7 @@ export async function createServices(config: AppConfig): Promise<Services> {
     monitoringService: new MonitoringService(stateStore),
     notificationService: new NotificationService(stateStore, undefined, config.webhookAllowlist, config.sessionSecret),
     appStore: new AppStore(stateStore, config.dataDir),
+    databaseStore: new DatabaseStore(stateStore, config.dataDir, config.sessionSecret),
     approvalStore: new ApprovalStore(stateStore),
     auditLog: new AuditLog(join(config.dataDir, "audit.jsonl"))
   };
@@ -110,6 +114,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerLogRoutes(app, services);
   registerDockerRoutes(app, services);
   registerAppRoutes(app, services);
+  registerDatabaseRoutes(app, services);
   registerTaskRoutes(app, services);
   registerBackupRoutes(app, services);
   registerAlertRoutes(app, services);

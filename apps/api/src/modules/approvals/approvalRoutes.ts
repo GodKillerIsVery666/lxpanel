@@ -22,6 +22,7 @@ export function registerApprovalRoutes(app: FastifyInstance, services: Services)
     const input = CreateApprovalSchema.parse(request.body);
     const approval = await services.approvalStore.request(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "approval.request", target: `${approval.action}:${approval.target}`, ip: request.ip, status: "success" });
+    await services.notificationService.notifySystemEvent({ level: "warning", target: approval.id, message: `审批单 ${approval.id} 待处理：${approval.action} ${approval.target}，需要 ${approval.requiredApprovals} 人批准。` });
     return { approval };
   });
 
@@ -34,6 +35,7 @@ export function registerApprovalRoutes(app: FastifyInstance, services: Services)
       const input = ApprovalDecisionSchema.parse(request.body);
       const approval = await services.approvalStore.approve(input.approvalId, user.username, input.comment);
       await services.auditLog.append({ actor: user.username, action: "approval.approve", target: approval.id, ip: request.ip, status: "success" });
+      await services.notificationService.notifySystemEvent({ level: approval.status === "approved" ? "critical" : "warning", target: approval.id, message: `审批单 ${approval.id} 已由 ${user.username} 批准，进度 ${approval.approvedCount}/${approval.requiredApprovals}。` });
       return { approval };
     } catch (error) {
       if (await sendApprovalError(reply, error)) {
@@ -52,6 +54,7 @@ export function registerApprovalRoutes(app: FastifyInstance, services: Services)
       const input = ApprovalDecisionSchema.parse(request.body);
       const approval = await services.approvalStore.reject(input.approvalId, user.username, input.comment);
       await services.auditLog.append({ actor: user.username, action: "approval.reject", target: approval.id, ip: request.ip, status: "success" });
+      await services.notificationService.notifySystemEvent({ level: "critical", target: approval.id, message: `审批单 ${approval.id} 已由 ${user.username} 驳回。` });
       return { approval };
     } catch (error) {
       if (await sendApprovalError(reply, error)) {

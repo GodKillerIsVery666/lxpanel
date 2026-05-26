@@ -17,6 +17,7 @@ describe("应用商店", () => {
     const deployments = await appStore.listDeployments();
 
     expect(deployment.status).toBe("created");
+    expect(deployment.version).toBe(1);
     expect(compose).toContain("redis:7-alpine");
     expect(compose).toContain("6380:6379");
     expect(deployments[0]?.name).toBe("redis-prod");
@@ -35,5 +36,24 @@ describe("应用商店", () => {
     expect(running.status).toBe("running");
     expect(stopped.status).toBe("stopped");
     expect(stopped.lastOutputTail).toContain("ok down");
+  });
+
+  it("支持重渲染升级并回滚到上一版本", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-apps-upgrade-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const appStore = new AppStore(store, root);
+    const deployment = await appStore.createDeployment({ templateId: "nginx-static", name: "web-upgrade", variables: { HTTP_PORT: "8080" }, autoStart: false }, "admin");
+
+    const upgraded = await appStore.updateDeployment({ deploymentId: deployment.id, variables: { HTTP_PORT: "8081" }, autoRestart: false }, "admin");
+    const upgradedCompose = await readFile(upgraded.composePath, "utf8");
+    const rolledBack = await appStore.rollbackDeployment({ deploymentId: deployment.id, autoRestart: false }, "admin");
+    const rollbackCompose = await readFile(rolledBack.composePath, "utf8");
+
+    expect(upgraded.version).toBe(2);
+    expect(upgraded.revisionCount).toBe(1);
+    expect(upgradedCompose).toContain("8081:80");
+    expect(rolledBack.version).toBe(1);
+    expect(rolledBack.revisionCount).toBe(0);
+    expect(rollbackCompose).toContain("8080:80");
   });
 });

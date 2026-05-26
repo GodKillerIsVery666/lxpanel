@@ -20,6 +20,7 @@ import {
   BackupRestoreRequestSchema,
   BackupRestoreResponseSchema,
   BackupVerificationSchema,
+  CreateRemoteBackupTargetSchema,
   AuthSessionSchema,
   ConnectorCommandSchema,
   AuthUserSchema,
@@ -28,6 +29,7 @@ import {
   ConnectorSchema,
   CreateApiTokenSchema,
   CreateApprovalSchema,
+  CreateDatabaseConnectionSchema,
   CreateDirectoryRequestSchema,
   CreateHostSchema,
   CreateAppDeploymentSchema,
@@ -36,6 +38,9 @@ import {
   CreateTaskSchema,
   CreateUserSchema,
   CreatedApiTokenSchema,
+  DatabaseBackupRequestSchema,
+  DatabaseBackupResultSchema,
+  DatabaseConnectionSchema,
   DismissAlertSchema,
   DeleteFileRequestSchema,
   CreateConnectorSchema,
@@ -60,6 +65,8 @@ import {
   NotificationTestSchema,
   ProcessInfoSchema,
   RevokeApiTokenSchema,
+  RollbackAppDeploymentSchema,
+  SecurityHardeningPlanSchema,
   SecurityPostureSchema,
   ServiceInfoSchema,
   SetupRequestSchema,
@@ -69,8 +76,14 @@ import {
   TotpConfirmSchema,
   PanelTaskSchema,
   ResetUserPasswordSchema,
+  RemoteBackupSyncResultSchema,
+  RemoteBackupSyncSchema,
+  RemoteBackupTargetSchema,
   UpdateHostSchema,
+  UpdateAppDeploymentSchema,
+  UpdateDatabaseConnectionSchema,
   UpdateNotificationChannelSchema,
+  UpdateRemoteBackupTargetSchema,
   UpdateBackupScheduleSchema,
   UpdateAlertThresholdSchema,
   UpdateTaskScheduleSchema,
@@ -85,14 +98,20 @@ import {
   type CreateAppDeployment,
   type CreateConnector,
   type CreateConnectorCommand,
+  type CreateDatabaseConnection,
   type CreateHost,
   type CreateNotificationChannel,
+  type CreateRemoteBackupTarget,
   type NotificationSecretRotation,
+  type RollbackAppDeployment,
   type CreateTask,
   type CreateUser,
   type UpdateAlertThreshold,
+  type UpdateAppDeployment,
+  type UpdateDatabaseConnection,
   type UpdateHost,
   type UpdateNotificationChannel,
+  type UpdateRemoteBackupTarget,
   type DockerContainerAction,
   type LoginRequest,
   type ResetUserPassword,
@@ -124,6 +143,7 @@ const AlertsResponseSchema = z.object({ events: z.array(AlertEventSchema), summa
 const AlertThresholdsResponseSchema = z.object({ thresholds: z.array(AlertThresholdSchema) });
 const AlertDismissResponseSchema = z.object({ event: AlertEventSchema });
 const SecurityResponseSchema = z.object({ posture: SecurityPostureSchema });
+const SecurityHardeningResponseSchema = z.object({ plan: SecurityHardeningPlanSchema });
 const HostsResponseSchema = z.object({ hosts: z.array(HostSchema) });
 const HostResponseSchema = z.object({ host: HostSchema });
 const MonitoringSamplesResponseSchema = z.object({ samples: z.array(MetricSampleSchema) });
@@ -135,6 +155,9 @@ const NotificationSecretRotationResponseSchema = z.object({ result: Notification
 const AppTemplatesResponseSchema = z.object({ templates: z.array(AppTemplateSchema) });
 const AppDeploymentsResponseSchema = z.object({ deployments: z.array(AppDeploymentSchema) });
 const AppDeploymentResponseSchema = z.object({ deployment: AppDeploymentSchema });
+const DatabaseConnectionsResponseSchema = z.object({ connections: z.array(DatabaseConnectionSchema) });
+const DatabaseConnectionResponseSchema = z.object({ connection: DatabaseConnectionSchema });
+const DatabaseBackupResponseSchema = z.object({ result: DatabaseBackupResultSchema });
 const ConnectorsResponseSchema = z.object({ connectors: z.array(ConnectorSchema) });
 const ConnectorCommandsResponseSchema = z.object({ commands: z.array(ConnectorCommandSchema) });
 const CreatedConnectorResponseSchema = z.object({ connector: ConnectorSchema, token: z.string() });
@@ -149,6 +172,9 @@ const BackupsResponseSchema = z.object({ backups: z.array(BackupSnapshotSchema),
 const BackupResponseSchema = z.object({ backup: BackupSnapshotSchema });
 const BackupScheduleResponseSchema = z.object({ schedule: BackupScheduleSchema });
 const BackupVerificationResponseSchema = z.object({ verification: BackupVerificationSchema });
+const RemoteBackupTargetsResponseSchema = z.object({ targets: z.array(RemoteBackupTargetSchema) });
+const RemoteBackupTargetResponseSchema = z.object({ target: RemoteBackupTargetSchema });
+const RemoteBackupSyncResponseSchema = z.object({ results: z.array(RemoteBackupSyncResultSchema) });
 const OkResponseSchema = z.object({ ok: z.boolean() });
 
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
@@ -205,6 +231,10 @@ export const api = {
   downloadBackup: (backupId: string) => download(`/api/backups/download?backupId=${encodeURIComponent(BackupRequestSchema.parse({ backupId }).backupId)}`),
   restoreBackup: (backupId: string, approvalId: string) => request("/api/backups/restore", BackupRestoreResponseSchema, "POST", BackupRestoreRequestSchema.parse({ backupId, approvalId, confirmation: "RESTORE" })),
   updateBackupSchedule: (input: UpdateBackupSchedule) => request("/api/backups/schedule", BackupScheduleResponseSchema, "PATCH", UpdateBackupScheduleSchema.parse(input)),
+  remoteBackupTargets: () => request("/api/backups/remote-targets", RemoteBackupTargetsResponseSchema),
+  createRemoteBackupTarget: (input: CreateRemoteBackupTarget) => request("/api/backups/remote-targets", RemoteBackupTargetResponseSchema, "POST", CreateRemoteBackupTargetSchema.parse(input)),
+  updateRemoteBackupTarget: (input: UpdateRemoteBackupTarget) => request("/api/backups/remote-targets", RemoteBackupTargetResponseSchema, "PATCH", UpdateRemoteBackupTargetSchema.parse(input)),
+  syncRemoteBackup: (backupId: string, targetId?: string) => request("/api/backups/remote-sync", RemoteBackupSyncResponseSchema, "POST", RemoteBackupSyncSchema.parse({ backupId, targetId })),
   audit: (query: AuditQuery = {}) => request(`/api/audit${toQuery(AuditQuerySchema.parse(query))}`, AuditResponseSchema),
   exportAudit: (format: "jsonl" | "csv", query: AuditQuery = {}) => download(`/api/audit/export${toQuery(AuditExportQuerySchema.parse({ ...query, format }))}`),
   pruneAudit: (retainDays: number, approvalId: string) => {
@@ -217,6 +247,7 @@ export const api = {
   checkAlerts: () => request("/api/alerts/check", AlertsResponseSchema, "POST"),
   dismissAlert: (alertId: string) => request("/api/alerts/dismiss", AlertDismissResponseSchema, "POST", DismissAlertSchema.parse({ alertId })),
   security: () => request("/api/security/posture", SecurityResponseSchema),
+  securityHardeningPlan: () => request("/api/security/hardening-plan", SecurityHardeningResponseSchema),
   hosts: () => request("/api/hosts", HostsResponseSchema),
   createHost: (input: CreateHost) => request("/api/hosts", HostResponseSchema, "POST", CreateHostSchema.parse(input)),
   updateHost: (input: UpdateHost) => request("/api/hosts", HostResponseSchema, "PATCH", UpdateHostSchema.parse(input)),
@@ -233,6 +264,13 @@ export const api = {
   appDeployments: () => request("/api/apps/deployments", AppDeploymentsResponseSchema),
   createAppDeployment: (input: CreateAppDeployment) => request("/api/apps/deployments", AppDeploymentResponseSchema, "POST", CreateAppDeploymentSchema.parse(input)),
   runAppDeploymentAction: (input: AppDeploymentAction) => request("/api/apps/deployments/action", AppDeploymentResponseSchema, "POST", AppDeploymentActionSchema.parse(input)),
+  updateAppDeployment: (input: UpdateAppDeployment) => request("/api/apps/deployments", AppDeploymentResponseSchema, "PATCH", UpdateAppDeploymentSchema.parse(input)),
+  rollbackAppDeployment: (input: RollbackAppDeployment) => request("/api/apps/deployments/rollback", AppDeploymentResponseSchema, "POST", RollbackAppDeploymentSchema.parse(input)),
+  databaseConnections: () => request("/api/databases", DatabaseConnectionsResponseSchema),
+  createDatabaseConnection: (input: CreateDatabaseConnection) => request("/api/databases", DatabaseConnectionResponseSchema, "POST", CreateDatabaseConnectionSchema.parse(input)),
+  updateDatabaseConnection: (input: UpdateDatabaseConnection) => request("/api/databases", DatabaseConnectionResponseSchema, "PATCH", UpdateDatabaseConnectionSchema.parse(input)),
+  deleteDatabaseConnection: (connectionId: string) => request(`/api/databases?connectionId=${encodeURIComponent(connectionId)}`, OkResponseSchema, "DELETE"),
+  backupDatabaseConnection: (connectionId: string) => request("/api/databases/backup", DatabaseBackupResponseSchema, "POST", DatabaseBackupRequestSchema.parse({ connectionId })),
   connectors: () => request("/api/connectors", ConnectorsResponseSchema),
   connectorCommands: (connectorId?: string) => request(`/api/connectors/commands${connectorId ? `?connectorId=${encodeURIComponent(connectorId)}` : ""}`, ConnectorCommandsResponseSchema),
   createConnectorCommand: (input: CreateConnectorCommand) => request("/api/connectors/commands", ConnectorCommandResponseSchema, "POST", CreateConnectorCommandSchema.parse(input)),

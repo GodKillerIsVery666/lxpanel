@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Play, RotateCw, Square, UploadCloud } from "lucide-react";
+import { History, Play, RotateCw, Square, UploadCloud } from "lucide-react";
 import type { AppDeployment, AppDeploymentAction, AppTemplate } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
@@ -56,6 +56,24 @@ export function AppsPage(): JSX.Element {
     }
   }
 
+  async function upgrade(deployment: AppDeployment): Promise<void> {
+    try {
+      await api.updateAppDeployment({ deploymentId: deployment.id, variables: deployment.variables, autoRestart: false });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "升级失败。");
+    }
+  }
+
+  async function rollback(deployment: AppDeployment): Promise<void> {
+    try {
+      await api.rollbackAppDeployment({ deploymentId: deployment.id, autoRestart: false });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "回滚失败。");
+    }
+  }
+
   useEffect(() => {
     void load();
   }, []);
@@ -82,17 +100,18 @@ export function AppsPage(): JSX.Element {
       <section className="table-panel">
         <div className="panel-title">部署记录</div>
         <table>
-          <thead><tr><th>名称</th><th>模板</th><th>状态</th><th>Compose</th><th>创建人</th><th>最近操作</th><th>输出</th><th>操作</th></tr></thead>
+          <thead><tr><th>名称</th><th>模板</th><th>版本</th><th>状态</th><th>Compose</th><th>创建人</th><th>最近操作</th><th>输出</th><th>操作</th></tr></thead>
           <tbody>{deployments.map((deployment) => (
             <tr key={deployment.id}>
               <td>{deployment.name}</td>
               <td>{deployment.templateName}</td>
+              <td>v{deployment.version} / {deployment.revisionCount}</td>
               <td><StatusPill status={deployment.status} /></td>
               <td><code className="inline-code">{deployment.composePath}</code></td>
               <td>{deployment.createdBy}</td>
               <td>{deployment.lastActionAt ? formatDate(deployment.lastActionAt) : "-"}</td>
               <td><pre className="inline-log">{deployment.lastOutputTail ?? "-"}</pre></td>
-              <td className="row-actions"><button onClick={() => void action(deployment.id, "up")} title="启动"><Play size={14} /></button><button onClick={() => void action(deployment.id, "restart")} title="重启"><RotateCw size={14} /></button><button onClick={() => void action(deployment.id, "down")} title="停止"><Square size={14} /></button></td>
+              <td className="row-actions"><button onClick={() => void action(deployment.id, "up")} title="启动"><Play size={14} /></button><button onClick={() => void action(deployment.id, "restart")} title="重启"><RotateCw size={14} /></button><button onClick={() => void action(deployment.id, "down")} title="停止"><Square size={14} /></button><button onClick={() => void upgrade(deployment)} title="升级"><UploadCloud size={14} /></button><button onClick={() => void rollback(deployment)} title="回滚" disabled={deployment.revisionCount === 0}><History size={14} /></button></td>
             </tr>
           ))}</tbody>
         </table>

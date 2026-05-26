@@ -1,4 +1,4 @@
-import type { AlertEvent, AlertThreshold, ApiTokenScope, AppDeployment, Approval, Host, MetricSample, NotificationChannel, NotificationDelivery, Role } from "@lxpanel/shared";
+import type { AlertEvent, AlertThreshold, ApiTokenScope, AppDeployment, Approval, DatabaseConnection, Host, MetricSample, NotificationChannel, NotificationDelivery, RemoteBackupTarget, Role } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -114,8 +114,18 @@ export type HostRecord = Omit<Host, "status" | "connectorName" | "lastSeenAt">;
 export type MetricSampleRecord = MetricSample;
 export type NotificationChannelRecord = Omit<NotificationChannel, "url"> & { url?: string; encryptedUrl?: string };
 export type NotificationDeliveryRecord = NotificationDelivery;
-export type AppDeploymentRecord = AppDeployment;
+export interface AppDeploymentRevisionRecord {
+  version: number;
+  composePath: string;
+  variables: Record<string, string>;
+  createdAt: string;
+  createdBy: string;
+}
+
+export type AppDeploymentRecord = AppDeployment & { revisions?: AppDeploymentRevisionRecord[] };
 export type ApprovalRecord = Approval;
+export type RemoteBackupTargetRecord = RemoteBackupTarget;
+export type DatabaseConnectionRecord = Omit<DatabaseConnection, "maskedUrl"> & { encryptedUrl?: string; url?: string };
 
 export interface PanelState {
   users: UserRecord[];
@@ -135,6 +145,8 @@ export interface PanelState {
   notificationDeliveries?: NotificationDeliveryRecord[];
   appDeployments?: AppDeploymentRecord[];
   approvals?: ApprovalRecord[];
+  remoteBackupTargets?: RemoteBackupTargetRecord[];
+  databaseConnections?: DatabaseConnectionRecord[];
 }
 
 export function createInitialPanelState(): PanelState {
@@ -155,7 +167,9 @@ export function createInitialPanelState(): PanelState {
     notificationChannels: [],
     notificationDeliveries: [],
     appDeployments: [],
-    approvals: []
+    approvals: [],
+    remoteBackupTargets: [],
+    databaseConnections: []
   };
 }
 

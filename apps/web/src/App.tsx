@@ -9,6 +9,7 @@ import { AppsPage } from "./pages/AppsPage.js";
 import { BackupsPage } from "./pages/BackupsPage.js";
 import { ConnectorsPage } from "./pages/ConnectorsPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
+import { DatabasesPage } from "./pages/DatabasesPage.js";
 import { DockerPage } from "./pages/DockerPage.js";
 import { FilesPage } from "./pages/FilesPage.js";
 import { HostsPage } from "./pages/HostsPage.js";
@@ -21,7 +22,7 @@ import { ServicesPage } from "./pages/ServicesPage.js";
 import { TasksPage } from "./pages/TasksPage.js";
 import { UsersPage } from "./pages/UsersPage.js";
 
-export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "approvals" | "users" | "backups" | "security" | "audit";
+export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "databases" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "approvals" | "users" | "backups" | "security" | "audit";
 
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -68,6 +69,7 @@ function renderView(view: ViewId): JSX.Element {
     case "services": return <ServicesPage />;
     case "docker": return <DockerPage />;
     case "apps": return <AppsPage />;
+    case "databases": return <DatabasesPage />;
     case "files": return <FilesPage />;
     case "logs": return <LogsPage />;
     case "connectors": return <ConnectorsPage />;
