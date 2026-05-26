@@ -27,6 +27,9 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 17. 应用商店使用受控 Docker Compose 模板，不接受任意 YAML 输入；模板变量经过校验后写入 `LXPANEL_DATA_DIR/apps` 下的 compose 文件，再通过参数化 `docker compose` 命令执行动作。
 18. API Token 复用认证中间件的 RBAC 判断，自动化请求通过 Bearer Token 进入同一套接口权限模型。
 19. 安全态势接口输出结构化检查项，前端直接展示检查状态和建议，避免把生产风险只写在文档里。
+20. API Token 在认证后会按路由映射校验作用域；Cookie 会话仍走原角色模型，自动化请求额外受 scope 约束。
+21. Webhook 通知服务在创建、更新和投递前校验出站主机白名单，列表接口只返回脱敏 URL。
+22. 审计日志支持结构化查询、CSV/JSONL 导出和按保留天数压缩写回。
 
 ## 状态存储
 

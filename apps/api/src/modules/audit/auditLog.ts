@@ -1,7 +1,12 @@
-import { mkdir, readFile, appendFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { AuditEventSchema, type AuditEvent } from "@lxpanel/shared";
+import { AuditEventSchema, type AuditEvent, type AuditExportQuery, type AuditQuery } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
+
+export interface AuditPruneResult {
+  removed: number;
+  remaining: number;
+}
 
 export class AuditLog {
   constructor(private readonly filePath: string) {}
@@ -21,16 +26,35 @@ export class AuditLog {
     }
   }
 
-  async list(limit = 200): Promise<AuditEvent[]> {
+  async list(query: AuditQuery = {}): Promise<AuditEvent[]> {
+    const limit = query.limit ?? 200;
+    const events = await this.readEvents();
+    return filterEvents(events, query).slice(-limit).reverse();
+  }
+
+  async export(query: AuditExportQuery): Promise<string> {
+    const events = filterEvents(await this.readEvents(), query).slice(-(query.limit ?? 5000));
+    return query.format === "csv" ? toCsv(events) : events.map((event) => JSON.stringify(event)).join("\n");
+  }
+
+  async prune(retainDays: number): Promise<AuditPruneResult> {
+    const events = await this.readEvents();
+    const cutoff = Date.now() - retainDays * 24 * 60 * 60 * 1000;
+    const remainingEvents = events.filter((event) => new Date(event.time).getTime() >= cutoff);
+    await mkdir(dirname(this.filePath), { recursive: true });
+    await writeFile(this.filePath, remainingEvents.map((event) => JSON.stringify(event)).join("\n") + (remainingEvents.length > 0 ? "\n" : ""), "utf8");
+    return { removed: events.length - remainingEvents.length, remaining: remainingEvents.length };
+  }
+
+  private async readEvents(): Promise<AuditEvent[]> {
     try {
       const raw = await readFile(this.filePath, "utf8");
       return raw.split("\n")
         .filter(Boolean)
-        .slice(-limit)
-        .map((line) => AuditEventSchema.safeParse(JSON.parse(line)))
+        .map(parseLine)
+        .filter((result) => result !== null)
         .filter((result) => result.success)
-        .map((result) => result.data)
-        .reverse();
+        .map((result) => result.data);
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
         return [];
@@ -39,6 +63,36 @@ export class AuditLog {
       throw error;
     }
   }
+}
+
+function filterEvents(events: AuditEvent[], query: AuditQuery): AuditEvent[] {
+  const fromTime = query.from ? new Date(query.from).getTime() : null;
+  const toTime = query.to ? new Date(query.to).getTime() : null;
+  return events.filter((event) => {
+    const eventTime = new Date(event.time).getTime();
+    return (!query.actor || event.actor.includes(query.actor))
+      && (!query.action || event.action.includes(query.action))
+      && (!query.status || event.status === query.status)
+      && (fromTime === null || eventTime >= fromTime)
+      && (toTime === null || eventTime <= toTime);
+  });
+}
+
+function parseLine(line: string) {
+  try {
+    return AuditEventSchema.safeParse(JSON.parse(line));
+  } catch {
+    return null;
+  }
+}
+
+function toCsv(events: AuditEvent[]): string {
+  const header = ["id", "time", "actor", "action", "target", "ip", "status", "detail"];
+  return [header.join(","), ...events.map((event) => header.map((key) => csvCell(event[key as keyof AuditEvent])).join(","))].join("\n");
+}
+
+function csvCell(value: string | undefined): string {
+  return `"${(value ?? "").replace(/"/gu, '""')}"`;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

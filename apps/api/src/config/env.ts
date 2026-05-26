@@ -12,6 +12,7 @@ export interface AppConfig {
   cookieSecure: boolean;
   allowedOrigins: string[];
   ipAllowlist: string[];
+  webhookAllowlist: string[];
   webRoot: string;
   fileRoots: string[];
   logRoots: string[];
@@ -43,6 +44,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       ? splitList(env.LXPANEL_ALLOWED_ORIGINS)
       : ["http://localhost:5173", "http://127.0.0.1:5173"],
     ipAllowlist: splitList(env.LXPANEL_IP_ALLOWLIST),
+    webhookAllowlist: splitList(env.LXPANEL_WEBHOOK_ALLOWLIST).map((item) => item.toLowerCase()),
     webRoot: resolve(env.LXPANEL_WEB_ROOT ?? defaultWebRoot),
     fileRoots: fileRoots.length > 0 ? fileRoots : [homedir()],
     logRoots: logRoots.length > 0 ? logRoots : defaultLogRoots(dataDir),

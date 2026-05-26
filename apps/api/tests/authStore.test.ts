@@ -52,11 +52,13 @@ describe("用户与角色", () => {
 
     expect(created.secret).toMatch(/^lxpat_/u);
     expect(created.token).toMatchObject({ name: "ci", username: "admin", role: "owner" });
+    expect(created.token.scopes).toContain("system:read");
     await expect(authStore.getUserByApiToken(created.secret)).resolves.toMatchObject({ username: "admin" });
 
     const tokens = await authStore.listApiTokens(owner.id);
     expect(tokens).toHaveLength(1);
     expect(tokens[0]?.name).toBe("ci");
+    expect(tokens[0]?.scopes).toContain("system:read");
     expect(typeof tokens[0]?.lastUsedAt).toBe("string");
     expect(JSON.stringify(tokens)).not.toContain(created.secret);
 

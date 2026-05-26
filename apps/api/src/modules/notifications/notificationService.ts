@@ -33,12 +33,13 @@ const defaultWebhookSender: WebhookSender = async (url, payload) => {
 export class NotificationService {
   constructor(
     private readonly store: StateStore<PanelState>,
-    private readonly webhookSender: WebhookSender = defaultWebhookSender
+    private readonly webhookSender: WebhookSender = defaultWebhookSender,
+    private readonly webhookAllowlist: readonly string[] = []
   ) {}
 
   async listChannels(): Promise<NotificationChannel[]> {
     const state = await this.store.read();
-    return state.notificationChannels ?? [];
+    return (state.notificationChannels ?? []).map(toPublicChannel);
   }
 
   async listDeliveries(limit = defaultDeliveryLimit): Promise<NotificationDelivery[]> {
@@ -47,6 +48,7 @@ export class NotificationService {
   }
 
   async createChannel(input: CreateNotificationChannel, actor: string): Promise<NotificationChannel> {
+    this.assertWebhookAllowed(input.url);
     return this.store.update((state) => {
       const now = new Date().toISOString();
       const channel: NotificationChannelRecord = {
@@ -60,11 +62,14 @@ export class NotificationService {
         updatedAt: now,
         updatedBy: actor
       };
-      return { data: { ...state, notificationChannels: [...(state.notificationChannels ?? []), channel] }, result: channel };
+      return { data: { ...state, notificationChannels: [...(state.notificationChannels ?? []), channel] }, result: toPublicChannel(channel) };
     });
   }
 
   async updateChannel(input: UpdateNotificationChannel, actor: string): Promise<NotificationChannel> {
+    if (input.url) {
+      this.assertWebhookAllowed(input.url);
+    }
     return this.store.update((state) => {
       const existing = (state.notificationChannels ?? []).find((channel) => channel.id === input.channelId);
       if (!existing) {
@@ -81,7 +86,7 @@ export class NotificationService {
       };
       return {
         data: { ...state, notificationChannels: (state.notificationChannels ?? []).map((channel) => channel.id === input.channelId ? updated : channel) },
-        result: updated
+        result: toPublicChannel(updated)
       };
     });
   }
@@ -95,7 +100,8 @@ export class NotificationService {
   }
 
   async testChannel(input: NotificationTest, actor: string): Promise<NotificationDelivery> {
-    const channel = (await this.listChannels()).find((item) => item.id === input.channelId);
+    const state = await this.store.read();
+    const channel = (state.notificationChannels ?? []).find((item) => item.id === input.channelId);
     if (!channel) {
       throw new Error("通知渠道不存在。");
     }
@@ -113,7 +119,8 @@ export class NotificationService {
   }
 
   async notifyAlerts(alerts: AlertEvent[]): Promise<NotificationDelivery[]> {
-    const channels = (await this.listChannels()).filter((channel) => channel.enabled);
+    const state = await this.store.read();
+    const channels = (state.notificationChannels ?? []).filter((channel) => channel.enabled);
     const deliveries: NotificationDelivery[] = [];
     for (const alert of alerts) {
       for (const channel of channels) {
@@ -131,6 +138,7 @@ export class NotificationService {
     let status: NotificationDelivery["status"] = "success";
     let errorMessage: string | undefined;
     try {
+      this.assertWebhookAllowed(channel.url);
       const response = await this.webhookSender(channel.url, createPayload(channel, alert, now));
       if (!response.ok) {
         status = "failed";
@@ -153,6 +161,17 @@ export class NotificationService {
     };
     await this.recordDelivery(channel.id, delivery);
     return delivery;
+  }
+
+  private assertWebhookAllowed(value: string): void {
+    if (this.webhookAllowlist.length === 0) {
+      return;
+    }
+    const hostname = new URL(value).hostname.toLowerCase();
+    const allowed = this.webhookAllowlist.some((pattern) => matchesHostPattern(hostname, pattern));
+    if (!allowed) {
+      throw new Error("Webhook 目标不在 LXPANEL_WEBHOOK_ALLOWLIST 内。");
+    }
   }
 
   private async recordDelivery(channelId: string, delivery: NotificationDeliveryRecord): Promise<void> {
@@ -196,6 +215,28 @@ function createPayload(channel: NotificationChannel, alert: AlertEvent, time: st
       message: alert.message
     }
   };
+}
+
+function toPublicChannel(channel: NotificationChannelRecord): NotificationChannel {
+  return { ...channel, url: maskWebhookUrl(channel.url) };
+}
+
+function maskWebhookUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}/...`;
+  } catch {
+    return value;
+  }
+}
+
+function matchesHostPattern(hostname: string, pattern: string): boolean {
+  const normalized = pattern.toLowerCase();
+  if (normalized.startsWith("*.")) {
+    const suffix = normalized.slice(1);
+    return hostname.endsWith(suffix) && hostname !== normalized.slice(2);
+  }
+  return hostname === normalized;
 }
 
 function levelRank(level: AlertEvent["level"]): number {

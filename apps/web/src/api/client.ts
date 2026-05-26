@@ -1,6 +1,10 @@
 import { z } from "zod";
 import {
   AuditEventSchema,
+  AuditExportQuerySchema,
+  AuditPruneResultSchema,
+  AuditQuerySchema,
+  AuditRetentionSchema,
   AlertEventSchema,
   AlertSummarySchema,
   AlertThresholdSchema,
@@ -65,6 +69,7 @@ import {
   UpdateTaskScheduleSchema,
   UpdateUserRoleSchema,
   type AuthUser,
+  type AuditQuery,
   type AppDeploymentAction,
   type ChangeOwnPassword,
   type CreateApiToken,
@@ -102,6 +107,7 @@ const FileContentResponseSchema = z.object({ file: FileContentSchema });
 const LogRootsResponseSchema = z.object({ roots: z.array(LogRootSchema) });
 const LogTailResponseSchema = z.object({ tail: LogTailSchema });
 const AuditResponseSchema = z.object({ events: z.array(AuditEventSchema) });
+const AuditPruneResponseSchema = z.object({ result: AuditPruneResultSchema });
 const AlertsResponseSchema = z.object({ events: z.array(AlertEventSchema), summary: AlertSummarySchema });
 const AlertThresholdsResponseSchema = z.object({ thresholds: z.array(AlertThresholdSchema) });
 const AlertDismissResponseSchema = z.object({ event: AlertEventSchema });
@@ -180,7 +186,9 @@ export const api = {
   downloadBackup: (backupId: string) => download(`/api/backups/download?backupId=${encodeURIComponent(BackupRequestSchema.parse({ backupId }).backupId)}`),
   restoreBackup: (backupId: string) => request("/api/backups/restore", BackupRestoreResponseSchema, "POST", BackupRestoreRequestSchema.parse({ backupId, confirmation: "RESTORE" })),
   updateBackupSchedule: (input: UpdateBackupSchedule) => request("/api/backups/schedule", BackupScheduleResponseSchema, "PATCH", UpdateBackupScheduleSchema.parse(input)),
-  audit: () => request("/api/audit", AuditResponseSchema),
+  audit: (query: AuditQuery = {}) => request(`/api/audit${toQuery(AuditQuerySchema.parse(query))}`, AuditResponseSchema),
+  exportAudit: (format: "jsonl" | "csv", query: AuditQuery = {}) => download(`/api/audit/export${toQuery(AuditExportQuerySchema.parse({ ...query, format }))}`),
+  pruneAudit: (retainDays: number) => request(`/api/audit?retainDays=${encodeURIComponent(String(AuditRetentionSchema.parse({ retainDays }).retainDays))}`, AuditPruneResponseSchema, "DELETE"),
   alerts: () => request("/api/alerts", AlertsResponseSchema),
   alertThresholds: () => request("/api/alerts/thresholds", AlertThresholdsResponseSchema),
   updateAlertThreshold: (input: UpdateAlertThreshold) => request("/api/alerts/thresholds", AlertThresholdsResponseSchema, "PATCH", UpdateAlertThresholdSchema.parse(input)),
@@ -252,6 +260,17 @@ function extractMessage(payload: unknown, fallback: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function toQuery(value: object): string {
+  const params = new URLSearchParams();
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (rawValue !== undefined && rawValue !== "") {
+      params.set(key, String(rawValue));
+    }
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 export type { AuthUser };

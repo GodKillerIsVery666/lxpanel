@@ -3,13 +3,43 @@ import { z } from "zod";
 export const RoleSchema = z.enum(["owner", "operator", "viewer"]);
 export type Role = z.infer<typeof RoleSchema>;
 
+export const ApiTokenScopes = [
+  "system:read",
+  "system:write",
+  "audit:read",
+  "audit:write",
+  "security:read",
+  "files:read",
+  "files:write",
+  "docker:read",
+  "docker:write",
+  "tasks:read",
+  "tasks:write",
+  "backups:read",
+  "backups:write",
+  "alerts:read",
+  "alerts:write",
+  "hosts:read",
+  "hosts:write",
+  "apps:read",
+  "apps:write",
+  "notifications:read",
+  "notifications:write",
+  "connectors:read",
+  "connectors:write",
+  "users:write"
+] as const;
+export const ApiTokenScopeSchema = z.enum(ApiTokenScopes);
+export type ApiTokenScope = z.infer<typeof ApiTokenScopeSchema>;
+
 export const AuthUserSchema = z.object({
   id: z.string(),
   username: z.string(),
   role: RoleSchema,
   createdAt: z.string(),
   lastLoginAt: z.string().optional(),
-  totpEnabled: z.boolean().default(false)
+  totpEnabled: z.boolean().default(false),
+  tokenScopes: z.array(ApiTokenScopeSchema).optional()
 });
 export type AuthUser = z.infer<typeof AuthUserSchema>;
 
@@ -75,6 +105,7 @@ export const ApiTokenSchema = z.object({
   userId: z.string(),
   username: z.string(),
   role: RoleSchema,
+  scopes: z.array(ApiTokenScopeSchema),
   createdAt: z.string(),
   expiresAt: z.string().optional(),
   lastUsedAt: z.string().optional()
@@ -83,7 +114,8 @@ export type ApiToken = z.infer<typeof ApiTokenSchema>;
 
 export const CreateApiTokenSchema = z.object({
   name: z.string().min(2).max(80),
-  expiresInDays: z.number().int().min(1).max(365).optional()
+  expiresInDays: z.number().int().min(1).max(365).optional(),
+  scopes: z.array(ApiTokenScopeSchema).min(1).max(ApiTokenScopes.length).optional()
 });
 export type CreateApiToken = z.infer<typeof CreateApiTokenSchema>;
 
@@ -217,6 +249,32 @@ export const AuditEventSchema = z.object({
   detail: z.string().optional()
 });
 export type AuditEvent = z.infer<typeof AuditEventSchema>;
+
+export const AuditQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(5000).optional(),
+  actor: z.string().max(80).optional(),
+  action: z.string().max(120).optional(),
+  status: z.enum(["success", "denied", "error"]).optional(),
+  from: z.string().max(40).optional(),
+  to: z.string().max(40).optional()
+});
+export type AuditQuery = z.infer<typeof AuditQuerySchema>;
+
+export const AuditExportQuerySchema = AuditQuerySchema.extend({
+  format: z.enum(["jsonl", "csv"]).default("jsonl")
+});
+export type AuditExportQuery = z.infer<typeof AuditExportQuerySchema>;
+
+export const AuditRetentionSchema = z.object({
+  retainDays: z.coerce.number().int().min(1).max(3650)
+});
+export type AuditRetention = z.infer<typeof AuditRetentionSchema>;
+
+export const AuditPruneResultSchema = z.object({
+  removed: z.number(),
+  remaining: z.number()
+});
+export type AuditPruneResult = z.infer<typeof AuditPruneResultSchema>;
 
 export const AlertTypeSchema = z.enum(["cpu", "memory", "disk"]);
 export type AlertType = z.infer<typeof AlertTypeSchema>;

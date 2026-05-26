@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { CreateNotificationChannelSchema, NotificationTestSchema, UpdateNotificationChannelSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole } from "../auth/authMiddleware.js";
@@ -18,7 +18,10 @@ export function registerNotificationRoutes(app: FastifyInstance, services: Servi
       return;
     }
     const input = CreateNotificationChannelSchema.parse(request.body);
-    const channel = await services.notificationService.createChannel(input, user.username);
+    const channel = await tryNotificationWrite(reply, () => services.notificationService.createChannel(input, user.username));
+    if (!channel) {
+      return;
+    }
     await services.auditLog.append({ actor: user.username, action: "notification.create", target: channel.name, ip: request.ip, status: "success" });
     return { channel };
   });
@@ -29,7 +32,10 @@ export function registerNotificationRoutes(app: FastifyInstance, services: Servi
       return;
     }
     const input = UpdateNotificationChannelSchema.parse(request.body);
-    const channel = await services.notificationService.updateChannel(input, user.username);
+    const channel = await tryNotificationWrite(reply, () => services.notificationService.updateChannel(input, user.username));
+    if (!channel) {
+      return;
+    }
     await services.auditLog.append({ actor: user.username, action: "notification.update", target: channel.name, ip: request.ip, status: "success" });
     return { channel };
   });
@@ -63,4 +69,13 @@ export function registerNotificationRoutes(app: FastifyInstance, services: Servi
     await services.auditLog.append({ actor: user.username, action: "notification.test", target: input.channelId, ip: request.ip, status: delivery.status === "success" ? "success" : "error", detail: delivery.error });
     return { delivery };
   });
+}
+
+async function tryNotificationWrite<T>(reply: FastifyReply, action: () => Promise<T>): Promise<T | null> {
+  try {
+    return await action();
+  } catch (error) {
+    await reply.code(400).send({ message: error instanceof Error ? error.message : "通知渠道操作失败。" });
+    return null;
+  }
 }

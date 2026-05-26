@@ -76,6 +76,7 @@ td { font-size: 14px; }
 .inline-form.wrap { flex-wrap: wrap; }
 .path-form button, .inline-form button { background: var(--ink); color: white; }
 .compact-check { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--ink); }
+.scope-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; margin: 12px 0; }
 .variable-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .task-form { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.2fr 110px 140px auto; gap: 10px; }
 .task-form button, .mini-button { border: 1px solid transparent; border-radius: 6px; background: var(--ink); color: white; padding: 8px 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
@@ -102,7 +103,7 @@ td { font-size: 14px; }
   .sidebar { position: sticky; top: 0; z-index: 3; padding: 12px; }
   .sidebar nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .sidebar button { justify-content: center; font-size: 13px; }
-  .metric-grid, .security-grid, .variable-grid { grid-template-columns: 1fr; }
+  .metric-grid, .security-grid, .variable-grid, .scope-grid { grid-template-columns: 1fr; }
   .topbar, .page-stack { padding-left: 16px; padding-right: 16px; }
 }
 

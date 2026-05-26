@@ -1,4 +1,4 @@
-import type { AlertEvent, AlertThreshold, AppDeployment, Host, MetricSample, NotificationChannel, NotificationDelivery, Role } from "@lxpanel/shared";
+import type { AlertEvent, AlertThreshold, ApiTokenScope, AppDeployment, Host, MetricSample, NotificationChannel, NotificationDelivery, Role } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -24,6 +24,7 @@ export interface ApiTokenRecord {
   name: string;
   userId: string;
   role: Role;
+  scopes?: ApiTokenScope[];
   tokenHash: string;
   createdAt: string;
   expiresAt?: string;

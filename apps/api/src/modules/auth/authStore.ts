@@ -1,4 +1,4 @@
-import type { ApiToken, AuthSession, AuthUser, CreatedApiToken, CreateApiToken, CreateUser, Role } from "@lxpanel/shared";
+import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type AuthSession, type AuthUser, type CreatedApiToken, type CreateApiToken, type CreateUser, type Role } from "@lxpanel/shared";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from "../../lib/totp.js";
@@ -198,6 +198,7 @@ export class AuthStore {
         name: input.name,
         userId: user.id,
         role: user.role,
+        scopes: normalizeScopes(input.scopes),
         tokenHash: sha256(secret),
         createdAt: now.toISOString(),
         ...(input.expiresInDays ? { expiresAt: new Date(now.getTime() + input.expiresInDays * 24 * 60 * 60 * 1000).toISOString() } : {})
@@ -240,7 +241,7 @@ export class AuthStore {
       const usedAt = new Date().toISOString();
       return {
         data: { ...state, apiTokens: (state.apiTokens ?? []).map((item) => item.id === token.id ? { ...item, lastUsedAt: usedAt } : item) },
-        result: toAuthUser({ ...user, role: lowerRole(user.role, token.role) })
+        result: { ...toAuthUser({ ...user, role: lowerRole(user.role, token.role) }), tokenScopes: normalizeScopes(token.scopes) }
       };
     });
   }
@@ -341,6 +342,7 @@ function toApiToken(token: ApiTokenRecord, user: Pick<AuthUser, "id" | "username
     userId: token.userId,
     username: user?.username ?? "unknown",
     role: token.role,
+    scopes: normalizeScopes(token.scopes),
     createdAt: token.createdAt,
     ...(token.expiresAt ? { expiresAt: token.expiresAt } : {}),
     ...(token.lastUsedAt ? { lastUsedAt: token.lastUsedAt } : {})
@@ -353,6 +355,10 @@ function lowerRole(left: Role, right: Role): Role {
 
 function roleRank(role: Role): number {
   return role === "owner" ? 3 : role === "operator" ? 2 : 1;
+}
+
+function normalizeScopes(scopes: ApiTokenScope[] | undefined): ApiTokenScope[] {
+  return scopes && scopes.length > 0 ? scopes : [...ApiTokenScopes];
 }
 
 function toAuthUser(user: UserRecord): AuthUser {

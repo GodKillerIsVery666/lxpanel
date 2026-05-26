@@ -55,4 +55,77 @@ describe("API Token 路由", () => {
     expect(tokenList.statusCode).toBe(401);
     await app.close();
   });
+
+  it("按 scope 限制 Bearer Token 可访问的接口", async () => {
+    const dataDir = await createTempDir();
+    const app = await buildApp(loadConfig({ LXPANEL_DATA_DIR: dataDir, LXPANEL_SESSION_SECRET: "test-secret-with-enough-length" }));
+
+    const setup = await app.inject({
+      method: "POST",
+      url: "/api/auth/setup",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ username: "admin", password: "Admin-Password-2026" })
+    });
+    const cookie = setup.cookies.map((item) => `${item.name}=${item.value}`).join("; ");
+
+    const createdResponse = await app.inject({
+      method: "POST",
+      url: "/api/auth/tokens",
+      headers: { "content-type": "application/json", cookie },
+      payload: JSON.stringify({ name: "read-only-ci", expiresInDays: 30, scopes: ["system:read"] })
+    });
+    const created = CreatedApiTokenSchema.parse(createdResponse.json());
+
+    const overview = await app.inject({
+      method: "GET",
+      url: "/api/system/overview",
+      headers: { authorization: `Bearer ${created.secret}` }
+    });
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/backups",
+      headers: { authorization: `Bearer ${created.secret}` }
+    });
+
+    expect(created.token.scopes).toEqual(["system:read"]);
+    expect(overview.statusCode).toBe(200);
+    expect(backup.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("审计写操作需要 audit:write scope", async () => {
+    const dataDir = await createTempDir();
+    const app = await buildApp(loadConfig({ LXPANEL_DATA_DIR: dataDir, LXPANEL_SESSION_SECRET: "test-secret-with-enough-length" }));
+
+    const setup = await app.inject({
+      method: "POST",
+      url: "/api/auth/setup",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ username: "admin", password: "Admin-Password-2026" })
+    });
+    const cookie = setup.cookies.map((item) => `${item.name}=${item.value}`).join("; ");
+
+    const createdResponse = await app.inject({
+      method: "POST",
+      url: "/api/auth/tokens",
+      headers: { "content-type": "application/json", cookie },
+      payload: JSON.stringify({ name: "audit-read", scopes: ["audit:read"] })
+    });
+    const created = CreatedApiTokenSchema.parse(createdResponse.json());
+
+    const auditList = await app.inject({
+      method: "GET",
+      url: "/api/audit",
+      headers: { authorization: `Bearer ${created.secret}` }
+    });
+    const prune = await app.inject({
+      method: "DELETE",
+      url: "/api/audit?retainDays=30",
+      headers: { authorization: `Bearer ${created.secret}` }
+    });
+
+    expect(auditList.statusCode).toBe(200);
+    expect(prune.statusCode).toBe(403);
+    await app.close();
+  });
 });

@@ -9,6 +9,7 @@ describe("环境配置", () => {
       LXPANEL_WEB_ROOT: "C:/lxpanel/web",
       LXPANEL_FILE_ROOTS: "C:/lxpanel/data;D:/logs",
       LXPANEL_LOG_ROOTS: "C:/lxpanel/logs",
+      LXPANEL_WEBHOOK_ALLOWLIST: "hooks.example.com;*.corp.local",
       LXPANEL_STATE_STORE: "sqlite",
       LXPANEL_STATE_SQLITE_PATH: "C:/lxpanel/data/lxpanel.db"
     });
@@ -19,5 +20,6 @@ describe("环境配置", () => {
     expect(config.webRoot).toContain("lxpanel");
     expect(config.fileRoots).toHaveLength(2);
     expect(config.logRoots).toHaveLength(1);
+    expect(config.webhookAllowlist).toEqual(["hooks.example.com", "*.corp.local"]);
   });
 });

@@ -52,4 +52,24 @@ describe("通知服务", () => {
 
     expect(deliveries).toHaveLength(0);
   });
+
+  it("校验 Webhook 出站白名单并脱敏返回 URL", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-notify-allowlist-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const sentUrls: string[] = [];
+    const sender: WebhookSender = (url) => {
+      sentUrls.push(url);
+      return Promise.resolve({ ok: true, status: 200, body: "ok" });
+    };
+    const service = new NotificationService(store, sender, ["hooks.example.com"]);
+
+    await expect(service.createChannel({ name: "bad", type: "webhook", url: "https://evil.example.net/hook", enabled: true, minLevel: "warning" }, "admin")).rejects.toThrow("WEBHOOK_ALLOWLIST");
+    const channel = await service.createChannel({ name: "ops", type: "webhook", url: "https://hooks.example.com/token/secret?key=hidden", enabled: true, minLevel: "warning" }, "admin");
+    const channels = await service.listChannels();
+    await service.notifyAlerts([alert]);
+
+    expect(channel.url).toBe("https://hooks.example.com/...");
+    expect(channels[0]?.url).toBe("https://hooks.example.com/...");
+    expect(sentUrls[0]).toBe("https://hooks.example.com/token/secret?key=hidden");
+  });
 });
