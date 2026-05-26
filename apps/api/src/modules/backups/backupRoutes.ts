@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { BackupRequestSchema, BackupRestoreRequestSchema, UpdateBackupScheduleSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
+import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole } from "../auth/authMiddleware.js";
 import { sessionCookieName } from "../auth/authMiddleware.js";
 
@@ -42,6 +43,14 @@ export function registerBackupRoutes(app: FastifyInstance, services: Services): 
       return;
     }
     const input = BackupRestoreRequestSchema.parse(request.body);
+    try {
+      await services.approvalStore.consume({ approvalId: input.approvalId, action: "backup.restore", target: input.backupId, actor: user.username });
+    } catch (error) {
+      if (await sendApprovalError(reply, error)) {
+        return;
+      }
+      throw error;
+    }
     const result = await services.backupStore.restoreBackup(input.backupId, user.username);
     await services.auditLog.append({ actor: user.username, action: "backup.restore", target: result.restored.fileName, ip: request.ip, status: "success" });
     reply.clearCookie(sessionCookieName, { path: "/" });

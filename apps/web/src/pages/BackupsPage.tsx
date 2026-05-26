@@ -8,6 +8,7 @@ export function BackupsPage(): JSX.Element {
   const [backups, setBackups] = useState<BackupSnapshot[]>([]);
   const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
   const [everyHours, setEveryHours] = useState("24");
+  const [restoreApprovalId, setRestoreApprovalId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function load(): Promise<void> {
@@ -57,11 +58,15 @@ export function BackupsPage(): JSX.Element {
   }
 
   async function restoreBackup(backup: BackupSnapshot): Promise<void> {
+    if (!restoreApprovalId) {
+      setError("恢复备份需要审批单 ID。");
+      return;
+    }
     if (!window.confirm(`恢复备份 ${backup.fileName} 会清空当前会话并回到快照状态，继续吗？`)) {
       return;
     }
     try {
-      await api.restoreBackup(backup.id);
+      await api.restoreBackup(backup.id, restoreApprovalId);
       window.location.reload();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "恢复失败。");
@@ -80,6 +85,10 @@ export function BackupsPage(): JSX.Element {
         <div className="panel-title">自动备份</div>
         <div className="inline-form wrap"><input value={everyHours} onChange={(event) => setEveryHours(event.target.value)} type="number" min={1} max={720} placeholder="间隔小时" /><button type="button" onClick={() => void updateSchedule(true)}><Clock size={16} /> 启用</button><button type="button" onClick={() => void updateSchedule(false)}><PauseCircle size={16} /> 暂停</button></div>
         <p className="muted-text">当前：{schedule?.enabled ? `每 ${schedule.everyHours} 小时，下一次 ${schedule.nextRunAt ? formatDate(schedule.nextRunAt) : "待计算"}` : "未启用"}</p>
+      </section>
+      <section className="table-panel">
+        <div className="panel-title">恢复审批</div>
+        <div className="inline-form wrap"><input value={restoreApprovalId} onChange={(event) => setRestoreApprovalId(event.target.value)} placeholder="审批单 ID" /></div>
       </section>
       <section className="table-panel"><table><thead><tr><th>文件</th><th>大小</th><th>创建者</th><th>时间</th><th>校验</th><th>操作</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{backup.fileName}<div className="muted-text"><code>{backup.path}</code></div></td><td>{formatBytes(backup.sizeBytes)}</td><td>{backup.createdBy}</td><td>{formatDate(backup.createdAt)}</td><td><code>{backup.sha256?.slice(0, 16) ?? "-"}</code></td><td className="row-actions"><button title="下载" onClick={() => void downloadBackup(backup)}><Download size={15} /></button><button title="恢复" onClick={() => void restoreBackup(backup)}><Undo2 size={15} /></button></td></tr>)}</tbody></table></section>
     </main>

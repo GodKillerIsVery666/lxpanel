@@ -12,6 +12,9 @@ import {
   AppDeploymentSchema,
   AppTemplateSchema,
   ApiTokenSchema,
+  ApprovalDecisionSchema,
+  ApprovalQuerySchema,
+  ApprovalSchema,
   BackupScheduleSchema,
   BackupRequestSchema,
   BackupRestoreRequestSchema,
@@ -23,6 +26,7 @@ import {
   ChangeOwnPasswordSchema,
   ConnectorSchema,
   CreateApiTokenSchema,
+  CreateApprovalSchema,
   CreateDirectoryRequestSchema,
   CreateHostSchema,
   CreateAppDeploymentSchema,
@@ -69,10 +73,12 @@ import {
   UpdateTaskScheduleSchema,
   UpdateUserRoleSchema,
   type AuthUser,
+  type ApprovalQuery,
   type AuditQuery,
   type AppDeploymentAction,
   type ChangeOwnPassword,
   type CreateApiToken,
+  type CreateApproval,
   type CreateAppDeployment,
   type CreateConnector,
   type CreateConnectorCommand,
@@ -97,6 +103,8 @@ const AuthResponseSchema = z.object({ user: AuthUserSchema });
 const TotpSetupResponseSchema = z.object({ secret: z.string(), uri: z.string() });
 const SessionsResponseSchema = z.object({ sessions: z.array(AuthSessionSchema) });
 const ApiTokensResponseSchema = z.object({ tokens: z.array(ApiTokenSchema) });
+const ApprovalsResponseSchema = z.object({ approvals: z.array(ApprovalSchema) });
+const ApprovalResponseSchema = z.object({ approval: ApprovalSchema });
 const UsersResponseSchema = z.object({ users: z.array(AuthUserSchema) });
 const AuthStatusSchema = z.object({ setupRequired: z.boolean(), user: AuthUserSchema.nullable() });
 const OverviewResponseSchema = z.object({ overview: SystemOverviewSchema });
@@ -151,6 +159,10 @@ export const api = {
   apiTokens: () => request("/api/auth/tokens", ApiTokensResponseSchema),
   createApiToken: (input: CreateApiToken) => request("/api/auth/tokens", CreatedApiTokenSchema, "POST", CreateApiTokenSchema.parse(input)),
   revokeApiToken: (tokenId: string) => request(`/api/auth/tokens?tokenId=${encodeURIComponent(RevokeApiTokenSchema.parse({ tokenId }).tokenId)}`, OkResponseSchema, "DELETE"),
+  approvals: (query: ApprovalQuery = {}) => request(`/api/approvals${toQuery(ApprovalQuerySchema.parse(query))}`, ApprovalsResponseSchema),
+  createApproval: (input: CreateApproval) => request("/api/approvals", ApprovalResponseSchema, "POST", CreateApprovalSchema.parse(input)),
+  approveApproval: (approvalId: string, comment?: string) => request("/api/approvals/approve", ApprovalResponseSchema, "POST", ApprovalDecisionSchema.parse({ approvalId, comment })),
+  rejectApproval: (approvalId: string, comment?: string) => request("/api/approvals/reject", ApprovalResponseSchema, "POST", ApprovalDecisionSchema.parse({ approvalId, comment })),
   setupTotp: () => request("/api/auth/totp/setup", TotpSetupResponseSchema, "POST"),
   confirmTotp: (code: string) => request("/api/auth/totp/confirm", AuthResponseSchema, "POST", TotpConfirmSchema.parse({ code })),
   disableTotp: (code: string) => request("/api/auth/totp/disable", AuthResponseSchema, "POST", TotpConfirmSchema.parse({ code })),
@@ -184,11 +196,14 @@ export const api = {
   backups: () => request("/api/backups", BackupsResponseSchema),
   createBackup: () => request("/api/backups", BackupResponseSchema, "POST"),
   downloadBackup: (backupId: string) => download(`/api/backups/download?backupId=${encodeURIComponent(BackupRequestSchema.parse({ backupId }).backupId)}`),
-  restoreBackup: (backupId: string) => request("/api/backups/restore", BackupRestoreResponseSchema, "POST", BackupRestoreRequestSchema.parse({ backupId, confirmation: "RESTORE" })),
+  restoreBackup: (backupId: string, approvalId: string) => request("/api/backups/restore", BackupRestoreResponseSchema, "POST", BackupRestoreRequestSchema.parse({ backupId, approvalId, confirmation: "RESTORE" })),
   updateBackupSchedule: (input: UpdateBackupSchedule) => request("/api/backups/schedule", BackupScheduleResponseSchema, "PATCH", UpdateBackupScheduleSchema.parse(input)),
   audit: (query: AuditQuery = {}) => request(`/api/audit${toQuery(AuditQuerySchema.parse(query))}`, AuditResponseSchema),
   exportAudit: (format: "jsonl" | "csv", query: AuditQuery = {}) => download(`/api/audit/export${toQuery(AuditExportQuerySchema.parse({ ...query, format }))}`),
-  pruneAudit: (retainDays: number) => request(`/api/audit?retainDays=${encodeURIComponent(String(AuditRetentionSchema.parse({ retainDays }).retainDays))}`, AuditPruneResponseSchema, "DELETE"),
+  pruneAudit: (retainDays: number, approvalId: string) => {
+    const input = AuditRetentionSchema.parse({ retainDays, approvalId });
+    return request(`/api/audit?retainDays=${encodeURIComponent(String(input.retainDays))}&approvalId=${encodeURIComponent(input.approvalId)}`, AuditPruneResponseSchema, "DELETE");
+  },
   alerts: () => request("/api/alerts", AlertsResponseSchema),
   alertThresholds: () => request("/api/alerts/thresholds", AlertThresholdsResponseSchema),
   updateAlertThreshold: (input: UpdateAlertThreshold) => request("/api/alerts/thresholds", AlertThresholdsResponseSchema, "PATCH", UpdateAlertThresholdSchema.parse(input)),

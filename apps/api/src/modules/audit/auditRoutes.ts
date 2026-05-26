@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { AuditExportQuerySchema, AuditQuerySchema, AuditRetentionSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
+import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
 
 export function registerAuditRoutes(app: FastifyInstance, services: Services): void {
@@ -33,6 +34,14 @@ export function registerAuditRoutes(app: FastifyInstance, services: Services): v
       return;
     }
     const input = AuditRetentionSchema.parse(request.query);
+    try {
+      await services.approvalStore.consume({ approvalId: input.approvalId, action: "audit.prune", target: `${input.retainDays}d`, actor: user.username });
+    } catch (error) {
+      if (await sendApprovalError(reply, error)) {
+        return;
+      }
+      throw error;
+    }
     const result = await services.auditLog.prune(input.retainDays);
     await services.auditLog.append({ actor: user.username, action: "audit.prune", target: `${input.retainDays}d`, ip: request.ip, status: "success", detail: `removed=${result.removed}` });
     return { result };

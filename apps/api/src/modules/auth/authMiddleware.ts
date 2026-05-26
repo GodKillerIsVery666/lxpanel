@@ -95,6 +95,9 @@ function requiredScopeForRequest(request: FastifyRequest): ApiTokenScope | null 
   if (path.startsWith("/api/audit")) {
     return write ? "audit:write" : "audit:read";
   }
+  if (path.startsWith("/api/approvals")) {
+    return write ? "approvals:write" : "approvals:read";
+  }
   if (path.startsWith("/api/security")) {
     return "security:read";
   }

@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { Archive, BellDot, BellRing, Cable, ClipboardList, Container, FileText, Files, Gauge, LineChart, ListTree, PackagePlus, ScrollText, Server, ShieldCheck, SquareActivity, Users } from "lucide-react";
+import { Archive, BellDot, BellRing, Cable, ClipboardCheck, ClipboardList, Container, FileText, Files, Gauge, LineChart, ListTree, PackagePlus, ScrollText, Server, ShieldCheck, SquareActivity, Users } from "lucide-react";
 import type { AuthUser } from "../api/client.js";
 import type { ViewId } from "../App.js";
 
@@ -24,6 +24,7 @@ const navItems: NavItem[] = [
   { id: "tasks", label: "任务", icon: ClipboardList, minRole: "operator" },
   { id: "alerts", label: "告警", icon: BellRing },
   { id: "notifications", label: "通知", icon: BellDot, minRole: "operator" },
+  { id: "approvals", label: "审批", icon: ClipboardCheck, minRole: "owner" },
   { id: "users", label: "用户", icon: Users, minRole: "owner" },
   { id: "backups", label: "备份", icon: Archive, minRole: "owner" },
   { id: "security", label: "安全", icon: ShieldCheck },

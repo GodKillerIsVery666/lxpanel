@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type AuthStatus, type AuthUser } from "./api/client.js";
 import { LoginPanel } from "./components/LoginPanel.js";
 import { Shell } from "./components/Shell.js";
+import { ApprovalsPage } from "./pages/ApprovalsPage.js";
 import { AuditPage } from "./pages/AuditPage.js";
 import { AlertsPage } from "./pages/AlertsPage.js";
 import { AppsPage } from "./pages/AppsPage.js";
@@ -20,7 +21,7 @@ import { ServicesPage } from "./pages/ServicesPage.js";
 import { TasksPage } from "./pages/TasksPage.js";
 import { UsersPage } from "./pages/UsersPage.js";
 
-export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "users" | "backups" | "security" | "audit";
+export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "approvals" | "users" | "backups" | "security" | "audit";
 
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -73,6 +74,7 @@ function renderView(view: ViewId): JSX.Element {
     case "tasks": return <TasksPage />;
     case "alerts": return <AlertsPage />;
     case "notifications": return <NotificationsPage />;
+    case "approvals": return <ApprovalsPage />;
     case "users": return <UsersPage />;
     case "backups": return <BackupsPage />;
     case "security": return <SecurityPage />;

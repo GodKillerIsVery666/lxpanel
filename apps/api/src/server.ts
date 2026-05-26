@@ -18,6 +18,8 @@ import { registerAlertRoutes } from "./modules/alerts/alertRoutes.js";
 import { AlertService } from "./modules/alerts/alertService.js";
 import { registerAppRoutes } from "./modules/apps/appRoutes.js";
 import { AppStore } from "./modules/apps/appStore.js";
+import { registerApprovalRoutes } from "./modules/approvals/approvalRoutes.js";
+import { ApprovalStore } from "./modules/approvals/approvalStore.js";
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
 import { AuthStore } from "./modules/auth/authStore.js";
 import { BackupStore } from "./modules/backups/backupStore.js";
@@ -55,6 +57,7 @@ export interface Services {
   monitoringService: MonitoringService;
   notificationService: NotificationService;
   appStore: AppStore;
+  approvalStore: ApprovalStore;
   auditLog: AuditLog;
 }
 
@@ -72,6 +75,7 @@ export async function createServices(config: AppConfig): Promise<Services> {
     monitoringService: new MonitoringService(stateStore),
     notificationService: new NotificationService(stateStore, undefined, config.webhookAllowlist),
     appStore: new AppStore(stateStore, config.dataDir),
+    approvalStore: new ApprovalStore(stateStore),
     auditLog: new AuditLog(join(config.dataDir, "audit.jsonl"))
   };
 }
@@ -111,6 +115,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerAlertRoutes(app, services);
   registerNotificationRoutes(app, services);
   registerConnectorRoutes(app, services);
+  registerApprovalRoutes(app, services);
   registerAuditRoutes(app, services);
   registerSecurityRoutes(app, services);
   await registerStaticWeb(app, config);

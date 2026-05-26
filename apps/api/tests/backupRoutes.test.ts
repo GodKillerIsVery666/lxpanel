@@ -35,6 +35,19 @@ describe("备份路由", () => {
 
     const createdResponse = await app.inject({ method: "POST", url: "/api/backups", headers: { cookie } });
     const backup = BackupResponseSchema.parse(createdResponse.json()).backup;
+    const approvalResponse = await app.inject({
+      method: "POST",
+      url: "/api/approvals",
+      headers: { "content-type": "application/json", cookie },
+      payload: JSON.stringify({ action: "backup.restore", target: backup.id, reason: "restore test", expiresInMinutes: 30 })
+    });
+    const approvalId = z.object({ approval: z.object({ id: z.string() }) }).parse(approvalResponse.json()).approval.id;
+    const approved = await app.inject({
+      method: "POST",
+      url: "/api/approvals/approve",
+      headers: { "content-type": "application/json", cookie },
+      payload: JSON.stringify({ approvalId })
+    });
 
     const missingConfirmation = await app.inject({
       method: "POST",
@@ -46,10 +59,12 @@ describe("备份路由", () => {
       method: "POST",
       url: "/api/backups/restore",
       headers: { "content-type": "application/json", cookie },
-      payload: JSON.stringify({ backupId: backup.id, confirmation: "RESTORE" })
+      payload: JSON.stringify({ backupId: backup.id, approvalId, confirmation: "RESTORE" })
     });
 
     expect(createdResponse.statusCode).toBe(200);
+    expect(approvalResponse.statusCode).toBe(200);
+    expect(approved.statusCode).toBe(200);
     expect(missingConfirmation.statusCode).toBe(400);
     expect(restored.statusCode).toBe(200);
     await app.close();

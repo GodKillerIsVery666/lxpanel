@@ -1,4 +1,4 @@
-import type { AlertEvent, AlertThreshold, ApiTokenScope, AppDeployment, Host, MetricSample, NotificationChannel, NotificationDelivery, Role } from "@lxpanel/shared";
+import type { AlertEvent, AlertThreshold, ApiTokenScope, AppDeployment, Approval, Host, MetricSample, NotificationChannel, NotificationDelivery, Role } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -115,6 +115,7 @@ export type MetricSampleRecord = MetricSample;
 export type NotificationChannelRecord = NotificationChannel;
 export type NotificationDeliveryRecord = NotificationDelivery;
 export type AppDeploymentRecord = AppDeployment;
+export type ApprovalRecord = Approval;
 
 export interface PanelState {
   users: UserRecord[];
@@ -133,6 +134,7 @@ export interface PanelState {
   notificationChannels?: NotificationChannelRecord[];
   notificationDeliveries?: NotificationDeliveryRecord[];
   appDeployments?: AppDeploymentRecord[];
+  approvals?: ApprovalRecord[];
 }
 
 export function createInitialPanelState(): PanelState {
@@ -152,7 +154,8 @@ export function createInitialPanelState(): PanelState {
     metricSamples: [],
     notificationChannels: [],
     notificationDeliveries: [],
-    appDeployments: []
+    appDeployments: [],
+    approvals: []
   };
 }
 

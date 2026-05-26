@@ -8,6 +8,8 @@ export const ApiTokenScopes = [
   "system:write",
   "audit:read",
   "audit:write",
+  "approvals:read",
+  "approvals:write",
   "security:read",
   "files:read",
   "files:write",
@@ -129,6 +131,50 @@ export const RevokeApiTokenSchema = z.object({
   tokenId: z.string().min(1)
 });
 export type RevokeApiToken = z.infer<typeof RevokeApiTokenSchema>;
+
+export const ApprovalActionSchema = z.enum(["backup.restore", "audit.prune"]);
+export type ApprovalAction = z.infer<typeof ApprovalActionSchema>;
+
+export const ApprovalStatusSchema = z.enum(["pending", "approved", "rejected", "used", "expired"]);
+export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;
+
+export const ApprovalSchema = z.object({
+  id: z.string(),
+  action: ApprovalActionSchema,
+  target: z.string(),
+  reason: z.string(),
+  status: ApprovalStatusSchema,
+  requestedBy: z.string(),
+  requestedAt: z.string(),
+  expiresAt: z.string(),
+  reviewedBy: z.string().optional(),
+  reviewedAt: z.string().optional(),
+  reviewComment: z.string().optional(),
+  consumedBy: z.string().optional(),
+  consumedAt: z.string().optional()
+});
+export type Approval = z.infer<typeof ApprovalSchema>;
+
+export const ApprovalQuerySchema = z.object({
+  status: ApprovalStatusSchema.optional(),
+  action: ApprovalActionSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional()
+});
+export type ApprovalQuery = z.infer<typeof ApprovalQuerySchema>;
+
+export const CreateApprovalSchema = z.object({
+  action: ApprovalActionSchema,
+  target: z.string().min(1).max(240),
+  reason: z.string().min(3).max(1000),
+  expiresInMinutes: z.number().int().min(5).max(1440).default(120)
+});
+export type CreateApproval = z.infer<typeof CreateApprovalSchema>;
+
+export const ApprovalDecisionSchema = z.object({
+  approvalId: z.string().min(1),
+  comment: z.string().max(1000).optional()
+});
+export type ApprovalDecision = z.infer<typeof ApprovalDecisionSchema>;
 
 export const SystemOverviewSchema = z.object({
   hostname: z.string(),
@@ -266,7 +312,8 @@ export const AuditExportQuerySchema = AuditQuerySchema.extend({
 export type AuditExportQuery = z.infer<typeof AuditExportQuerySchema>;
 
 export const AuditRetentionSchema = z.object({
-  retainDays: z.coerce.number().int().min(1).max(3650)
+  retainDays: z.coerce.number().int().min(1).max(3650),
+  approvalId: z.string().min(1)
 });
 export type AuditRetention = z.infer<typeof AuditRetentionSchema>;
 
@@ -654,7 +701,8 @@ export const BackupRequestSchema = z.object({
 export type BackupRequest = z.infer<typeof BackupRequestSchema>;
 
 export const BackupRestoreRequestSchema = BackupRequestSchema.extend({
-  confirmation: z.literal("RESTORE")
+  confirmation: z.literal("RESTORE"),
+  approvalId: z.string().min(1)
 });
 export type BackupRestoreRequest = z.infer<typeof BackupRestoreRequestSchema>;
 
