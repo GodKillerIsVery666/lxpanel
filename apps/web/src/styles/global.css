@@ -14,7 +14,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); }
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 select { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; background: #fff; color: var(--ink); }
 button { cursor: pointer; }
 
@@ -24,6 +24,7 @@ button { cursor: pointer; }
 .login-panel h1 { margin: 22px 0; font-size: 28px; letter-spacing: 0; }
 label { display: grid; gap: 8px; margin: 14px 0; color: var(--muted); font-size: 14px; }
 input { width: 100%; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 11px 12px; color: var(--ink); }
+textarea { width: 100%; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 12px; color: var(--ink); resize: vertical; }
 input[type="checkbox"] { width: auto; min-width: 18px; height: 18px; }
 input:focus { outline: 2px solid rgba(38, 120, 113, .22); border-color: var(--green); }
 .primary-button, .ghost-button, .icon-button, .path-form button, .inline-form button { border: 1px solid transparent; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 14px; }
@@ -83,6 +84,7 @@ td { font-size: 14px; }
 .root-chips button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 8px 12px; color: var(--ink); }
 .clickable-row:hover { background: #f6f2e8; }
 .file-name { display: flex; align-items: center; gap: 8px; }
+.file-editor { min-height: 320px; margin-bottom: 12px; font-family: "Cascadia Mono", "Consolas", monospace; font-size: 13px; line-height: 1.55; }
 .security-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .path-code, .token-box code { display: block; padding: 10px; background: #f2eee4; border: 1px solid var(--line); border-radius: 6px; margin: 8px 0; overflow-wrap: anywhere; }
 .token-box { background: #eff7f4; border: 1px solid #b9d8cf; border-radius: 8px; padding: 12px; }

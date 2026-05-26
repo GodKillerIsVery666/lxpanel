@@ -19,6 +19,7 @@ import {
   ChangeOwnPasswordSchema,
   ConnectorSchema,
   CreateApiTokenSchema,
+  CreateDirectoryRequestSchema,
   CreateHostSchema,
   CreateAppDeploymentSchema,
   CreateConnectorCommandSchema,
@@ -27,12 +28,16 @@ import {
   CreateUserSchema,
   CreatedApiTokenSchema,
   DismissAlertSchema,
+  DeleteFileRequestSchema,
   CreateConnectorSchema,
   DockerContainerActionSchema,
   DockerContainerSchema,
   DockerImageSchema,
   DockerStatusSchema,
   FileEntrySchema,
+  FileContentSchema,
+  FileReadRequestSchema,
+  FileWriteRequestSchema,
   HostSchema,
   LogRootSchema,
   LogTailSchema,
@@ -93,6 +98,7 @@ const OverviewResponseSchema = z.object({ overview: SystemOverviewSchema });
 const ProcessesResponseSchema = z.object({ processes: z.array(ProcessInfoSchema) });
 const ServicesResponseSchema = z.object({ services: z.array(ServiceInfoSchema) });
 const FilesResponseSchema = z.object({ root: z.string(), path: z.string(), entries: z.array(FileEntrySchema) });
+const FileContentResponseSchema = z.object({ file: FileContentSchema });
 const LogRootsResponseSchema = z.object({ roots: z.array(LogRootSchema) });
 const LogTailResponseSchema = z.object({ tail: LogTailSchema });
 const AuditResponseSchema = z.object({ events: z.array(AuditEventSchema) });
@@ -153,6 +159,10 @@ export const api = {
   services: () => request("/api/system/services", ServicesResponseSchema),
   serviceAction: (name: string, action: "start" | "stop" | "restart") => request("/api/system/services/action", OkResponseSchema, "POST", { name, action }),
   files: (path?: string) => request(`/api/files${path ? `?path=${encodeURIComponent(path)}` : ""}`, FilesResponseSchema),
+  readFile: (path: string) => request(`/api/files/content?path=${encodeURIComponent(FileReadRequestSchema.parse({ path }).path)}`, FileContentResponseSchema),
+  writeFile: (path: string, content: string) => request("/api/files/content", FileContentResponseSchema, "PUT", FileWriteRequestSchema.parse({ path, content })),
+  createDirectory: (path: string) => request("/api/files/directories", OkResponseSchema, "POST", CreateDirectoryRequestSchema.parse({ path })),
+  deleteFile: (path: string) => request(`/api/files?path=${encodeURIComponent(DeleteFileRequestSchema.parse({ path }).path)}`, OkResponseSchema, "DELETE"),
   logRoots: () => request("/api/logs/roots", LogRootsResponseSchema),
   logFiles: (path?: string) => request(`/api/logs/files${path ? `?path=${encodeURIComponent(path)}` : ""}`, FilesResponseSchema),
   logTail: (path: string, lines = 300) => request(`/api/logs/tail?path=${encodeURIComponent(path)}&lines=${lines}`, LogTailResponseSchema),

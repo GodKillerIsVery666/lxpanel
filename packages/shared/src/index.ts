@@ -160,6 +160,36 @@ export const FileEntrySchema = z.object({
 });
 export type FileEntry = z.infer<typeof FileEntrySchema>;
 
+export const FileReadRequestSchema = z.object({
+  path: z.string().min(1).max(500)
+});
+export type FileReadRequest = z.infer<typeof FileReadRequestSchema>;
+
+export const FileContentSchema = z.object({
+  path: z.string(),
+  sizeBytes: z.number(),
+  modifiedAt: z.string(),
+  content: z.string(),
+  truncated: z.boolean()
+});
+export type FileContent = z.infer<typeof FileContentSchema>;
+
+export const FileWriteRequestSchema = z.object({
+  path: z.string().min(1).max(500),
+  content: z.string().max(524_288)
+});
+export type FileWriteRequest = z.infer<typeof FileWriteRequestSchema>;
+
+export const CreateDirectoryRequestSchema = z.object({
+  path: z.string().min(1).max(500)
+});
+export type CreateDirectoryRequest = z.infer<typeof CreateDirectoryRequestSchema>;
+
+export const DeleteFileRequestSchema = z.object({
+  path: z.string().min(1).max(500)
+});
+export type DeleteFileRequest = z.infer<typeof DeleteFileRequestSchema>;
+
 export const LogRootSchema = z.object({
   path: z.string(),
   label: z.string()
