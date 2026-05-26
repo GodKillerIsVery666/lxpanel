@@ -30,7 +30,7 @@ export function registerDockerRoutes(app: FastifyInstance, services: Services): 
   });
 
   app.post("/api/docker/containers/action", async (request, reply) => {
-    const user = await requireUser(request, reply, services);
+    const user = await requireRole(request, reply, services, "operator");
     if (!user) {
       return;
     }

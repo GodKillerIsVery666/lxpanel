@@ -11,10 +11,10 @@
 - 登录接口有速率限制。
 - 所有响应带基础安全头，写请求会校验 Origin/Fetch Metadata，降低 Cookie 认证下的 CSRF 风险。
 - 可通过 `LXPANEL_IP_ALLOWLIST` 限制允许访问面板的源 IP。
-- 状态备份恢复会先生成恢复前快照，并清空恢复后会话，避免旧快照中的会话继续有效。
+- 状态备份恢复需要服务端确认短语，会先生成恢复前快照，并清空恢复后会话，避免旧快照中的会话继续有效。
 - 文件目录访问限制在 `LXPANEL_FILE_ROOTS` 内。
 - 服务控制只允许合法 systemd service 名称。
-- Docker 容器动作只接受受限 ID/名称字符，并记录审计。
+- Docker 容器动作只接受受限 ID/名称字符，至少需要 `operator` 角色，并记录审计。
 - 日志查看限制在 `LXPANEL_LOG_ROOTS` 内，只读取文件尾部，避免一次性加载超大日志。
 - RBAC 将用户分为 `owner`、`operator`、`viewer`，高风险动作至少需要 `operator`。
 - 用户管理和备份创建仅允许 `owner`。

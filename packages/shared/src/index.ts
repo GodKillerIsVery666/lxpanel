@@ -565,6 +565,11 @@ export const BackupRequestSchema = z.object({
 });
 export type BackupRequest = z.infer<typeof BackupRequestSchema>;
 
+export const BackupRestoreRequestSchema = BackupRequestSchema.extend({
+  confirmation: z.literal("RESTORE")
+});
+export type BackupRestoreRequest = z.infer<typeof BackupRestoreRequestSchema>;
+
 export const BackupRestoreResponseSchema = z.object({
   restored: BackupSnapshotSchema,
   preRestore: BackupSnapshotSchema
