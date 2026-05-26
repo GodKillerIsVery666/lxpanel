@@ -20,6 +20,7 @@ LXPanel 是一个从零开始搭建的轻量服务器运维面板原型，目标
 - 监控趋势与通知渠道：调度器采样本机资源曲线，告警可投递到 HTTP/HTTPS Webhook。
 - 可配置状态存储：默认使用 JSON 文件，生产可切换到 SQLite，并自动从已有 `state.json` 导入初始状态。
 - 连接器登记、心跳令牌与命令队列，为本地客户端分担远程连接负载预留协议。
+- 轻量连接器 agent：`scripts/lxpanel-connector.mjs` 可用令牌心跳、轮询命令并在本机 allowlist 内参数化执行。
 - 审计日志、安全态势页：结构化检查会话密钥、HTTPS Cookie、IP 白名单、备份、状态存储、Docker socket 与 SSH 配置；CI、类型检查和单元测试。
 
 ## 本地运行
@@ -96,6 +97,17 @@ docker compose up -d --build
 ```
 
 Compose 模板默认把 API 和前端放在同一个容器内运行，并持久化 `/var/lib/lxpanel`。生产环境务必替换 `LXPANEL_SESSION_SECRET`，并按管理网络配置 `LXPANEL_IP_ALLOWLIST`。
+
+## 连接器 Agent
+
+在面板的连接器页创建令牌后，可在目标主机运行轻量 agent。默认只允许 `hostname`、`uptime`、`whoami`，需要远程 SSH/运维命令时通过 allowlist 显式放行。
+
+```powershell
+$env:LXPANEL_URL="http://127.0.0.1:7080"
+$env:LXPANEL_CONNECTOR_TOKEN="创建连接器时显示的一次性令牌"
+$env:LXPANEL_CONNECTOR_ALLOW_COMMANDS="hostname;uptime;whoami;ssh"
+node scripts/lxpanel-connector.mjs
+```
 
 ## 发布包
 

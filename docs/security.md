@@ -24,6 +24,7 @@
 - 主机资产写操作需要 `operator`，viewer 只能只读查看。
 - 审计日志记录登录、初始化、连接器创建和服务动作。
 - 安全态势页输出结构化检查项，覆盖会话密钥、HTTPS Cookie、IP 白名单、状态存储、备份、Docker socket 和 SSH 基础配置。
+- 连接器 agent 默认只执行 allowlist 中的命令，使用 `execFile` 参数数组，不通过 shell 拼接。
 
 ## 生产部署要求
 
@@ -37,6 +38,7 @@
 8. Webhook URL 可能包含令牌，应限制可配置人员并优先使用内网通知入口。
 9. 使用应用商店前确认 Docker socket 权限边界，生产环境建议只开放给可信 operator。
 10. API Token 应设置合理有效期，并保存在 CI/自动化系统的密钥管理中；泄露后立即在安全页撤销。
+11. 连接器 agent 运行账号应使用最小权限，并将 `LXPANEL_CONNECTOR_ALLOW_COMMANDS` 收敛到真实需要的命令集合。
 
 ## 后续强化
 
