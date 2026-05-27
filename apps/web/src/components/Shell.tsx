@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { Search, X } from "lucide-react";
 import type { AuthUser } from "../api/client.js";
 import { navItems, navSections, roleRank, viewDescription, viewTitle, type NavItem, type ViewId } from "../navigation.js";
+import { addRecentViewPreference, readRecentViewsPreference, readTableDensityPreference, saveTableDensityPreference, type TableDensity } from "../utils/preferences.js";
 
 interface ShellProps {
   user: AuthUser;
@@ -12,8 +15,12 @@ interface ShellProps {
 
 export function Shell({ user, activeView, onNavigate, onLogout, children }: ShellProps): JSX.Element {
   const [filter, setFilter] = useState("");
-  const [recentViews, setRecentViews] = useState<ViewId[]>(() => readRecentViews());
+  const [recentViews, setRecentViews] = useState<ViewId[]>(() => readRecentViewsPreference());
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [tableDensity, setTableDensity] = useState<TableDensity>(() => readTableDensityPreference());
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const commandInputRef = useRef<HTMLInputElement | null>(null);
   const visibleSections = useMemo(() => {
     const term = filter.trim().toLowerCase();
     return navSections
@@ -33,24 +40,60 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
       }
       return !item.minRole || roleRank(user.role) >= roleRank(item.minRole);
     });
+  const commandResults = useMemo(() => {
+    const term = commandQuery.trim().toLowerCase();
+    return navSections
+      .flatMap((section) => section.items.map((item) => ({ section: section.title, item })))
+      .filter((result) => !result.item.minRole || roleRank(user.role) >= roleRank(result.item.minRole))
+      .filter((result) => term.length === 0 || matchesNavItem(result.item, term))
+      .slice(0, 8);
+  }, [commandQuery, user.role]);
 
   useEffect(() => {
-    setRecentViews((current) => writeRecentViews(activeView, current));
+    setRecentViews((current) => addRecentViewPreference(activeView, current));
   }, [activeView]);
 
   useEffect(() => {
-    function focusSearch(event: KeyboardEvent): void {
+    function handleGlobalKeys(event: KeyboardEvent): void {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchRef.current?.focus();
+        setCommandOpen(true);
+      }
+      if (event.key === "Escape") {
+        setCommandOpen(false);
       }
     }
-    window.addEventListener("keydown", focusSearch);
-    return () => window.removeEventListener("keydown", focusSearch);
+    window.addEventListener("keydown", handleGlobalKeys);
+    return () => window.removeEventListener("keydown", handleGlobalKeys);
   }, []);
 
+  useEffect(() => {
+    if (commandOpen) {
+      commandInputRef.current?.focus();
+    }
+  }, [commandOpen]);
+
+  function navigateFromCommand(view: ViewId): void {
+    onNavigate(view);
+    setCommandOpen(false);
+    setCommandQuery("");
+  }
+
+  function submitCommand(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const firstResult = commandResults[0];
+    if (firstResult) {
+      navigateFromCommand(firstResult.item.id);
+    }
+  }
+
+  function changeTableDensity(nextDensity: TableDensity): void {
+    setTableDensity(nextDensity);
+    saveTableDensityPreference(nextDensity);
+  }
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell density-${tableDensity}`}>
       <a className="skip-link" href="#main-content">跳到主内容</a>
       <aside className="sidebar">
         <div className="sidebar-header">
@@ -86,45 +129,46 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
           </div>
           <div className="topbar-actions">
             {recentItems.length ? <div className="recent-views">{recentItems.slice(0, 3).map((item) => <button type="button" key={item.id} onClick={() => onNavigate(item.id)}>{item.label}</button>)}</div> : null}
+            <button className="command-trigger" type="button" onClick={() => setCommandOpen(true)} title="打开命令面板 Ctrl+K" aria-label="打开命令面板"><Search size={16} /><kbd>Ctrl K</kbd></button>
+            <div className="density-toggle" role="group" aria-label="表格密度">
+              <button type="button" className={tableDensity === "comfortable" ? "active" : ""} onClick={() => changeTableDensity("comfortable")}>舒适</button>
+              <button type="button" className={tableDensity === "compact" ? "active" : ""} onClick={() => changeTableDensity("compact")}>紧凑</button>
+            </div>
             <div className="user-chip"><span>{user.role}</span><strong>{user.username}</strong></div>
             <button className="ghost-button" onClick={onLogout}>退出</button>
           </div>
         </header>
         {children}
       </div>
+      {commandOpen ? (
+        <div className="command-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCommandOpen(false); }}>
+          <section className="command-panel" role="dialog" aria-modal="true" aria-label="全局命令面板">
+            <form className="command-search" onSubmit={submitCommand}>
+              <Search size={18} />
+              <input ref={commandInputRef} value={commandQuery} onChange={(event) => setCommandQuery(event.target.value)} placeholder="搜索页面、资源或动作" aria-label="命令搜索" />
+              <button type="button" onClick={() => setCommandOpen(false)} title="关闭"><X size={18} /></button>
+            </form>
+            <div className="command-list">
+              {commandResults.map((result) => {
+                const Icon = result.item.icon;
+                return (
+                  <button type="button" key={result.item.id} className="command-item" onClick={() => navigateFromCommand(result.item.id)}>
+                    <Icon size={18} />
+                    <span><strong>{result.item.label}</strong><small>{result.item.description}</small></span>
+                    <em>{result.section}</em>
+                  </button>
+                );
+              })}
+              {commandResults.length === 0 ? <p className="command-empty">没有匹配的命令。</p> : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function matchesNavItem(item: NavItem, term: string): boolean {
   return [item.label, item.description, ...item.keywords].some((value) => value.toLowerCase().includes(term));
-}
-
-const recentStorageKey = "lxpanel.recentViews";
-
-function readRecentViews(): ViewId[] {
-  try {
-    const rawValue = window.localStorage.getItem(recentStorageKey);
-    if (!rawValue) {
-      return [];
-    }
-    const parsed = JSON.parse(rawValue) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.filter(isViewId).slice(0, 5);
-  } catch {
-    return [];
-  }
-}
-
-function writeRecentViews(activeView: ViewId, current: ViewId[]): ViewId[] {
-  const nextViews = [activeView, ...current.filter((view) => view !== activeView)].slice(0, 5);
-  window.localStorage.setItem(recentStorageKey, JSON.stringify(nextViews));
-  return nextViews;
-}
-
-function isViewId(value: unknown): value is ViewId {
-  return typeof value === "string" && navItems.some((item) => item.id === value);
 }
 

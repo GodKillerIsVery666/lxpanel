@@ -22,13 +22,12 @@ import { SecurityPage } from "./pages/SecurityPage.js";
 import { ServicesPage } from "./pages/ServicesPage.js";
 import { TasksPage } from "./pages/TasksPage.js";
 import { UsersPage } from "./pages/UsersPage.js";
-import { canAccessView, navItems, type ViewId } from "./navigation.js";
-
-const viewStorageKey = "lxpanel.activeView";
+import { canAccessView, type ViewId } from "./navigation.js";
+import { readActiveViewPreference, saveActiveViewPreference } from "./utils/preferences.js";
 
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null);
-  const [view, setView] = useState<ViewId>(() => readStoredView());
+  const [view, setView] = useState<ViewId>(() => readActiveViewPreference());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,7 +45,7 @@ export default function App(): JSX.Element {
 
   function navigate(nextView: ViewId): void {
     setView(nextView);
-    window.localStorage.setItem(viewStorageKey, nextView);
+    saveActiveViewPreference(nextView);
   }
 
   useEffect(() => {
@@ -73,7 +72,6 @@ export default function App(): JSX.Element {
     </Shell>
   );
 }
-
 function renderView(view: ViewId, navigate: (view: ViewId) => void, user: AuthUser): JSX.Element {
   switch (view) {
     case "hosts": return <HostsPage />;
@@ -98,13 +96,4 @@ function renderView(view: ViewId, navigate: (view: ViewId) => void, user: AuthUs
     case "dashboard":
     default: return <DashboardPage user={user} onNavigate={navigate} />;
   }
-}
-
-function readStoredView(): ViewId {
-  const storedView = window.localStorage.getItem(viewStorageKey);
-  return isViewId(storedView) ? storedView : "dashboard";
-}
-
-function isViewId(value: string | null): value is ViewId {
-  return navItems.some((item) => item.id === value);
 }
