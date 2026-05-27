@@ -1,7 +1,7 @@
 import type { Connector, ConnectorCommand, ConnectorCommandResult, ConnectorHeartbeat, CreateConnector, CreateConnectorCommand } from "@lxpanel/shared";
 import { randomToken, sha256 } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
-import type { ConnectorCommandRecord, ConnectorRecord, PanelState } from "../state/panelState.js";
+import type { ConnectorCommandRecord, ConnectorRecord, MetricSampleRecord, PanelState } from "../state/panelState.js";
 
 const staleAfterMs = 1000 * 60 * 3;
 const offlineAfterMs = 1000 * 60 * 15;
@@ -64,10 +64,20 @@ export class ConnectorStore {
         capabilities: heartbeat.capabilities.length > 0 ? heartbeat.capabilities : record.capabilities,
         lastSeenAt: new Date().toISOString()
       };
+      const metricSample: MetricSampleRecord | undefined = heartbeat.metrics ? {
+        id: randomToken(12),
+        hostId: heartbeat.metrics.hostId,
+        hostName: heartbeat.metrics.hostName,
+        time: new Date().toISOString(),
+        cpuPercent: heartbeat.metrics.cpuPercent,
+        memoryPercent: heartbeat.metrics.memoryPercent,
+        ...(typeof heartbeat.metrics.diskUsedPercent === "number" ? { diskUsedPercent: heartbeat.metrics.diskUsedPercent } : {})
+      } : undefined;
       return {
         data: {
           ...state,
-          connectors: state.connectors.map((item) => item.id === record.id ? updated : item)
+          connectors: state.connectors.map((item) => item.id === record.id ? updated : item),
+          ...(metricSample ? { metricSamples: [...(state.metricSamples ?? []), metricSample].slice(-10_000) } : {})
         },
         result: toConnector(updated)
       };

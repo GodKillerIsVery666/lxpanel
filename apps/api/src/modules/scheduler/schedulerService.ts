@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { AuditLog } from "../audit/auditLog.js";
 import type { AlertService } from "../alerts/alertService.js";
 import type { BackupStore } from "../backups/backupStore.js";
+import type { DatabaseStore } from "../databases/databaseStore.js";
 import type { MonitoringService } from "../monitoring/monitoringService.js";
 import type { NotificationService } from "../notifications/notificationService.js";
 import type { TaskStore } from "../tasks/taskStore.js";
@@ -13,6 +14,7 @@ export class SchedulerService {
   constructor(
     private readonly taskStore: TaskStore,
     private readonly backupStore: BackupStore,
+    private readonly databaseStore: DatabaseStore,
     private readonly alertService: AlertService,
     private readonly monitoringService: MonitoringService,
     private readonly notificationService: NotificationService,
@@ -51,6 +53,10 @@ export class SchedulerService {
       const backup = await this.backupStore.runDueBackup(now);
       if (backup) {
         await this.auditLog.append({ actor: "scheduler", action: "backup.create", target: backup.fileName, status: "success" });
+      }
+      const databaseBackups = await this.databaseStore.runDueScheduledBackups(now);
+      for (const result of databaseBackups) {
+        await this.auditLog.append({ actor: "scheduler", action: "database.backup.scheduled", target: result.connectionId, status: result.status === "success" ? "success" : "error", detail: result.error ?? result.outputTail });
       }
       await this.monitoringService.recordLocalSample(now);
       const alerts = await this.alertService.check(now);

@@ -1,4 +1,4 @@
-import type { AccessPolicy, AlertEvent, AlertSilence, AlertThreshold, ApiTokenScope, AppDeployment, Approval, DatabaseConnection, Host, HostGroup, MetricSample, NotificationChannel, NotificationDelivery, RemoteBackupTarget, Role, SecurityRemediationRun } from "@lxpanel/shared";
+import type { AccessPolicy, AlertEvent, AlertSilence, AlertThreshold, ApiTokenScope, AppDeployment, Approval, DatabaseConnection, Host, HostGroup, LicenseInfo, MetricSample, NotificationChannel, NotificationDelivery, RemoteBackupTarget, ResourceApprovalPolicy, Role, SecurityRemediationRun, TemplateRepository, TerminalSession } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -130,6 +130,10 @@ export type RemoteBackupTargetRecord = RemoteBackupTarget & { encryptedSecretAcc
 export type DatabaseConnectionRecord = Omit<DatabaseConnection, "maskedUrl"> & { encryptedUrl?: string; url?: string; lastBackupPath?: string };
 export type AccessPolicyRecord = AccessPolicy;
 export type SecurityRemediationRunRecord = SecurityRemediationRun;
+export type TerminalSessionRecord = TerminalSession;
+export type TemplateRepositoryRecord = TemplateRepository;
+export type LicenseInfoRecord = LicenseInfo;
+export type ResourceApprovalPolicyRecord = ResourceApprovalPolicy;
 
 export interface PanelState {
   users: UserRecord[];
@@ -155,6 +159,10 @@ export interface PanelState {
   databaseConnections?: DatabaseConnectionRecord[];
   accessPolicies?: AccessPolicyRecord[];
   securityRemediationRuns?: SecurityRemediationRunRecord[];
+  terminalSessions?: TerminalSessionRecord[];
+  templateRepositories?: TemplateRepositoryRecord[];
+  license?: LicenseInfoRecord;
+  resourceApprovalPolicies?: ResourceApprovalPolicyRecord[];
 }
 
 export function createInitialPanelState(): PanelState {
@@ -181,7 +189,10 @@ export function createInitialPanelState(): PanelState {
     remoteBackupTargets: [],
     databaseConnections: [],
     accessPolicies: [],
-    securityRemediationRuns: []
+    securityRemediationRuns: [],
+    terminalSessions: [],
+    templateRepositories: [],
+    resourceApprovalPolicies: []
   };
 }
 

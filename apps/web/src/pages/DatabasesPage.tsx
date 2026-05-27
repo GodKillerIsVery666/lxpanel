@@ -11,6 +11,8 @@ export function DatabasesPage(): JSX.Element {
   const [type, setType] = useState<DatabaseType>("postgres");
   const [url, setUrl] = useState("");
   const [retentionDays, setRetentionDays] = useState("30");
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleEveryHours, setScheduleEveryHours] = useState("24");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
@@ -26,7 +28,7 @@ export function DatabasesPage(): JSX.Element {
 
   async function create(): Promise<void> {
     try {
-      await api.createDatabaseConnection({ name, type, url, enabled: true, backupRetentionDays: Number.parseInt(retentionDays, 10) || 30 });
+      await api.createDatabaseConnection({ name, type, url, enabled: true, backupRetentionDays: Number.parseInt(retentionDays, 10) || 30, scheduleEnabled, scheduleEveryHours: Number.parseInt(scheduleEveryHours, 10) || 24 });
       setName("");
       setUrl("");
       await load();
@@ -41,6 +43,15 @@ export function DatabasesPage(): JSX.Element {
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "更新失败。");
+    }
+  }
+
+  async function toggleSchedule(connection: DatabaseConnection): Promise<void> {
+    try {
+      await api.updateDatabaseConnection({ connectionId: connection.id, scheduleEnabled: !connection.scheduleEnabled, scheduleEveryHours: connection.scheduleEveryHours });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "更新计划失败。");
     }
   }
 
@@ -89,13 +100,15 @@ export function DatabasesPage(): JSX.Element {
           <select value={type} onChange={(event) => setType(event.target.value as DatabaseType)}><option value="postgres">PostgreSQL</option><option value="mysql">MySQL</option><option value="mariadb">MariaDB</option></select>
           <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder={type === "postgres" ? "postgres://user:password@host:5432/db" : "mysql://user:password@host:3306/db"} />
           <input value={retentionDays} onChange={(event) => setRetentionDays(event.target.value)} inputMode="numeric" placeholder="保留天数" />
+          <label className="compact-check"><input type="checkbox" checked={scheduleEnabled} onChange={(event) => setScheduleEnabled(event.target.checked)} /> 计划</label>
+          <input value={scheduleEveryHours} onChange={(event) => setScheduleEveryHours(event.target.value)} inputMode="numeric" placeholder="间隔小时" />
           <button type="button" onClick={() => void create()}><Database size={16} /> 添加</button>
         </div>
       </section>
       <section className="table-panel">
         <div className="panel-title">连接列表</div>
         <table>
-          <thead><tr><th>名称</th><th>类型</th><th>状态</th><th>地址</th><th>保留</th><th>最近备份</th><th>恢复演练</th><th>结果</th><th>操作</th></tr></thead>
+          <thead><tr><th>名称</th><th>类型</th><th>状态</th><th>地址</th><th>保留</th><th>计划</th><th>最近备份</th><th>恢复演练</th><th>结果</th><th>操作</th></tr></thead>
           <tbody>{connections.map((connection) => (
             <tr key={connection.id}>
               <td>{connection.name}</td>
@@ -103,10 +116,11 @@ export function DatabasesPage(): JSX.Element {
               <td><StatusPill status={connection.enabled ? "active" : "inactive"} /></td>
               <td><code className="inline-code">{connection.maskedUrl}</code></td>
               <td>{connection.backupRetentionDays} 天</td>
+              <td>{connection.scheduleEnabled ? `${connection.scheduleEveryHours}h / ${connection.nextBackupAt ? formatDate(connection.nextBackupAt) : "待调度"}` : "关闭"}</td>
               <td>{connection.lastBackupAt ? formatDate(connection.lastBackupAt) : "-"}</td>
               <td>{connection.lastRestoreDrillAt ? `${connection.lastRestoreDrillStatus ?? "-"} / ${formatDate(connection.lastRestoreDrillAt)}` : "-"}</td>
               <td>{connection.lastStatus ? <StatusPill status={connection.lastStatus} /> : "-"}</td>
-              <td className="row-actions"><button onClick={() => void backup(connection)} title="备份"><Save size={14} /></button><button onClick={() => void restoreDrill(connection)} title="恢复演练"><RotateCw size={14} /></button><button onClick={() => void toggle(connection)}>{connection.enabled ? "停用" : "启用"}</button><button onClick={() => void remove(connection.id)} title="删除"><Trash2 size={14} /></button></td>
+              <td className="row-actions"><button onClick={() => void backup(connection)} title="备份"><Save size={14} /></button><button onClick={() => void restoreDrill(connection)} title="恢复演练"><RotateCw size={14} /></button><button onClick={() => void toggleSchedule(connection)}>{connection.scheduleEnabled ? "停计划" : "计划"}</button><button onClick={() => void toggle(connection)}>{connection.enabled ? "停用" : "启用"}</button><button onClick={() => void remove(connection.id)} title="删除"><Trash2 size={14} /></button></td>
             </tr>
           ))}</tbody>
         </table>

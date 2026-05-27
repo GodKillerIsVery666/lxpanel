@@ -65,4 +65,27 @@ describe("数据库管理", () => {
     expect(list[0]?.backupRetentionDays).toBe(7);
     expect(list[0]?.lastRestoreDrillStatus).toBe("success");
   });
+
+  it("运行到期的数据库计划备份并推进下次时间", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-db-schedule-"));
+    const stateStore = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const runner: DatabaseDumpRunner = async (_type, url, filePath) => {
+      await writeFile(filePath, `scheduled ${url}`, "utf8");
+      return { stdout: "scheduled ok", stderr: "" };
+    };
+    const databaseStore = new DatabaseStore(stateStore, root, "session-secret", runner);
+    const connection = await databaseStore.createConnection({ name: "scheduled", type: "postgres", url: "postgres://admin:secret@127.0.0.1:5432/app", enabled: true, backupRetentionDays: 14, scheduleEnabled: true, scheduleEveryHours: 6 }, "owner");
+    await stateStore.update((state) => ({
+      data: { ...state, databaseConnections: (state.databaseConnections ?? []).map((item) => item.id === connection.id ? { ...item, nextBackupAt: "2026-05-22T08:00:00.000Z" } : item) },
+      result: undefined
+    }));
+
+    const results = await databaseStore.runDueScheduledBackups(new Date("2026-05-22T09:00:00.000Z"));
+    const list = await databaseStore.listConnections();
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.status).toBe("success");
+    expect(list[0]?.lastScheduledBackupAt).toBe("2026-05-22T09:00:00.000Z");
+    expect(list[0]?.nextBackupAt).toBe("2026-05-22T15:00:00.000Z");
+  });
 });

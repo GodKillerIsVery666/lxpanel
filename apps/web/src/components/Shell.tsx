@@ -45,20 +45,21 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
   const visibleItems = navItems.filter((item) => !item.minRole || roleRank(user.role) >= roleRank(item.minRole));
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">跳到主内容</a>
       <aside className="sidebar">
         <div className="sidebar-brand">LXPanel</div>
         <nav>
           {visibleItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button key={item.id} className={activeView === item.id ? "active" : ""} onClick={() => onNavigate(item.id)}>
+              <button key={item.id} className={activeView === item.id ? "active" : ""} onClick={() => onNavigate(item.id)} aria-current={activeView === item.id ? "page" : undefined}>
                 <Icon size={18} /> {item.label}
               </button>
             );
           })}
         </nav>
       </aside>
-      <div className="content-area">
+      <div className="content-area" id="main-content">
         <header className="topbar">
           <div>
             <span className="eyebrow">{user.role}</span>

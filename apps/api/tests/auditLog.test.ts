@@ -57,4 +57,21 @@ describe("审计日志", () => {
     expect(integrity.ok).toBe(true);
     expect(compliance.actions.some((item) => item.action === "backup.create" && item.count === 1)).toBe(true);
   });
+
+  it("支持分页读取和签名导出包", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-audit-page-"));
+    const auditLog = new AuditLog(join(root, "audit.jsonl"));
+    await auditLog.append({ actor: "admin", action: "one", target: "a", status: "success" });
+    await auditLog.append({ actor: "admin", action: "two", target: "b", status: "success" });
+    await auditLog.append({ actor: "admin", action: "three", target: "c", status: "success" });
+
+    const firstPage = await auditLog.page({ limit: 2 });
+    const secondPage = await auditLog.page({ limit: 2, cursor: firstPage.nextCursor });
+    const auditPackage = await auditLog.exportSignedPackage({ format: "jsonl", limit: 10 });
+
+    expect(firstPage.events.map((event) => event.action)).toEqual(["three", "two"]);
+    expect(secondPage.events.map((event) => event.action)).toEqual(["one"]);
+    expect(auditPackage.contentSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(auditPackage.manifestSha256).toMatch(/^[a-f0-9]{64}$/u);
+  });
 });

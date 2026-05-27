@@ -2,6 +2,9 @@ import { z } from "zod";
 import {
   AuditEventSchema,
   AuditExportQuerySchema,
+  AuditExportPackageSchema,
+  AuditPageQuerySchema,
+  AuditPageSchema,
   AuditIntegrityReportSchema,
   AuditPruneResultSchema,
   AuditQuerySchema,
@@ -38,6 +41,9 @@ import {
   CreateApiTokenSchema,
   CreateApprovalSchema,
   CreateAccessPolicySchema,
+  CreateResourceApprovalPolicySchema,
+  CreateTemplateRepositorySchema,
+  CreateTerminalSessionSchema,
   CreateAlertSilenceSchema,
   CreateDatabaseConnectionSchema,
   CreateDirectoryRequestSchema,
@@ -70,6 +76,9 @@ import {
   HostBatchCommandSchema,
   HostGroupSchema,
   HostSshSessionRequestSchema,
+  FrontendQualityReportSchema,
+  InstallerGuideSchema,
+  LicenseStatusSchema,
   LogRootSchema,
   LogTailSchema,
   LoginResponseSchema,
@@ -83,16 +92,23 @@ import {
   NotificationTestSchema,
   ProcessInfoSchema,
   RevokeApiTokenSchema,
+  ResourceApprovalPolicySchema,
   RollbackAppDeploymentSchema,
   SecurityHardeningPlanSchema,
+  SdkExampleSchema,
   SecurityRemediationRequestSchema,
   SecurityRemediationRunSchema,
   SecurityPostureSchema,
   ServiceInfoSchema,
   SetupRequestSchema,
+  StateArchiveRequestSchema,
+  StateArchiveResultSchema,
   SystemOverviewSchema,
   TaskRunRequestSchema,
   TaskRunSchema,
+  TemplateRepositorySchema,
+  TerminalInputSchema,
+  TerminalSessionSchema,
   TotpConfirmSchema,
   PanelTaskSchema,
   ResetUserPasswordSchema,
@@ -105,6 +121,7 @@ import {
   UpdateNotificationChannelSchema,
   UpdateRemoteBackupTargetSchema,
   UpdateBackupScheduleSchema,
+  UpdateLicenseSchema,
   UpdateAlertThresholdSchema,
   UpdateTaskScheduleSchema,
   UpdateUserRoleSchema,
@@ -112,11 +129,15 @@ import {
   type AuthUser,
   type AccessEvaluationRequest,
   type ApprovalQuery,
+  type AuditPageQuery,
   type AuditQuery,
   type AppDeploymentAction,
   type ChangeOwnPassword,
   type CreateApiToken,
   type CreateAccessPolicy,
+  type CreateResourceApprovalPolicy,
+  type CreateTemplateRepository,
+  type CreateTerminalSession,
   type CreateAlertSilence,
   type CreateApproval,
   type CreateAppDeployment,
@@ -128,6 +149,7 @@ import {
   type CreateNotificationChannel,
   type CreateRemoteBackupTarget,
   type NotificationSecretRotation,
+  type TerminalInput,
   type RollbackAppDeployment,
   type CreateTask,
   type CreateUser,
@@ -142,6 +164,7 @@ import {
   type ResetUserPassword,
   type SetupRequest,
   type UpdateBackupSchedule,
+  type UpdateLicense,
   type UpdateTaskSchedule
 } from "@lxpanel/shared";
 
@@ -163,6 +186,8 @@ const FileContentResponseSchema = z.object({ file: FileContentSchema });
 const LogRootsResponseSchema = z.object({ roots: z.array(LogRootSchema) });
 const LogTailResponseSchema = z.object({ tail: LogTailSchema });
 const AuditResponseSchema = z.object({ events: z.array(AuditEventSchema) });
+const AuditPageResponseSchema = z.object({ page: AuditPageSchema });
+const AuditExportPackageResponseSchema = z.object({ package: AuditExportPackageSchema });
 const AuditPruneResponseSchema = z.object({ result: AuditPruneResultSchema });
 const AuditIntegrityResponseSchema = z.object({ report: AuditIntegrityReportSchema });
 const ComplianceResponseSchema = z.object({ report: ComplianceReportSchema });
@@ -218,6 +243,17 @@ const CapacityPlanResponseSchema = z.object({ plan: CapacityPlanSchema });
 const UpgradePlanResponseSchema = z.object({ plan: UpgradePlanSchema });
 const DeliveryChecklistResponseSchema = z.object({ checklist: DeliveryChecklistSchema });
 const OpenApiSummaryResponseSchema = z.object({ summary: OpenApiSummarySchema });
+const TerminalSessionsResponseSchema = z.object({ sessions: z.array(TerminalSessionSchema) });
+const TerminalSessionCommandResponseSchema = z.object({ session: TerminalSessionSchema, command: ConnectorCommandSchema });
+const TemplateRepositoriesResponseSchema = z.object({ repositories: z.array(TemplateRepositorySchema) });
+const TemplateRepositoryResponseSchema = z.object({ repository: TemplateRepositorySchema });
+const LicenseStatusResponseSchema = z.object({ status: LicenseStatusSchema });
+const ResourceApprovalPoliciesResponseSchema = z.object({ policies: z.array(ResourceApprovalPolicySchema) });
+const ResourceApprovalPolicyResponseSchema = z.object({ policy: ResourceApprovalPolicySchema });
+const StateArchiveResponseSchema = z.object({ result: StateArchiveResultSchema });
+const InstallerGuideResponseSchema = z.object({ guide: InstallerGuideSchema });
+const SdkExamplesResponseSchema = z.object({ examples: z.array(SdkExampleSchema) });
+const FrontendQualityResponseSchema = z.object({ report: FrontendQualityReportSchema });
 const OkResponseSchema = z.object({ ok: z.boolean() });
 
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
@@ -284,6 +320,8 @@ export const api = {
     const input = AuditRetentionSchema.parse({ retainDays, approvalId });
     return request(`/api/audit?retainDays=${encodeURIComponent(String(input.retainDays))}&approvalId=${encodeURIComponent(input.approvalId)}`, AuditPruneResponseSchema, "DELETE");
   },
+  auditPage: (query: Partial<AuditPageQuery> = {}) => request(`/api/audit/page${toQuery(AuditPageQuerySchema.parse(query))}`, AuditPageResponseSchema),
+  exportAuditPackage: (format: "jsonl" | "csv", query: AuditQuery = {}) => request(`/api/audit/export-package${toQuery(AuditExportQuerySchema.parse({ ...query, format }))}`, AuditExportPackageResponseSchema),
   auditIntegrity: () => request("/api/audit/integrity", AuditIntegrityResponseSchema),
   complianceReport: () => request("/api/audit/compliance", ComplianceResponseSchema),
   alerts: () => request("/api/alerts", AlertsResponseSchema),
@@ -332,12 +370,27 @@ export const api = {
   accessPolicies: () => request("/api/platform/access-policies", AccessPoliciesResponseSchema),
   createAccessPolicy: (input: CreateAccessPolicy) => request("/api/platform/access-policies", AccessPolicyResponseSchema, "POST", CreateAccessPolicySchema.parse(input)),
   evaluateAccess: (input: AccessEvaluationRequest) => request("/api/platform/access-evaluate", AccessEvaluationResponseSchema, "POST", AccessEvaluationRequestSchema.parse(input)),
+  terminalSessions: () => request("/api/platform/terminal-sessions", TerminalSessionsResponseSchema),
+  createTerminalSession: (input: CreateTerminalSession) => request("/api/platform/terminal-sessions", TerminalSessionCommandResponseSchema, "POST", CreateTerminalSessionSchema.parse(input)),
+  sendTerminalInput: (input: TerminalInput) => request("/api/platform/terminal-sessions/input", TerminalSessionCommandResponseSchema, "POST", TerminalInputSchema.parse(input)),
+  closeTerminalSession: (sessionId: string) => request("/api/platform/terminal-sessions/close", TerminalSessionCommandResponseSchema, "POST", { sessionId }),
+  templateRepositories: () => request("/api/platform/template-repositories", TemplateRepositoriesResponseSchema),
+  createTemplateRepository: (input: CreateTemplateRepository) => request("/api/platform/template-repositories", TemplateRepositoryResponseSchema, "POST", CreateTemplateRepositorySchema.parse(input)),
+  syncTemplateRepository: (repositoryId: string) => request("/api/platform/template-repositories/sync", TemplateRepositoryResponseSchema, "POST", { repositoryId }),
+  licenseStatus: () => request("/api/platform/license", LicenseStatusResponseSchema),
+  updateLicense: (input: UpdateLicense) => request("/api/platform/license", LicenseStatusResponseSchema, "PUT", UpdateLicenseSchema.parse(input)),
+  approvalPolicies: () => request("/api/platform/approval-policies", ResourceApprovalPoliciesResponseSchema),
+  createApprovalPolicy: (input: CreateResourceApprovalPolicy) => request("/api/platform/approval-policies", ResourceApprovalPolicyResponseSchema, "POST", CreateResourceApprovalPolicySchema.parse(input)),
   remediationRuns: () => request("/api/platform/remediations", RemediationRunsResponseSchema),
   createRemediationRun: (input: z.infer<typeof SecurityRemediationRequestSchema>) => request("/api/platform/remediations", RemediationRunResponseSchema, "POST", SecurityRemediationRequestSchema.parse(input)),
   capacityPlan: () => request("/api/platform/capacity-plan", CapacityPlanResponseSchema),
   upgradePlan: () => request("/api/platform/upgrade-plan", UpgradePlanResponseSchema),
   deliveryChecklist: () => request("/api/platform/delivery-checklist", DeliveryChecklistResponseSchema),
-  openApiSummary: () => request("/api/platform/openapi-summary", OpenApiSummaryResponseSchema)
+  openApiSummary: () => request("/api/platform/openapi-summary", OpenApiSummaryResponseSchema),
+  archiveState: (input: z.infer<typeof StateArchiveRequestSchema>) => request("/api/platform/archive-state", StateArchiveResponseSchema, "POST", StateArchiveRequestSchema.parse(input)),
+  installerGuide: () => request("/api/platform/installer-guide", InstallerGuideResponseSchema),
+  sdkExamples: () => request("/api/platform/sdk-examples", SdkExamplesResponseSchema),
+  frontendQuality: () => request("/api/platform/frontend-quality", FrontendQualityResponseSchema)
 };
 
 export type ApiClient = typeof api;

@@ -141,7 +141,7 @@ export const RevokeApiTokenSchema = z.object({
 });
 export type RevokeApiToken = z.infer<typeof RevokeApiTokenSchema>;
 
-export const ApprovalActionSchema = z.enum(["backup.restore", "audit.prune", "security.remediate"]);
+export const ApprovalActionSchema = z.enum(["backup.restore", "audit.prune", "security.remediate", "resource.access"]);
 export type ApprovalAction = z.infer<typeof ApprovalActionSchema>;
 
 export const ApprovalStatusSchema = z.enum(["pending", "approved", "rejected", "used", "expired"]);
@@ -232,6 +232,15 @@ export const MetricSampleSchema = z.object({
   diskUsedPercent: z.number().optional()
 });
 export type MetricSample = z.infer<typeof MetricSampleSchema>;
+
+export const ConnectorMetricReportSchema = z.object({
+  hostId: z.string().min(1).max(120),
+  hostName: z.string().min(1).max(120),
+  cpuPercent: z.number().min(0).max(100),
+  memoryPercent: z.number().min(0).max(100),
+  diskUsedPercent: z.number().min(0).max(100).optional()
+});
+export type ConnectorMetricReport = z.infer<typeof ConnectorMetricReportSchema>;
 
 export const ProcessInfoSchema = z.object({
   pid: z.number(),
@@ -334,6 +343,19 @@ export const AuditExportQuerySchema = AuditQuerySchema.extend({
 });
 export type AuditExportQuery = z.infer<typeof AuditExportQuerySchema>;
 
+export const AuditPageQuerySchema = AuditQuerySchema.extend({
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100)
+});
+export type AuditPageQuery = z.infer<typeof AuditPageQuerySchema>;
+
+export const AuditPageSchema = z.object({
+  events: z.array(AuditEventSchema),
+  total: z.number().int().nonnegative(),
+  nextCursor: z.string().optional()
+});
+export type AuditPage = z.infer<typeof AuditPageSchema>;
+
 export const AuditRetentionSchema = z.object({
   retainDays: z.coerce.number().int().min(1).max(3650),
   approvalId: z.string().min(1)
@@ -355,6 +377,24 @@ export const AuditIntegrityReportSchema = z.object({
   issues: z.array(z.string())
 });
 export type AuditIntegrityReport = z.infer<typeof AuditIntegrityReportSchema>;
+
+export const AuditExportPackageSchema = z.object({
+  generatedAt: z.string(),
+  format: z.enum(["jsonl", "csv"]),
+  contentSha256: z.string(),
+  manifestSha256: z.string(),
+  integrity: AuditIntegrityReportSchema,
+  eventCount: z.number().int().nonnegative(),
+  manifest: z.object({
+    product: z.literal("LXPanel"),
+    version: z.string(),
+    format: z.enum(["jsonl", "csv"]),
+    generatedAt: z.string(),
+    contentSha256: z.string(),
+    latestHash: z.string().optional()
+  })
+});
+export type AuditExportPackage = z.infer<typeof AuditExportPackageSchema>;
 
 export const ComplianceReportSchema = z.object({
   generatedAt: z.string(),
@@ -602,7 +642,8 @@ export type CreateConnector = z.infer<typeof CreateConnectorSchema>;
 
 export const ConnectorHeartbeatSchema = z.object({
   capabilities: z.array(z.string()).default([]),
-  version: z.string().max(64).optional()
+  version: z.string().max(64).optional(),
+  metrics: ConnectorMetricReportSchema.optional()
 });
 export type ConnectorHeartbeat = z.infer<typeof ConnectorHeartbeatSchema>;
 
@@ -1013,6 +1054,10 @@ export const DatabaseConnectionSchema = z.object({
   maskedUrl: z.string(),
   enabled: z.boolean(),
   backupRetentionDays: z.number().int().min(1).max(3650).default(30),
+  scheduleEnabled: z.boolean().default(false),
+  scheduleEveryHours: z.number().int().min(1).max(720).default(24),
+  nextBackupAt: z.string().optional(),
+  lastScheduledBackupAt: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   updatedBy: z.string(),
@@ -1029,7 +1074,9 @@ export const CreateDatabaseConnectionSchema = z.object({
   type: DatabaseTypeSchema.default("postgres"),
   url: z.string().url(),
   enabled: z.boolean().default(true),
-  backupRetentionDays: z.number().int().min(1).max(3650).default(30)
+  backupRetentionDays: z.number().int().min(1).max(3650).default(30),
+  scheduleEnabled: z.boolean().default(false),
+  scheduleEveryHours: z.number().int().min(1).max(720).default(24)
 }).superRefine((value, context) => {
   if (!isSupportedDatabaseUrl(value.type, value.url)) {
     context.addIssue({ code: "custom", path: ["url"], message: "数据库 URL 协议与类型不匹配。" });
@@ -1042,6 +1089,8 @@ export const UpdateDatabaseConnectionSchema = z.object({
   name: z.string().min(2).max(80).optional(),
   url: z.string().url().optional(),
   backupRetentionDays: z.number().int().min(1).max(3650).optional(),
+  scheduleEnabled: z.boolean().optional(),
+  scheduleEveryHours: z.number().int().min(1).max(720).optional(),
   enabled: z.boolean().optional()
 });
 export type UpdateDatabaseConnection = z.infer<typeof UpdateDatabaseConnectionSchema>;
@@ -1138,6 +1187,166 @@ export const SecurityRemediationRunSchema = z.object({
   createdBy: z.string()
 });
 export type SecurityRemediationRun = z.infer<typeof SecurityRemediationRunSchema>;
+
+export const TerminalSessionStatusSchema = z.enum(["opening", "connected", "closed", "failed"]);
+export type TerminalSessionStatus = z.infer<typeof TerminalSessionStatusSchema>;
+
+export const TerminalTranscriptLineSchema = z.object({
+  time: z.string(),
+  direction: z.enum(["input", "output", "system"]),
+  line: z.string()
+});
+export type TerminalTranscriptLine = z.infer<typeof TerminalTranscriptLineSchema>;
+
+export const TerminalSessionSchema = z.object({
+  id: z.string(),
+  hostId: z.string(),
+  hostName: z.string(),
+  connectorId: z.string(),
+  commandId: z.string(),
+  username: z.string().optional(),
+  status: TerminalSessionStatusSchema,
+  createdAt: z.string(),
+  createdBy: z.string(),
+  lastInputAt: z.string().optional(),
+  transcriptTail: z.array(TerminalTranscriptLineSchema).default([])
+});
+export type TerminalSession = z.infer<typeof TerminalSessionSchema>;
+
+export const CreateTerminalSessionSchema = z.object({
+  hostId: z.string().min(1),
+  username: z.string().min(1).max(80).optional(),
+  rows: z.number().int().min(10).max(80).default(24),
+  cols: z.number().int().min(40).max(240).default(100)
+});
+export type CreateTerminalSession = z.infer<typeof CreateTerminalSessionSchema>;
+
+export const TerminalInputSchema = z.object({
+  sessionId: z.string().min(1),
+  input: z.string().min(1).max(2000)
+});
+export type TerminalInput = z.infer<typeof TerminalInputSchema>;
+
+export const TemplateRepositorySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  url: z.string(),
+  trustMode: z.enum(["signed", "internal"]),
+  publicKey: z.string().optional(),
+  enabled: z.boolean(),
+  templateCount: z.number().int().nonnegative().default(0),
+  lastSyncAt: z.string().optional(),
+  lastStatus: z.enum(["success", "failed", "pending"]).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type TemplateRepository = z.infer<typeof TemplateRepositorySchema>;
+
+export const CreateTemplateRepositorySchema = z.object({
+  name: z.string().min(2).max(80),
+  url: z.string().url(),
+  trustMode: z.enum(["signed", "internal"]).default("signed"),
+  publicKey: z.string().max(2000).optional(),
+  enabled: z.boolean().default(true)
+});
+export type CreateTemplateRepository = z.infer<typeof CreateTemplateRepositorySchema>;
+
+export const LicenseInfoSchema = z.object({
+  plan: z.enum(["community", "team", "enterprise"]),
+  licensedTo: z.string(),
+  expiresAt: z.string().optional(),
+  maxHosts: z.number().int().min(1),
+  maxUsers: z.number().int().min(1),
+  maxApps: z.number().int().min(1),
+  features: z.array(z.string()),
+  offlineToken: z.string().optional(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type LicenseInfo = z.infer<typeof LicenseInfoSchema>;
+
+export const LicenseStatusSchema = z.object({
+  license: LicenseInfoSchema,
+  usage: z.object({ hosts: z.number().int().nonnegative(), users: z.number().int().nonnegative(), apps: z.number().int().nonnegative() }),
+  violations: z.array(z.string())
+});
+export type LicenseStatus = z.infer<typeof LicenseStatusSchema>;
+
+export const UpdateLicenseSchema = z.object({
+  plan: z.enum(["community", "team", "enterprise"]),
+  licensedTo: z.string().min(1).max(120),
+  expiresAt: z.string().optional(),
+  maxHosts: z.number().int().min(1).max(100000),
+  maxUsers: z.number().int().min(1).max(100000),
+  maxApps: z.number().int().min(1).max(100000),
+  features: z.array(z.string().min(1).max(80)).max(50).default([]),
+  offlineToken: z.string().max(2000).optional()
+});
+export type UpdateLicense = z.infer<typeof UpdateLicenseSchema>;
+
+export const ResourceApprovalPolicySchema = z.object({
+  id: z.string(),
+  resourceType: ResourceTypeSchema,
+  resourceId: z.string(),
+  action: z.string(),
+  requiredApprovals: z.number().int().min(1).max(5),
+  enabled: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type ResourceApprovalPolicy = z.infer<typeof ResourceApprovalPolicySchema>;
+
+export const CreateResourceApprovalPolicySchema = z.object({
+  resourceType: ResourceTypeSchema,
+  resourceId: z.string().min(1).max(240),
+  action: z.string().min(1).max(120),
+  requiredApprovals: z.number().int().min(1).max(5).default(1),
+  enabled: z.boolean().default(true)
+});
+export type CreateResourceApprovalPolicy = z.infer<typeof CreateResourceApprovalPolicySchema>;
+
+export const StateArchiveRequestSchema = z.object({
+  dryRun: z.boolean().default(true),
+  keepMetricSamples: z.number().int().min(100).max(5000).default(720),
+  keepAlertEvents: z.number().int().min(50).max(5000).default(500)
+});
+export type StateArchiveRequest = z.infer<typeof StateArchiveRequestSchema>;
+
+export const StateArchiveResultSchema = z.object({
+  dryRun: z.boolean(),
+  beforeBytes: z.number().int().nonnegative(),
+  afterBytes: z.number().int().nonnegative(),
+  removedMetricSamples: z.number().int().nonnegative(),
+  removedAlertEvents: z.number().int().nonnegative(),
+  removedNotificationDeliveries: z.number().int().nonnegative(),
+  generatedAt: z.string()
+});
+export type StateArchiveResult = z.infer<typeof StateArchiveResultSchema>;
+
+export const InstallerGuideSchema = z.object({
+  generatedAt: z.string(),
+  steps: z.array(z.object({ id: z.string(), title: z.string(), command: z.string().optional(), detail: z.string() })),
+  diagnostics: z.array(z.object({ id: z.string(), title: z.string(), ready: z.boolean(), detail: z.string() }))
+});
+export type InstallerGuide = z.infer<typeof InstallerGuideSchema>;
+
+export const SdkExampleSchema = z.object({
+  id: z.string(),
+  language: z.enum(["curl", "powershell", "node"]),
+  title: z.string(),
+  requiredScopes: z.array(ApiTokenScopeSchema),
+  snippet: z.string()
+});
+export type SdkExample = z.infer<typeof SdkExampleSchema>;
+
+export const FrontendQualityReportSchema = z.object({
+  generatedAt: z.string(),
+  locale: z.enum(["zh-CN", "en-US"]),
+  checks: z.array(z.object({ id: z.string(), title: z.string(), ready: z.boolean(), detail: z.string() }))
+});
+export type FrontendQualityReport = z.infer<typeof FrontendQualityReportSchema>;
 
 export const CapacityPlanSchema = z.object({
   generatedAt: z.string(),

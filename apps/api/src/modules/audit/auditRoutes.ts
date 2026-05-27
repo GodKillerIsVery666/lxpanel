@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { AuditExportQuerySchema, AuditQuerySchema, AuditRetentionSchema } from "@lxpanel/shared";
+import { AuditExportQuerySchema, AuditPageQuerySchema, AuditQuerySchema, AuditRetentionSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
@@ -26,6 +26,26 @@ export function registerAuditRoutes(app: FastifyInstance, services: Services): v
     reply.header("content-type", query.format === "csv" ? "text/csv; charset=utf-8" : "application/x-ndjson; charset=utf-8");
     reply.header("content-disposition", `attachment; filename="lxpanel-audit.${extension}"`);
     return content;
+  });
+
+  app.get("/api/audit/page", async (request, reply) => {
+    const user = await requireUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    const query = AuditPageQuerySchema.parse(request.query);
+    return { page: await services.auditLog.page(query) };
+  });
+
+  app.get("/api/audit/export-package", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const query = AuditExportQuerySchema.parse(request.query);
+    const auditPackage = await services.auditLog.exportSignedPackage(query);
+    await services.auditLog.append({ actor: user.username, action: "audit.export_package", target: query.format, ip: request.ip, status: "success", detail: auditPackage.manifestSha256 });
+    return { package: auditPackage };
   });
 
   app.get("/api/audit/integrity", async (request, reply) => {

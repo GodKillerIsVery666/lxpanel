@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
-import { AuditEventSchema, type AuditEvent, type AuditExportQuery, type AuditIntegrityReport, type AuditQuery, type ComplianceReport } from "@lxpanel/shared";
+import { AuditEventSchema, type AuditEvent, type AuditExportPackage, type AuditExportQuery, type AuditIntegrityReport, type AuditPage, type AuditPageQuery, type AuditQuery, type ComplianceReport } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 
 export interface AuditPruneResult {
@@ -39,6 +39,39 @@ export class AuditLog {
   async export(query: AuditExportQuery): Promise<string> {
     const events = filterEvents(await this.readEvents(), query).slice(-(query.limit ?? 5000));
     return query.format === "csv" ? toCsv(events) : events.map((event) => JSON.stringify(event)).join("\n");
+  }
+
+  async page(query: AuditPageQuery): Promise<AuditPage> {
+    const cursor = query.cursor ? Number.parseInt(query.cursor, 10) : 0;
+    const offset = Number.isFinite(cursor) && cursor >= 0 ? cursor : 0;
+    const filtered = filterEvents(await this.readEvents(), query).reverse();
+    const events = filtered.slice(offset, offset + query.limit);
+    const nextOffset = offset + events.length;
+    return { events, total: filtered.length, ...(nextOffset < filtered.length ? { nextCursor: String(nextOffset) } : {}) };
+  }
+
+  async exportSignedPackage(query: AuditExportQuery): Promise<AuditExportPackage> {
+    const generatedAt = new Date().toISOString();
+    const content = await this.export(query);
+    const integrity = await this.verifyIntegrity();
+    const contentSha256 = sha256(content);
+    const manifest = {
+      product: "LXPanel" as const,
+      version: "0.1.0",
+      format: query.format,
+      generatedAt,
+      contentSha256,
+      ...(integrity.latestHash ? { latestHash: integrity.latestHash } : {})
+    };
+    return {
+      generatedAt,
+      format: query.format,
+      contentSha256,
+      manifestSha256: sha256(JSON.stringify(manifest)),
+      integrity,
+      eventCount: filterEvents(await this.readEvents(), query).length,
+      manifest
+    };
   }
 
   async prune(retainDays: number): Promise<AuditPruneResult> {
@@ -156,5 +189,9 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 function hashAuditEvent(event: AuditEvent): string {
   const hashable = { ...event };
   delete hashable.chainHash;
-  return createHash("sha256").update(JSON.stringify(hashable)).digest("hex");
+  return sha256(JSON.stringify(hashable));
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }

@@ -25,11 +25,21 @@ try {
     await app.inject({ method: "GET", url: "/api/backups", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/audit/integrity", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/audit/compliance", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/audit/page?limit=10", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/audit/export-package?format=jsonl", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/monitoring/prometheus", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/terminal-sessions", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/template-repositories", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/license", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/approval-policies", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/platform/capacity-plan", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/platform/upgrade-plan", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/platform/delivery-checklist", headers: { cookie } }),
-    await app.inject({ method: "GET", url: "/api/platform/openapi-summary", headers: { cookie } })
+    await app.inject({ method: "GET", url: "/api/platform/openapi-summary", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/installer-guide", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/sdk-examples", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/frontend-quality", headers: { cookie } }),
+    await app.inject({ method: "POST", url: "/api/platform/archive-state", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ dryRun: true }) })
   ];
   for (const response of checks) {
     if (response.statusCode !== 200) {

@@ -11,14 +11,19 @@ export function AuditPage(): JSX.Element {
   const [action, setAction] = useState("");
   const [status, setStatus] = useState("");
   const [limit, setLimit] = useState("200");
+  const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const [total, setTotal] = useState(0);
   const [retainDays, setRetainDays] = useState("180");
   const [approvalId, setApprovalId] = useState("");
+  const [packageHash, setPackageHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function load(): Promise<void> {
+  async function load(cursor?: string): Promise<void> {
     try {
-      const response = await api.audit({ actor: actor || undefined, action: action || undefined, status: toAuditStatus(status), limit: Number.parseInt(limit, 10) });
-      setEvents(response.events);
+      const response = await api.auditPage({ actor: actor || undefined, action: action || undefined, status: toAuditStatus(status), limit: Number.parseInt(limit, 10), cursor });
+      setEvents(response.page.events);
+      setNextCursor(response.page.nextCursor);
+      setTotal(response.page.total);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "加载失败。");
@@ -36,6 +41,15 @@ export function AuditPage(): JSX.Element {
       URL.revokeObjectURL(url);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "导出失败。");
+    }
+  }
+
+  async function exportPackage(format: "jsonl" | "csv"): Promise<void> {
+    try {
+      const response = await api.exportAuditPackage(format, { actor: actor || undefined, action: action || undefined, status: toAuditStatus(status), limit: Number.parseInt(limit, 10) });
+      setPackageHash(response.package.manifestSha256);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "生成签名包失败。");
     }
   }
 
@@ -65,8 +79,9 @@ export function AuditPage(): JSX.Element {
       {error ? <div className="form-error">{error}</div> : null}
       <section className="table-panel">
         <div className="panel-title">筛选</div>
-        <div className="inline-form wrap"><input value={actor} onChange={(event) => setActor(event.target.value)} placeholder="操作者" /><input value={action} onChange={(event) => setAction(event.target.value)} placeholder="动作" /><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="success">success</option><option value="denied">denied</option><option value="error">error</option></select><input value={limit} onChange={(event) => setLimit(event.target.value)} inputMode="numeric" placeholder="条数" /><button type="button" onClick={() => void load()}><RotateCw size={16} /> 查询</button></div>
-        <div className="inline-form wrap"><button type="button" onClick={() => void exportAudit("csv")}><Download size={16} /> CSV</button><button type="button" onClick={() => void exportAudit("jsonl")}><Download size={16} /> JSONL</button><input value={retainDays} onChange={(event) => setRetainDays(event.target.value)} inputMode="numeric" placeholder="保留天数" /><input value={approvalId} onChange={(event) => setApprovalId(event.target.value)} placeholder="审批单 ID" /><button type="button" onClick={() => void pruneAudit()}><Trash2 size={16} /> 清理</button></div>
+        <div className="inline-form wrap"><input value={actor} onChange={(event) => setActor(event.target.value)} placeholder="操作者" /><input value={action} onChange={(event) => setAction(event.target.value)} placeholder="动作" /><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="success">success</option><option value="denied">denied</option><option value="error">error</option></select><input value={limit} onChange={(event) => setLimit(event.target.value)} inputMode="numeric" placeholder="每页条数" /><button type="button" onClick={() => void load()}><RotateCw size={16} /> 查询</button>{nextCursor ? <button type="button" onClick={() => void load(nextCursor)}>下一页</button> : null}</div>
+        <div className="inline-form wrap"><button type="button" onClick={() => void exportAudit("csv")}><Download size={16} /> CSV</button><button type="button" onClick={() => void exportAudit("jsonl")}><Download size={16} /> JSONL</button><button type="button" onClick={() => void exportPackage("jsonl")}><Download size={16} /> 签名包</button><input value={retainDays} onChange={(event) => setRetainDays(event.target.value)} inputMode="numeric" placeholder="保留天数" /><input value={approvalId} onChange={(event) => setApprovalId(event.target.value)} placeholder="审批单 ID" /><button type="button" onClick={() => void pruneAudit()}><Trash2 size={16} /> 清理</button></div>
+        <p className="muted-text">匹配事件 {total} 条{packageHash ? `，签名包 manifest: ${packageHash}` : ""}</p>
       </section>
       <section className="table-panel">
         <table>

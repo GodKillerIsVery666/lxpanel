@@ -35,6 +35,9 @@ const state = {
   databaseConnections: [],
   accessPolicies: [],
   securityRemediationRuns: [],
+  terminalSessions: [],
+  templateRepositories: [],
+  resourceApprovalPolicies: [],
   ...parsed
 };
 
@@ -52,6 +55,8 @@ for (const deployment of state.appDeployments ?? []) {
 
 for (const connection of state.databaseConnections ?? []) {
   connection.backupRetentionDays ??= 30;
+  connection.scheduleEnabled ??= false;
+  connection.scheduleEveryHours ??= 24;
 }
 
 for (const target of state.remoteBackupTargets ?? []) {

@@ -91,7 +91,7 @@ export async function createServices(config: AppConfig): Promise<Services> {
 export async function buildApp(config: AppConfig = loadConfig()): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel } });
   const services = await createServices(config);
-  const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.alertService, services.monitoringService, services.notificationService, services.auditLog, app.log);
+  const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.databaseStore, services.alertService, services.monitoringService, services.notificationService, services.auditLog, app.log);
 
   await app.register(cookie);
   await app.register(cors, { credentials: true, origin: config.allowedOrigins });

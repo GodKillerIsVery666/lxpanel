@@ -7,13 +7,14 @@ import { formatDate } from "../utils/format.js";
 
 export function MonitoringPage(): JSX.Element {
   const [samples, setSamples] = useState<MetricSample[]>([]);
+  const [hostId, setHostId] = useState("local");
   const [error, setError] = useState<string | null>(null);
   const ordered = useMemo(() => [...samples].reverse(), [samples]);
   const latest = samples[0];
 
   async function load(): Promise<void> {
     try {
-      const response = await api.monitoringSamples("local", 288);
+      const response = await api.monitoringSamples(hostId || "local", 288);
       setSamples(response.samples);
       setError(null);
     } catch (caught) {
@@ -29,14 +30,14 @@ export function MonitoringPage(): JSX.Element {
     <main className="page-stack">
       <div className="page-heading">
         <div><h1>监控趋势</h1><p>{latest ? `${latest.hostName} · ${formatDate(latest.time)}` : "等待调度器采样"}</p></div>
-        <button className="icon-button" onClick={() => void load()} title="刷新"><RotateCw size={18} /></button>
+        <div className="inline-form wrap"><input value={hostId} onChange={(event) => setHostId(event.target.value)} placeholder="hostId" aria-label="监控主机 ID" /><button className="icon-button" onClick={() => void load()} title="刷新"><RotateCw size={18} /></button></div>
       </div>
       {error ? <div className="form-error">{error}</div> : null}
       <div className="metric-grid">
         <MetricCard label="CPU" value={`${latest?.cpuPercent ?? 0}%`} accent="#267871" icon={<Cpu size={22} />} />
         <MetricCard label="内存" value={`${latest?.memoryPercent ?? 0}%`} accent="#a05a2c" icon={<MemoryStick size={22} />} />
         <MetricCard label="磁盘" value={typeof latest?.diskUsedPercent === "number" ? `${latest.diskUsedPercent}%` : "-"} accent="#315f99" icon={<HardDrive size={22} />} />
-        <MetricCard label="样本" value={`${samples.length}`} meta="最近 288 条" accent="#6f5a96" icon={<Activity size={22} />} />
+        <MetricCard label="样本" value={`${samples.length}`} meta={`${hostId || "local"} 最近 288 条`} accent="#6f5a96" icon={<Activity size={22} />} />
       </div>
       <section className="table-panel">
         <div className="panel-title">资源曲线</div>

@@ -32,4 +32,17 @@ describe("连接器命令队列", () => {
     await expect(connectorStore.claimCommands("bad-token")).resolves.toBeNull();
     await expect(connectorStore.completeCommand("bad-token", { commandId: queued.id, status: "failed", stdoutTail: "", stderrTail: "bad" })).resolves.toBeNull();
   });
+
+  it("心跳可上报远端主机监控样本", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-connector-metrics-"));
+    const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const connectorStore = new ConnectorStore(store);
+    const created = await connectorStore.create({ name: "agent", capabilities: ["metrics"] });
+
+    const connector = await connectorStore.heartbeat(created.token, { capabilities: ["metrics"], metrics: { hostId: "node-a", hostName: "node-a", cpuPercent: 12, memoryPercent: 34, diskUsedPercent: 56 } });
+    const state = await store.read();
+
+    expect(connector?.status).toBe("online");
+    expect(state.metricSamples?.[0]).toMatchObject({ hostId: "node-a", cpuPercent: 12, memoryPercent: 34, diskUsedPercent: 56 });
+  });
 });

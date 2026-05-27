@@ -62,6 +62,9 @@ export class DatabaseStore {
         type: input.type,
         enabled: input.enabled,
         backupRetentionDays: input.backupRetentionDays,
+        scheduleEnabled: input.scheduleEnabled,
+        scheduleEveryHours: input.scheduleEveryHours,
+        ...(input.scheduleEnabled ? { nextBackupAt: addHours(new Date(), input.scheduleEveryHours).toISOString() } : {}),
         createdAt: now,
         updatedAt: now,
         updatedBy: actor,
@@ -83,9 +86,17 @@ export class DatabaseStore {
         ...(input.name ? { name: input.name } : {}),
         ...(typeof input.enabled === "boolean" ? { enabled: input.enabled } : {}),
         ...(typeof input.backupRetentionDays === "number" ? { backupRetentionDays: input.backupRetentionDays } : {}),
+        ...(typeof input.scheduleEnabled === "boolean" ? { scheduleEnabled: input.scheduleEnabled } : {}),
+        ...(typeof input.scheduleEveryHours === "number" ? { scheduleEveryHours: input.scheduleEveryHours } : {}),
         updatedAt: new Date().toISOString(),
         updatedBy: actor
       };
+      if (input.scheduleEnabled === true || (updated.scheduleEnabled && typeof input.scheduleEveryHours === "number")) {
+        updated.nextBackupAt = addHours(new Date(), updated.scheduleEveryHours ?? 24).toISOString();
+      }
+      if (input.scheduleEnabled === false) {
+        delete updated.nextBackupAt;
+      }
       if (input.url) {
         assertUrlMatchesType(existing.type, input.url);
         updated = withStoredUrl(updated, this.toStoredUrl(input.url));
@@ -145,6 +156,28 @@ export class DatabaseStore {
       result = { connectionId, checkedAt: new Date().toISOString(), status: "failed", backupPath: connection.lastBackupPath, error: error instanceof Error ? error.message : String(error) };
     }
     return this.markRestoreDrill(connectionId, result, actor);
+  }
+
+  async runDueScheduledBackups(now = new Date()): Promise<DatabaseBackupResult[]> {
+    const state = await this.store.read();
+    const dueConnections = (state.databaseConnections ?? []).filter((connection) => connection.enabled && connection.scheduleEnabled && connection.nextBackupAt && new Date(connection.nextBackupAt).getTime() <= now.getTime());
+    const results: DatabaseBackupResult[] = [];
+    for (const connection of dueConnections) {
+      const result = await this.backupConnection(connection.id, "scheduler");
+      results.push(result);
+      await this.store.update((latest) => ({
+        data: {
+          ...latest,
+          databaseConnections: (latest.databaseConnections ?? []).map((item) => item.id === connection.id ? {
+            ...item,
+            lastScheduledBackupAt: now.toISOString(),
+            nextBackupAt: addHours(now, item.scheduleEveryHours ?? 24).toISOString()
+          } : item)
+        },
+        result: undefined
+      }));
+    }
+    return results;
   }
 
   private async markRestoreDrill(connectionId: string, result: DatabaseRestoreDrillResult, actor: string): Promise<DatabaseRestoreDrillResult> {
@@ -217,6 +250,10 @@ function toPublicConnection(connection: DatabaseConnectionRecord, url: string): 
     maskedUrl: maskDatabaseUrl(url),
     enabled: connection.enabled,
     backupRetentionDays: connection.backupRetentionDays ?? 30,
+    scheduleEnabled: connection.scheduleEnabled ?? false,
+    scheduleEveryHours: connection.scheduleEveryHours ?? 24,
+    ...(connection.nextBackupAt ? { nextBackupAt: connection.nextBackupAt } : {}),
+    ...(connection.lastScheduledBackupAt ? { lastScheduledBackupAt: connection.lastScheduledBackupAt } : {}),
     createdAt: connection.createdAt,
     updatedAt: connection.updatedAt,
     updatedBy: connection.updatedBy,
@@ -282,4 +319,8 @@ function sanitizeName(value: string): string {
 
 function tailOutput(value: string): string {
   return value.length > outputLimit ? value.slice(-outputLimit) : value;
+}
+
+function addHours(value: Date, hours: number): Date {
+  return new Date(value.getTime() + hours * 60 * 60 * 1000);
 }
