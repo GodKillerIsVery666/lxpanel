@@ -1,10 +1,14 @@
 import { navItems, type ViewId } from "../navigation.js";
 
 export type TableDensity = "comfortable" | "compact";
+export type LocalePreference = "zh-CN" | "en-US";
 
 const activeViewKey = "lxpanel.activeView";
 const recentViewsKey = "lxpanel.recentViews";
 const tableDensityKey = "lxpanel.tableDensity";
+const localeKey = "lxpanel.locale";
+const defaultWorkspaceKey = "lxpanel.defaultWorkspace";
+const favoriteViewsKey = "lxpanel.favoriteViews";
 
 export function readActiveViewPreference(): ViewId {
   const storedView = readString(activeViewKey);
@@ -42,8 +46,43 @@ export function saveTableDensityPreference(density: TableDensity): void {
   writeString(tableDensityKey, density);
 }
 
+export function readLocalePreference(): LocalePreference {
+  const storedLocale = readString(localeKey);
+  return isLocalePreference(storedLocale) ? storedLocale : "zh-CN";
+}
+
+export function saveLocalePreference(locale: LocalePreference): void {
+  writeString(localeKey, locale);
+}
+
+export function readDefaultWorkspacePreference(): string {
+  const value = readString(defaultWorkspaceKey);
+  return value && /^[A-Za-z0-9_.-]{2,80}$/u.test(value) ? value : "default";
+}
+
+export function saveDefaultWorkspacePreference(workspace: string): void {
+  if (/^[A-Za-z0-9_.-]{2,80}$/u.test(workspace)) {
+    writeString(defaultWorkspaceKey, workspace);
+  }
+}
+
+export function readFavoriteViewsPreference(): ViewId[] {
+  const parsed = readJson(favoriteViewsKey);
+  return Array.isArray(parsed) ? parsed.filter(isViewId).slice(0, 8) : [];
+}
+
+export function toggleFavoriteViewPreference(view: ViewId, current: ViewId[]): ViewId[] {
+  const nextViews = current.includes(view) ? current.filter((item) => item !== view) : [view, ...current].slice(0, 8);
+  writeJson(favoriteViewsKey, nextViews);
+  return nextViews;
+}
+
 export function isTableDensity(value: unknown): value is TableDensity {
   return value === "comfortable" || value === "compact";
+}
+
+export function isLocalePreference(value: unknown): value is LocalePreference {
+  return value === "zh-CN" || value === "en-US";
 }
 
 export function isViewId(value: unknown): value is ViewId {

@@ -63,6 +63,7 @@ import {
   DatabaseRestoreDrillRequestSchema,
   DatabaseRestoreDrillResultSchema,
   DeliveryChecklistSchema,
+  DiagnosticsBundleSchema,
   DismissAlertSchema,
   DeleteFileRequestSchema,
   CreateConnectorSchema,
@@ -97,6 +98,8 @@ import {
   ProcessInfoSchema,
   RevokeApiTokenSchema,
   ResourceApprovalPolicySchema,
+  ResourceApprovalCheckSchema,
+  ResourceApprovalPrecheckSchema,
   RollbackAppDeploymentSchema,
   SecurityHardeningPlanSchema,
   SdkExampleSchema,
@@ -106,12 +109,15 @@ import {
   ServiceInfoSchema,
   SetupRequestSchema,
   StateArchiveRequestSchema,
+  StateArchivePageSchema,
   StateArchiveResultSchema,
   SystemOverviewSchema,
   TaskRunRequestSchema,
   TaskRunSchema,
   TerminalOutputSchema,
+  TerminalReplaySchema,
   TemplateRepositorySchema,
+  TemplateRepositoryRollbackSchema,
   TerminalInputSchema,
   TerminalSessionSchema,
   TotpConfirmSchema,
@@ -257,18 +263,23 @@ const OpenApiDocumentResponseSchema = OpenApiDocumentSchema;
 const TerminalSessionsResponseSchema = z.object({ sessions: z.array(TerminalSessionSchema) });
 const TerminalSessionResponseSchema = z.object({ session: TerminalSessionSchema });
 const TerminalSessionCommandResponseSchema = z.object({ session: TerminalSessionSchema, command: ConnectorCommandSchema });
+const TerminalReplayResponseSchema = z.object({ replay: TerminalReplaySchema });
 const TemplateRepositoriesResponseSchema = z.object({ repositories: z.array(TemplateRepositorySchema) });
 const TemplateRepositoryResponseSchema = z.object({ repository: TemplateRepositorySchema });
+const TemplateRepositoryRollbackResponseSchema = z.object({ rollback: TemplateRepositoryRollbackSchema });
 const LicenseStatusResponseSchema = z.object({ status: LicenseStatusSchema });
 const LicenseVerificationResponseSchema = z.object({ result: LicenseVerificationResultSchema });
 const ResourceApprovalPoliciesResponseSchema = z.object({ policies: z.array(ResourceApprovalPolicySchema) });
 const ResourceApprovalPolicyResponseSchema = z.object({ policy: ResourceApprovalPolicySchema });
+const ResourceApprovalPrecheckResponseSchema = z.object({ precheck: ResourceApprovalPrecheckSchema });
 const WorkspaceOverviewResponseSchema = z.object({ overview: WorkspaceOverviewSchema });
 const WorkspaceResponseSchema = z.object({ workspace: WorkspaceSchema });
 const StateArchiveResponseSchema = z.object({ result: StateArchiveResultSchema });
+const StateArchivePageResponseSchema = z.object({ page: StateArchivePageSchema });
 const InstallerGuideResponseSchema = z.object({ guide: InstallerGuideSchema });
 const SdkExamplesResponseSchema = z.object({ examples: z.array(SdkExampleSchema) });
 const FrontendQualityResponseSchema = z.object({ report: FrontendQualityReportSchema });
+const DiagnosticsBundleResponseSchema = z.object({ bundle: DiagnosticsBundleSchema });
 const OkResponseSchema = z.object({ ok: z.boolean() });
 
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
@@ -325,7 +336,7 @@ export const api = {
   downloadBackup: (backupId: string) => download(`/api/backups/download?backupId=${encodeURIComponent(BackupRequestSchema.parse({ backupId }).backupId)}`),
   restoreBackup: (backupId: string, approvalId: string) => request("/api/backups/restore", BackupRestoreResponseSchema, "POST", BackupRestoreRequestSchema.parse({ backupId, approvalId, confirmation: "RESTORE" })),
   updateBackupSchedule: (input: UpdateBackupSchedule) => request("/api/backups/schedule", BackupScheduleResponseSchema, "PATCH", UpdateBackupScheduleSchema.parse(input)),
-  remoteBackupTargets: () => request("/api/backups/remote-targets", RemoteBackupTargetsResponseSchema),
+  remoteBackupTargets: (workspace?: string) => request(`/api/backups/remote-targets${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`, RemoteBackupTargetsResponseSchema),
   createRemoteBackupTarget: (input: CreateRemoteBackupTarget) => request("/api/backups/remote-targets", RemoteBackupTargetResponseSchema, "POST", CreateRemoteBackupTargetSchema.parse(input)),
   updateRemoteBackupTarget: (input: UpdateRemoteBackupTarget) => request("/api/backups/remote-targets", RemoteBackupTargetResponseSchema, "PATCH", UpdateRemoteBackupTargetSchema.parse(input)),
   syncRemoteBackup: (backupId: string, targetId?: string) => request("/api/backups/remote-sync", RemoteBackupSyncResponseSchema, "POST", RemoteBackupSyncSchema.parse({ backupId, targetId })),
@@ -349,7 +360,7 @@ export const api = {
   dismissAlert: (alertId: string) => request("/api/alerts/dismiss", AlertDismissResponseSchema, "POST", DismissAlertSchema.parse({ alertId })),
   security: () => request("/api/security/posture", SecurityResponseSchema),
   securityHardeningPlan: () => request("/api/security/hardening-plan", SecurityHardeningResponseSchema),
-  hosts: () => request("/api/hosts", HostsResponseSchema),
+  hosts: (workspace?: string) => request(`/api/hosts${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`, HostsResponseSchema),
   hostGroups: () => request("/api/hosts/groups", HostGroupsResponseSchema),
   createHostGroup: (input: CreateHostGroup) => request("/api/hosts/groups", HostGroupResponseSchema, "POST", CreateHostGroupSchema.parse(input)),
   createHostBatchCommand: (input: z.infer<typeof HostBatchCommandSchema>) => request("/api/hosts/batch-command", ConnectorCommandsOnlyResponseSchema, "POST", HostBatchCommandSchema.parse(input)),
@@ -367,13 +378,13 @@ export const api = {
   testNotificationChannel: (channelId: string) => request("/api/notifications/test", NotificationDeliveryResponseSchema, "POST", NotificationTestSchema.parse({ channelId })),
   rotateNotificationSecret: (input: NotificationSecretRotation) => request("/api/notifications/rotate-secret", NotificationSecretRotationResponseSchema, "POST", NotificationSecretRotationSchema.parse(input)),
   appTemplates: () => request("/api/apps/templates", AppTemplatesResponseSchema),
-  appDeployments: () => request("/api/apps/deployments", AppDeploymentsResponseSchema),
+  appDeployments: (workspace?: string) => request(`/api/apps/deployments${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`, AppDeploymentsResponseSchema),
   appDeploymentHealth: (deploymentId: string) => request(`/api/apps/deployments/health?deploymentId=${encodeURIComponent(deploymentId)}`, AppDeploymentHealthResponseSchema),
   createAppDeployment: (input: CreateAppDeployment) => request("/api/apps/deployments", AppDeploymentResponseSchema, "POST", CreateAppDeploymentSchema.parse(input)),
   runAppDeploymentAction: (input: AppDeploymentAction) => request("/api/apps/deployments/action", AppDeploymentResponseSchema, "POST", AppDeploymentActionSchema.parse(input)),
   updateAppDeployment: (input: UpdateAppDeployment) => request("/api/apps/deployments", AppDeploymentResponseSchema, "PATCH", UpdateAppDeploymentSchema.parse(input)),
   rollbackAppDeployment: (input: RollbackAppDeployment) => request("/api/apps/deployments/rollback", AppDeploymentResponseSchema, "POST", RollbackAppDeploymentSchema.parse(input)),
-  databaseConnections: () => request("/api/databases", DatabaseConnectionsResponseSchema),
+  databaseConnections: (workspace?: string) => request(`/api/databases${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`, DatabaseConnectionsResponseSchema),
   createDatabaseConnection: (input: CreateDatabaseConnection) => request("/api/databases", DatabaseConnectionResponseSchema, "POST", CreateDatabaseConnectionSchema.parse(input)),
   updateDatabaseConnection: (input: UpdateDatabaseConnection) => request("/api/databases", DatabaseConnectionResponseSchema, "PATCH", UpdateDatabaseConnectionSchema.parse(input)),
   deleteDatabaseConnection: (connectionId: string) => request(`/api/databases?connectionId=${encodeURIComponent(connectionId)}`, OkResponseSchema, "DELETE"),
@@ -392,10 +403,12 @@ export const api = {
   sendTerminalInput: (input: TerminalInput) => request("/api/platform/terminal-sessions/input", TerminalSessionCommandResponseSchema, "POST", TerminalInputSchema.parse(input)),
   sendTerminalOutput: (input: TerminalOutput) => request("/api/platform/terminal-sessions/output", TerminalSessionResponseSchema, "POST", TerminalOutputSchema.parse(input)),
   closeTerminalSession: (sessionId: string) => request("/api/platform/terminal-sessions/close", TerminalSessionCommandResponseSchema, "POST", { sessionId }),
+  terminalReplay: (sessionId: string) => request(`/api/platform/terminal-sessions/replay?sessionId=${encodeURIComponent(sessionId)}`, TerminalReplayResponseSchema),
   terminalWebSocketUrl: (sessionId: string) => `${apiBase}/api/platform/terminal-sessions/ws?sessionId=${encodeURIComponent(sessionId)}`,
   templateRepositories: () => request("/api/platform/template-repositories", TemplateRepositoriesResponseSchema),
   createTemplateRepository: (input: CreateTemplateRepository) => request("/api/platform/template-repositories", TemplateRepositoryResponseSchema, "POST", CreateTemplateRepositorySchema.parse(input)),
   syncTemplateRepository: (repositoryId: string) => request("/api/platform/template-repositories/sync", TemplateRepositoryResponseSchema, "POST", { repositoryId }),
+  rollbackTemplateRepository: (repositoryId: string) => request("/api/platform/template-repositories/rollback", TemplateRepositoryRollbackResponseSchema, "POST", { repositoryId }),
   workspaces: () => request("/api/platform/workspaces", WorkspaceOverviewResponseSchema),
   createWorkspace: (input: CreateWorkspace) => request("/api/platform/workspaces", WorkspaceResponseSchema, "POST", CreateWorkspaceSchema.parse(input)),
   licenseStatus: () => request("/api/platform/license", LicenseStatusResponseSchema),
@@ -403,6 +416,7 @@ export const api = {
   verifyLicense: (input: UpdateLicense) => request("/api/platform/license/verify", LicenseVerificationResponseSchema, "POST", UpdateLicenseSchema.parse(input)),
   approvalPolicies: () => request("/api/platform/approval-policies", ResourceApprovalPoliciesResponseSchema),
   createApprovalPolicy: (input: CreateResourceApprovalPolicy) => request("/api/platform/approval-policies", ResourceApprovalPolicyResponseSchema, "POST", CreateResourceApprovalPolicySchema.parse(input)),
+  checkApprovalPolicy: (input: z.infer<typeof ResourceApprovalCheckSchema>) => request("/api/platform/approval-policies/check", ResourceApprovalPrecheckResponseSchema, "POST", ResourceApprovalCheckSchema.parse(input)),
   remediationRuns: () => request("/api/platform/remediations", RemediationRunsResponseSchema),
   createRemediationRun: (input: z.infer<typeof SecurityRemediationRequestSchema>) => request("/api/platform/remediations", RemediationRunResponseSchema, "POST", SecurityRemediationRequestSchema.parse(input)),
   capacityPlan: () => request("/api/platform/capacity-plan", CapacityPlanResponseSchema),
@@ -411,9 +425,11 @@ export const api = {
   openApiSummary: () => request("/api/platform/openapi-summary", OpenApiSummaryResponseSchema),
   openApiDocument: () => request("/api/platform/openapi.json", OpenApiDocumentResponseSchema),
   archiveState: (input: z.infer<typeof StateArchiveRequestSchema>) => request("/api/platform/archive-state", StateArchiveResponseSchema, "POST", StateArchiveRequestSchema.parse(input)),
+  archiveRecords: (bucket?: string, limit = 100) => request(`/api/platform/archive-records${toQuery({ bucket, limit })}`, StateArchivePageResponseSchema),
   installerGuide: () => request("/api/platform/installer-guide", InstallerGuideResponseSchema),
   sdkExamples: () => request("/api/platform/sdk-examples", SdkExamplesResponseSchema),
-  frontendQuality: () => request("/api/platform/frontend-quality", FrontendQualityResponseSchema)
+  frontendQuality: () => request("/api/platform/frontend-quality", FrontendQualityResponseSchema),
+  diagnosticsBundle: () => request("/api/platform/diagnostics-bundle", DiagnosticsBundleResponseSchema)
 };
 
 export type ApiClient = typeof api;

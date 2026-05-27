@@ -1,9 +1,9 @@
 import { createHash, verify as verifySignature } from "node:crypto";
 import { arch, hostname, platform } from "node:os";
-import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type CapacityPlan, type CreateAccessPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type FrontendQualityReport, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type ResourceApprovalCheck, type ResourceApprovalPolicy, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TerminalInput, type TerminalOutput, type TerminalSession, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
+import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type CapacityPlan, type CreateAccessPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type DiagnosticsBundle, type FrontendQualityReport, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type ResourceApprovalCheck, type ResourceApprovalPolicy, type ResourceApprovalPrecheck, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type StateArchivePage, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TemplateRepositoryRollback, type TerminalInput, type TerminalOutput, type TerminalReplay, type TerminalSession, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
-import type { PanelState, SecurityRemediationRunRecord } from "../state/panelState.js";
+import type { PanelState, SecurityRemediationRunRecord, TemplateRepositorySnapshotRecord } from "../state/panelState.js";
 
 const currentVersion = "0.1.0";
 
@@ -31,6 +31,15 @@ export class PlatformStore {
   async terminalSession(sessionId: string): Promise<TerminalSession | undefined> {
     const state = await this.store.read();
     return (state.terminalSessions ?? []).find((session) => session.id === sessionId);
+  }
+
+  async terminalReplay(sessionId: string): Promise<TerminalReplay | null> {
+    const session = await this.terminalSession(sessionId);
+    if (!session) {
+      return null;
+    }
+    const lines = (session.transcriptTail ?? []).map((line) => ({ ...line, line: redactTerminalLine(line.line) }));
+    return { sessionId: session.id, hostName: session.hostName, generatedAt: new Date().toISOString(), lineCount: lines.length, redacted: true, lines };
   }
 
   async createTerminalSession(input: CreateTerminalSession, hostName: string, connectorId: string, commandId: string, actor: string): Promise<TerminalSession> {
@@ -129,6 +138,8 @@ export class PlatformStore {
       const { importedTemplates, indexSha256 } = await fetchTemplateRepositoryIndex(repository);
       return this.store.update((current) => {
         const now = new Date().toISOString();
+        const previousTemplates = (current.importedAppTemplates ?? []).filter((template) => template.repositoryId === repository.id);
+        const snapshot = createTemplateSnapshot(repository, previousTemplates, actor, now);
         const importedTemplateIds = importedTemplates.map((template) => template.id);
         const updated: TemplateRepository = { ...repository, lastSyncAt: now, lastStatus: "success", templateCount: importedTemplates.length, importedTemplateIds, indexSha256, updatedAt: now, updatedBy: actor };
         delete updated.lastError;
@@ -137,6 +148,7 @@ export class PlatformStore {
           data: {
             ...current,
             templateRepositories: (current.templateRepositories ?? []).map((item) => item.id === repositoryId ? updated : item),
+            templateRepositorySnapshots: [...(current.templateRepositorySnapshots ?? []), snapshot].slice(-200),
             importedAppTemplates: nextImported
           },
           result: updated
@@ -145,6 +157,40 @@ export class PlatformStore {
     } catch (error) {
       return this.markTemplateRepositorySync(repository, actor, [], "", error instanceof Error ? error.message : String(error));
     }
+  }
+
+  async rollbackTemplateRepository(repositoryId: string, actor: string): Promise<TemplateRepositoryRollback> {
+    return this.store.update((state) => {
+      const repository = (state.templateRepositories ?? []).find((item) => item.id === repositoryId);
+      if (!repository) {
+        throw new Error("模板仓库不存在。");
+      }
+      const snapshot = (state.templateRepositorySnapshots ?? []).filter((item) => item.repositoryId === repositoryId).at(-1);
+      if (!snapshot) {
+        throw new Error("模板仓库没有可回滚的历史快照。");
+      }
+      const now = new Date().toISOString();
+      const updated: TemplateRepository = {
+        ...repository,
+        templateCount: snapshot.templates.length,
+        importedTemplateIds: snapshot.templateIds,
+        ...(snapshot.indexSha256 ? { indexSha256: snapshot.indexSha256 } : {}),
+        lastStatus: "success",
+        lastSyncAt: now,
+        updatedAt: now,
+        updatedBy: actor
+      };
+      delete updated.lastError;
+      return {
+        data: {
+          ...state,
+          templateRepositories: (state.templateRepositories ?? []).map((item) => item.id === repositoryId ? updated : item),
+          importedAppTemplates: [...(state.importedAppTemplates ?? []).filter((template) => template.repositoryId !== repositoryId), ...snapshot.templates].slice(-1000),
+          templateRepositorySnapshots: (state.templateRepositorySnapshots ?? []).filter((item) => item.id !== snapshot.id)
+        },
+        result: { repository: updated, restoredTemplateIds: snapshot.templateIds, rolledBackAt: now }
+      };
+    });
   }
 
   private async markTemplateRepositorySync(repository: TemplateRepository, actor: string, importedTemplates: ImportedAppTemplate[], indexSha256: string, error?: string): Promise<TemplateRepository> {
@@ -225,6 +271,12 @@ export class PlatformStore {
       && (policy.action === input.action || policy.action === "*")) ?? null;
   }
 
+  async approvalPrecheck(input: ResourceApprovalCheck): Promise<ResourceApprovalPrecheck> {
+    const policy = await this.requiredApprovalPolicy(input);
+    const target = `${input.workspace || "default"}:${input.resourceType}:${input.resourceId}:${input.action}`;
+    return { required: Boolean(policy), target, requiredApprovals: policy?.requiredApprovals ?? 0, ...(policy ? { policy } : {}) };
+  }
+
   async listWorkspaces(): Promise<Workspace[]> {
     const state = await this.store.read();
     return ensureDefaultWorkspace(state.workspaces ?? []);
@@ -252,8 +304,10 @@ export class PlatformStore {
         workspace: workspace.id,
         policies: (state.accessPolicies ?? []).filter((policy) => policy.workspace === workspace.id).length,
         approvalPolicies: (state.resourceApprovalPolicies ?? []).filter((policy) => (policy.workspace ?? "default") === workspace.id).length,
+        hosts: (state.hosts ?? []).filter((host) => (host.workspace ?? "default") === workspace.id).length,
         apps: (state.appDeployments ?? []).filter((deployment) => (deployment.workspace ?? "default") === workspace.id).length,
-        databases: (state.databaseConnections ?? []).filter((connection) => (connection.workspace ?? "default") === workspace.id).length
+        databases: (state.databaseConnections ?? []).filter((connection) => (connection.workspace ?? "default") === workspace.id).length,
+        remoteBackupTargets: (state.remoteBackupTargets ?? []).filter((target) => (target.workspace ?? "default") === workspace.id).length
       }))
     };
   }
@@ -339,8 +393,13 @@ export class PlatformStore {
         { method: "GET", path: "/api/platform/openapi.json", scope: "platform:read" },
         { method: "GET", path: "/api/platform/workspaces", scope: "platform:read" },
         { method: "POST", path: "/api/platform/terminal-sessions", scope: "platform:write" },
+        { method: "GET", path: "/api/platform/terminal-sessions/replay", scope: "platform:read" },
         { method: "GET", path: "/api/platform/terminal-sessions/ws", scope: "platform:read" },
-        { method: "POST", path: "/api/platform/archive-state", scope: "platform:write" }
+        { method: "POST", path: "/api/platform/template-repositories/rollback", scope: "platform:write" },
+        { method: "POST", path: "/api/platform/approval-policies/check", scope: "platform:read" },
+        { method: "POST", path: "/api/platform/archive-state", scope: "platform:write" },
+        { method: "GET", path: "/api/platform/archive-records", scope: "platform:read" },
+        { method: "GET", path: "/api/platform/diagnostics-bundle", scope: "platform:read" }
       ],
       webhookEvents: ["alert.warning", "alert.critical", "approval.requested", "approval.progress", "approval.rejected", "security.remediation"]
     };
@@ -357,7 +416,7 @@ export class PlatformStore {
         [method]: {
           summary: `${item.method} ${item.path}`,
           security: item.scope ? [{ bearerAuth: [item.scope] }] : [],
-          responses: { "200": { description: "成功" }, "401": { description: "未登录" }, "403": { description: "权限不足" } }
+          responses: { "200": { description: "成功", content: { "application/json": { schema: responseSchemaFor(item.path) } } }, "401": { description: "未登录" }, "403": { description: "权限不足" } }
         }
       };
     }
@@ -366,7 +425,7 @@ export class PlatformStore {
       info: { title: "LXPanel API", version: currentVersion },
       servers: [{ url: "/" }],
       security: [{ bearerAuth: [] }],
-      components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } } },
+      components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } }, schemas: openApiSchemas() },
       paths
     };
   }
@@ -404,6 +463,31 @@ export class PlatformStore {
       await this.store.update(() => ({ data: nextState, result: undefined }));
     }
     return result;
+  }
+
+  async archiveRecords(input: { bucket?: string; limit?: number }): Promise<StateArchivePage> {
+    const records = this.store.queryArchiveRecords ? await this.store.queryArchiveRecords(input) : [];
+    return {
+      generatedAt: new Date().toISOString(),
+      ...(input.bucket ? { bucket: input.bucket } : {}),
+      records,
+      archiveDriver: this.store.queryArchiveRecords ? "sqlite-table" : "json-trim"
+    };
+  }
+
+  async diagnosticsBundle(): Promise<DiagnosticsBundle> {
+    const state = await this.store.read();
+    const stateBytes = Buffer.byteLength(JSON.stringify(state), "utf8");
+    const openApiPathCount = this.openApiSummary().paths.length;
+    const frontendCheckCount = this.frontendQualityReport().checks.length;
+    const checks = [
+      { id: "state-size", title: "状态体积", status: stateBytes > 5_000_000 ? "warn" as const : "ok" as const, detail: `${stateBytes} bytes` },
+      { id: "audit-chain", title: "审计哈希链", status: "ok" as const, detail: "审计事件写入包含 hash/previousHash 字段。" },
+      { id: "connector-signature", title: "连接器命令签名", status: "ok" as const, detail: "命令下发包含 signaturePayload 与 HMAC-SHA256 签名。" },
+      { id: "archive-query", title: "归档查询", status: this.store.queryArchiveRecords ? "ok" as const : "warn" as const, detail: this.store.queryArchiveRecords ? "SQLite state_archive 可查询。" : "JSON 模式仅裁剪，不保留查询表。" }
+    ];
+    const unsigned = { generatedAt: new Date().toISOString(), version: currentVersion, hostname: hostname(), stateBytes, checks, openApiPaths: openApiPathCount, frontendChecks: frontendCheckCount };
+    return { ...unsigned, sha256: sha256(canonicalJson(unsigned)) };
   }
 
   installerGuide(): InstallerGuide {
@@ -450,6 +534,56 @@ export class PlatformStore {
 
 function defaultLicense(): LicenseInfo {
   return { plan: "community", licensedTo: "local", maxHosts: 3, maxUsers: 2, maxApps: 5, features: ["core", "backup", "audit"], verificationStatus: "unverified", updatedAt: new Date(0).toISOString(), updatedBy: "system" };
+}
+
+function redactTerminalLine(value: string): string {
+  return value
+    .replace(/(password|passwd|token|secret)=([^\s]+)/giu, "$1=***")
+    .replace(/(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/=-]+/giu, "$1***");
+}
+
+function createTemplateSnapshot(repository: TemplateRepository, templates: ImportedAppTemplate[], actor: string, now: string): TemplateRepositorySnapshotRecord {
+  return {
+    id: randomToken(12),
+    repositoryId: repository.id,
+    repositoryName: repository.name,
+    templateIds: templates.map((template) => template.id),
+    templates,
+    ...(repository.indexSha256 ? { indexSha256: repository.indexSha256 } : {}),
+    createdAt: now,
+    createdBy: actor
+  };
+}
+
+function responseSchemaFor(path: string): unknown {
+  const map: Record<string, unknown> = {
+    "/api/platform/openapi-summary": { $ref: "#/components/schemas/OpenApiSummaryResponse" },
+    "/api/platform/openapi.json": { type: "object" },
+    "/api/platform/workspaces": { $ref: "#/components/schemas/WorkspaceOverviewResponse" },
+    "/api/platform/terminal-sessions": { $ref: "#/components/schemas/TerminalSessionResponse" },
+    "/api/platform/terminal-sessions/replay": { $ref: "#/components/schemas/TerminalReplayResponse" },
+    "/api/platform/template-repositories/rollback": { $ref: "#/components/schemas/TemplateRepositoryRollbackResponse" },
+    "/api/platform/approval-policies/check": { $ref: "#/components/schemas/ResourceApprovalPrecheckResponse" },
+    "/api/platform/archive-state": { $ref: "#/components/schemas/StateArchiveResponse" },
+    "/api/platform/archive-records": { $ref: "#/components/schemas/StateArchivePageResponse" },
+    "/api/platform/diagnostics-bundle": { $ref: "#/components/schemas/DiagnosticsBundleResponse" }
+  };
+  return map[path] ?? { type: "object" };
+}
+
+function openApiSchemas(): Record<string, unknown> {
+  return {
+    ErrorResponse: { type: "object", required: ["message"], properties: { message: { type: "string" } } },
+    OpenApiSummaryResponse: { type: "object", properties: { summary: { type: "object", properties: { generatedAt: { type: "string" }, paths: { type: "array", items: { type: "object" } }, webhookEvents: { type: "array", items: { type: "string" } } } } } },
+    WorkspaceOverviewResponse: { type: "object", properties: { overview: { type: "object", properties: { generatedAt: { type: "string" }, workspaces: { type: "array", items: { type: "object" } }, counts: { type: "array", items: { type: "object" } } } } } },
+    TerminalSessionResponse: { type: "object", properties: { session: { type: "object" }, command: { type: "object" } } },
+    TerminalReplayResponse: { type: "object", properties: { replay: { type: "object", properties: { sessionId: { type: "string" }, lineCount: { type: "integer" }, lines: { type: "array", items: { type: "object" } } } } } },
+    TemplateRepositoryRollbackResponse: { type: "object", properties: { rollback: { type: "object" } } },
+    ResourceApprovalPrecheckResponse: { type: "object", properties: { precheck: { type: "object", properties: { required: { type: "boolean" }, target: { type: "string" }, requiredApprovals: { type: "integer" } } } } },
+    StateArchiveResponse: { type: "object", properties: { result: { type: "object" } } },
+    StateArchivePageResponse: { type: "object", properties: { page: { type: "object", properties: { records: { type: "array", items: { type: "object" } }, archiveDriver: { type: "string" } } } } },
+    DiagnosticsBundleResponse: { type: "object", properties: { bundle: { type: "object", properties: { generatedAt: { type: "string" }, version: { type: "string" }, sha256: { type: "string" } } } } }
+  };
 }
 
 async function fetchTemplateRepositoryIndex(repository: TemplateRepository): Promise<{ importedTemplates: ImportedAppTemplate[]; indexSha256: string }> {

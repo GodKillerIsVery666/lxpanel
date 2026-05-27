@@ -30,9 +30,9 @@ export class AppStore {
     return [...publicTemplates(), ...(state.importedAppTemplates ?? []).map(toPublicImportedTemplate)];
   }
 
-  async listDeployments(): Promise<AppDeployment[]> {
+  async listDeployments(workspace?: string): Promise<AppDeployment[]> {
     const state = await this.store.read();
-    return (state.appDeployments ?? []).slice().reverse().map(toPublicDeployment);
+    return (state.appDeployments ?? []).filter((deployment) => !workspace || (deployment.workspace ?? "default") === workspace).slice().reverse().map(toPublicDeployment);
   }
 
   async createDeployment(input: CreateAppDeployment, actor: string): Promise<AppDeployment> {

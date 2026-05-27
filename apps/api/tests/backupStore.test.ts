@@ -98,7 +98,7 @@ describe("备份快照", () => {
     const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
     const backupStore = new BackupStore(store, root);
     const backup = await backupStore.createBackup("admin");
-    const target = await backupStore.createRemoteTarget({ name: "nas", type: "filesystem", path: remoteRoot, enabled: true }, "admin");
+    const target = await backupStore.createRemoteTarget({ workspace: "default", name: "nas", type: "filesystem", path: remoteRoot, enabled: true }, "admin");
 
     const result = await backupStore.syncRemote({ backupId: backup.id }, "admin");
     const copied = await readFile(join(remoteRoot, backup.fileName), "utf8");
@@ -131,7 +131,7 @@ describe("备份快照", () => {
       throw new Error("server listen failed");
     }
     try {
-      const target = await backupStore.createRemoteTarget({ name: "minio", type: "s3", path: "s3://bucket/panel", endpoint: `http://127.0.0.1:${address.port}`, bucket: "bucket", prefix: "panel", region: "us-east-1", accessKeyId: "access", secretAccessKey: "secret", enabled: true }, "admin");
+      const target = await backupStore.createRemoteTarget({ workspace: "default", name: "minio", type: "s3", path: "s3://bucket/panel", endpoint: `http://127.0.0.1:${address.port}`, bucket: "bucket", prefix: "panel", region: "us-east-1", accessKeyId: "access", secretAccessKey: "secret", enabled: true }, "admin");
       const state = await store.read();
 
       const result = await backupStore.syncRemote({ backupId: backup.id, targetId: target.id }, "admin");

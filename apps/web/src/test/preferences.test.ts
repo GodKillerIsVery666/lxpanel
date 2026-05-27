@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTableDensity, isViewId, mergeRecentViews } from "../utils/preferences.js";
+import { isLocalePreference, isTableDensity, isViewId, mergeRecentViews, toggleFavoriteViewPreference } from "../utils/preferences.js";
 
 describe("偏好工具", () => {
   it("合并最近访问并去重", () => {
@@ -15,5 +15,12 @@ describe("偏好工具", () => {
     expect(isViewId("missing")).toBe(false);
     expect(isTableDensity("compact")).toBe(true);
     expect(isTableDensity("dense")).toBe(false);
+    expect(isLocalePreference("en-US")).toBe(true);
+    expect(isLocalePreference("fr-FR")).toBe(false);
+  });
+
+  it("切换收藏入口", () => {
+    expect(toggleFavoriteViewPreference("hosts", ["apps"])).toEqual(["hosts", "apps"]);
+    expect(toggleFavoriteViewPreference("apps", ["hosts", "apps"])).toEqual(["hosts"]);
   });
 });

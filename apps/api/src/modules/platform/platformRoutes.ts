@@ -3,7 +3,7 @@ import type { IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { AccessEvaluationRequestSchema, CreateAccessPolicySchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateLicenseSchema } from "@lxpanel/shared";
+import { AccessEvaluationRequestSchema, CreateAccessPolicySchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, ResourceApprovalCheckSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateLicenseSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole, requireUser, sessionCookieName } from "../auth/authMiddleware.js";
@@ -47,6 +47,25 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
       return;
     }
     return { sessions: await services.platformStore.listTerminalSessions() };
+  });
+
+  app.get<{ Querystring: { sessionId?: string } }>("/api/platform/terminal-sessions/replay", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const sessionId = request.query.sessionId ?? "";
+    if (!sessionId) {
+      await reply.code(400).send({ message: "缺少终端会话 ID。" });
+      return;
+    }
+    const replay = await services.platformStore.terminalReplay(sessionId);
+    if (!replay) {
+      await reply.code(404).send({ message: "终端会话不存在。" });
+      return;
+    }
+    await services.auditLog.append({ actor: user.username, action: "platform.terminal.replay", target: sessionId, ip: request.ip, status: "success" });
+    return { replay };
   });
 
   app.post("/api/platform/terminal-sessions", async (request, reply) => {
@@ -143,6 +162,17 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     return { repository };
   });
 
+  app.post("/api/platform/template-repositories/rollback", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = z.object({ repositoryId: z.string().min(1) }).parse(request.body);
+    const rollback = await services.platformStore.rollbackTemplateRepository(input.repositoryId, user.username);
+    await services.auditLog.append({ actor: user.username, action: "platform.template_repository.rollback", target: rollback.repository.name, ip: request.ip, status: "success", detail: `templates=${rollback.restoredTemplateIds.length}` });
+    return { rollback };
+  });
+
   app.get("/api/platform/workspaces", async (request, reply) => {
     const user = await requireUser(request, reply, services);
     if (!user) {
@@ -209,6 +239,17 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     const policy = await services.platformStore.createApprovalPolicy(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "platform.approval_policy.create", target: `${policy.resourceType}:${policy.resourceId}`, ip: request.ip, status: "success" });
     return { policy };
+  });
+
+  app.post("/api/platform/approval-policies/check", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const input = ResourceApprovalCheckSchema.parse(request.body);
+    const precheck = await services.platformStore.approvalPrecheck(input);
+    await services.auditLog.append({ actor: user.username, action: "platform.approval_policy.check", target: precheck.target, ip: request.ip, status: "success", detail: precheck.required ? `required=${precheck.requiredApprovals}` : "not-required" });
+    return { precheck };
   });
 
   app.get("/api/platform/remediations", async (request, reply) => {
@@ -291,6 +332,23 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     return { result };
   });
 
+  app.get<{ Querystring: { bucket?: string; limit?: string } }>("/api/platform/archive-records", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const limit = request.query.limit ? Number.parseInt(request.query.limit, 10) : undefined;
+    const query: { bucket?: string; limit?: number } = {};
+    if (request.query.bucket) {
+      query.bucket = request.query.bucket;
+    }
+    if (typeof limit === "number" && Number.isFinite(limit)) {
+      query.limit = limit;
+    }
+    const page = await services.platformStore.archiveRecords(query);
+    return { page };
+  });
+
   app.get("/api/platform/installer-guide", async (request, reply) => {
     const user = await requireRole(request, reply, services, "owner");
     if (!user) {
@@ -313,6 +371,16 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
       return;
     }
     return { report: services.platformStore.frontendQualityReport() };
+  });
+
+  app.get("/api/platform/diagnostics-bundle", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const bundle = await services.platformStore.diagnosticsBundle();
+    await services.auditLog.append({ actor: user.username, action: "platform.diagnostics_bundle", target: bundle.sha256, ip: request.ip, status: "success" });
+    return { bundle };
   });
 }
 

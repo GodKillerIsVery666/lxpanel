@@ -37,6 +37,7 @@ const state = {
   securityRemediationRuns: [],
   terminalSessions: [],
   templateRepositories: [],
+  templateRepositorySnapshots: [],
   importedAppTemplates: [],
   resourceApprovalPolicies: [],
   workspaces: [{ id: "default", name: "默认工作空间", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), updatedBy: "system" }],
@@ -60,6 +61,10 @@ for (const deployment of state.appDeployments ?? []) {
   deployment.revisions ??= [];
 }
 
+for (const host of state.hosts ?? []) {
+  host.workspace ??= "default";
+}
+
 for (const connection of state.databaseConnections ?? []) {
   connection.workspace ??= "default";
   connection.backupRetentionDays ??= 30;
@@ -76,6 +81,8 @@ for (const repository of state.templateRepositories ?? []) {
   repository.importedTemplateIds ??= [];
 }
 
+state.templateRepositorySnapshots ??= [];
+
 for (const policy of state.resourceApprovalPolicies ?? []) {
   policy.workspace ??= "default";
 }
@@ -85,6 +92,7 @@ if (state.license) {
 }
 
 for (const target of state.remoteBackupTargets ?? []) {
+  target.workspace ??= "default";
   target.type ??= "filesystem";
   target.secretConfigured ??= Boolean(target.secretAccessKey || target.encryptedSecretAccessKey);
 }

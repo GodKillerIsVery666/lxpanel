@@ -2,23 +2,31 @@ import { useEffect, useMemo, useState } from "react";
 import { HeartPulse, History, Play, RotateCw, Square, UploadCloud } from "lucide-react";
 import type { AppDeployment, AppDeploymentAction, AppTemplate } from "@lxpanel/shared";
 import { api } from "../api/client.js";
+import { EmptyState } from "../components/EmptyState.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { formatDate } from "../utils/format.js";
+import { readDefaultWorkspacePreference } from "../utils/preferences.js";
 
 export function AppsPage(): JSX.Element {
   const [templates, setTemplates] = useState<AppTemplate[]>([]);
   const [deployments, setDeployments] = useState<AppDeployment[]>([]);
+  const [workspace] = useState(() => readDefaultWorkspacePreference());
   const [templateId, setTemplateId] = useState("");
   const [name, setName] = useState("");
   const [autoStart, setAutoStart] = useState(false);
   const [variables, setVariables] = useState<Record<string, string>>({});
+  const [deploymentSearch, setDeploymentSearch] = useState("");
   const [healthText, setHealthText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const selectedTemplate = useMemo(() => templates.find((template) => template.id === templateId), [templateId, templates]);
+  const filteredDeployments = useMemo(() => {
+    const query = deploymentSearch.trim().toLowerCase();
+    return query ? deployments.filter((deployment) => [deployment.name, deployment.templateName, deployment.status, deployment.workspace].some((value) => value.toLowerCase().includes(query))) : deployments;
+  }, [deploymentSearch, deployments]);
 
   async function load(): Promise<void> {
     try {
-      const [templateResponse, deploymentResponse] = await Promise.all([api.appTemplates(), api.appDeployments()]);
+      const [templateResponse, deploymentResponse] = await Promise.all([api.appTemplates(), api.appDeployments(workspace)]);
       setTemplates(templateResponse.templates);
       setDeployments(deploymentResponse.deployments);
       const firstTemplate = templateResponse.templates[0];
@@ -40,7 +48,7 @@ export function AppsPage(): JSX.Element {
 
   async function deploy(): Promise<void> {
     try {
-      await api.createAppDeployment({ workspace: "default", templateId, name, variables, autoStart });
+      await api.createAppDeployment({ workspace, templateId, name, variables, autoStart });
       setName("");
       await load();
     } catch (caught) {
@@ -50,7 +58,7 @@ export function AppsPage(): JSX.Element {
 
   async function action(deploymentId: string, actionName: AppDeploymentAction["action"]): Promise<void> {
     try {
-      await api.runAppDeploymentAction({ workspace: "default", deploymentId, action: actionName });
+      await api.runAppDeploymentAction({ workspace, deploymentId, action: actionName });
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作失败。");
@@ -95,14 +103,14 @@ export function AppsPage(): JSX.Element {
       {healthText ? <p className="notice">{healthText}</p> : null}
       <section className="table-panel">
         <div className="panel-title">一键部署</div>
-        <div className="inline-form wrap">
+        {templates.length === 0 ? <EmptyState title="没有可用模板" description="内置模板或可信模板仓库同步后会出现在这里。" /> : <div className="inline-form wrap">
           <select value={templateId} onChange={(event) => selectTemplate(event.target.value)}>
             {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
           </select>
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="部署名称，例如 redis-prod" />
           <label className="compact-check"><input type="checkbox" checked={autoStart} onChange={(event) => setAutoStart(event.target.checked)} /> 自动启动</label>
           <button type="button" onClick={() => void deploy()}><UploadCloud size={16} /> 部署</button>
-        </div>
+        </div>}
         {selectedTemplate ? <p className="muted-text">{selectedTemplate.description}；来源：{selectedTemplate.source ?? "builtin"}；签名：{selectedTemplate.signature ?? "-"}；{selectedTemplate.verified ? "已验证" : "未验证"}</p> : null}
         {selectedTemplate ? <div className="variable-grid">{selectedTemplate.variables.map((variable) => (
           <label key={variable.key}>{variable.label}<input value={variables[variable.key] ?? variable.defaultValue} onChange={(event) => setVariables((current) => ({ ...current, [variable.key]: event.target.value }))} /></label>
@@ -110,9 +118,10 @@ export function AppsPage(): JSX.Element {
       </section>
       <section className="table-panel">
         <div className="panel-title">部署记录</div>
-        <table>
+        <div className="list-toolbar"><input value={deploymentSearch} onChange={(event) => setDeploymentSearch(event.target.value)} placeholder="搜索名称、模板、状态或工作空间" /><p className="muted-text">{filteredDeployments.length} / {deployments.length}</p></div>
+        {filteredDeployments.length === 0 ? <EmptyState title="没有匹配的部署" description="调整筛选条件，或从上方选择模板创建一个新部署。" /> : <table>
           <thead><tr><th>名称</th><th>模板</th><th>版本</th><th>状态</th><th>Compose</th><th>创建人</th><th>最近操作</th><th>输出</th><th>操作</th></tr></thead>
-          <tbody>{deployments.map((deployment) => (
+          <tbody>{filteredDeployments.map((deployment) => (
             <tr key={deployment.id}>
               <td>{deployment.name}</td>
               <td>{deployment.templateName}</td>
@@ -125,7 +134,7 @@ export function AppsPage(): JSX.Element {
               <td className="row-actions"><button onClick={() => void checkHealth(deployment)} title="健康检查"><HeartPulse size={14} /></button><button onClick={() => void action(deployment.id, "up")} title="启动"><Play size={14} /></button><button onClick={() => void action(deployment.id, "restart")} title="重启"><RotateCw size={14} /></button><button onClick={() => void action(deployment.id, "down")} title="停止"><Square size={14} /></button><button onClick={() => void upgrade(deployment)} title="升级"><UploadCloud size={14} /></button><button onClick={() => void rollback(deployment)} title="回滚" disabled={deployment.revisionCount === 0}><History size={14} /></button></td>
             </tr>
           ))}</tbody>
-        </table>
+        </table>}
       </section>
     </main>
   );

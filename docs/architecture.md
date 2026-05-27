@@ -14,7 +14,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 4. 所有高风险操作进入审计日志，新写入事件带前序哈希和链式哈希，便于后续完整性验证和合规导出。
 5. Docker 管理只通过 `execFile` 调用参数化 CLI，不拼接 shell 命令；未安装或 daemon 不可用时返回状态而不是阻塞面板。
 6. 日志查看与文件管理分离，日志根目录由 `LXPANEL_LOG_ROOTS` 独立收敛。
-7. 连接器命令队列由面板写入、连接器领取并回传结果，避免面板主进程直接承担远程连接执行负载。
+7. 连接器命令队列由面板写入、连接器领取并回传结果，避免面板主进程直接承担远程连接执行负载；命令下发和结果回传均使用连接器令牌派生的 HMAC-SHA256 签名。
 8. 任务运行器只使用 `execFile` 参数数组，并把工作目录限制在 `LXPANEL_FILE_ROOTS` 内。
 9. 备份模块生成本地状态快照，备份文件保存在 `LXPANEL_DATA_DIR/backups`，默认保留最近 100 份并清理旧文件；恢复接口必须携带确认短语和审批单，恢复前会自动生成当前状态快照，恢复后清空会话。
 10. 调度器随 API 进程启动，按状态中的计划触发受控任务和自动备份，执行结果写入运行历史与审计日志。
@@ -38,25 +38,28 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 28. 应用部署记录保存版本号、工作空间和 compose 修订，升级时重渲染当前模板变量，回滚时恢复上一份 compose 和变量快照；模板包含来源、签名和验证状态，部署可执行健康探测；平台治理可拉取私有模板仓库 index、校验签名并导入模板。
 29. 安全加固计划与安全态势拆分：态势负责检查当前风险，加固计划输出防火墙、SSH 和 Docker socket 的可执行治理建议；平台治理模块可把建议转为 dry-run 修复记录。
 30. 主机组、批量命令、SSH 会话请求和 Web 终端代理复用连接器命令队列，面板只做资源选择、审计和命令排队；WebSocket 终端通道在 API 层提供会话快照、输入帧和输出广播，连接器继续承担本机执行。
-31. 平台治理模块集中管理工作空间、资源访问策略、资源审批策略、许可证验签与配额、安全修复记录、终端会话、模板仓库、状态归档、容量计划、升级向导、安装向导、SDK 示例、前端质量清单、OpenAPI 3.1 JSON 和 Webhook 摘要。
+31. 平台治理模块集中管理工作空间、资源访问策略、资源审批策略、许可证验签与配额、安全修复记录、终端会话、模板仓库、状态归档、容量计划、升级向导、安装向导、诊断包、SDK 示例、前端质量清单、OpenAPI 3.1 JSON 和 Webhook 摘要。
 32. 资源审批强制执行由公共守卫完成，数据库备份、主机批量命令和应用操作会按 `workspace:resourceType:resourceId:action` 目标消费 `resource.access` 审批单。
+33. 工作空间过滤从统计扩展到查询入口，主机、应用部署、数据库连接和远程备份目标列表都可通过 `workspace` 查询参数收敛结果。
+34. 终端会话保留输入、输出和系统帧尾部，平台治理接口提供脱敏审计回放，用于交付验收和安全复盘。
+35. 模板仓库同步前保存上一版导入模板快照，回滚接口可恢复上一版索引，避免私有仓库误发布影响现有模板列表。
 
 ## 状态存储
 
 所有核心状态通过 `StateStore<PanelState>` 读写，认证、连接器、任务和备份模块只依赖接口，不直接关心底层介质。
 
 - `JsonStore`：写入 `LXPANEL_DATA_DIR/state.json`，使用临时文件和 rename 保持单文件写入原子性。
-- `SqliteStateStore`：写入 `LXPANEL_STATE_SQLITE_PATH`，启用 WAL，并在 `kv` 表中保存 `state` JSON 文档；执行状态归档时可把裁剪出的监控样本、告警和通知投递写入独立 `state_archive` 表，降低主状态文档膨胀。
+- `SqliteStateStore`：写入 `LXPANEL_STATE_SQLITE_PATH`，启用 WAL，并在 `kv` 表中保存 `state` JSON 文档；执行状态归档时可把裁剪出的监控样本、告警和通知投递写入独立 `state_archive` 表，降低主状态文档膨胀，并通过归档查询接口按 bucket/limit 读取历史记录。
 - 迁移策略：当 `LXPANEL_STATE_STORE=sqlite` 且数据库尚无状态时，读取 legacy `state.json` 作为 seed，不删除原文件。
 - 显式迁移：`scripts/migrate-state.mjs` 可对旧 `state.json` 补齐新增顶层数组和审批/应用版本字段，写入前会为目标文件生成带时间戳的 `.bak-*` 备份。
 
 ## 连接器方向
 
-连接器使用一次性可见令牌登记，后续通过 Bearer Token 心跳、领取命令和回传结果。心跳可携带 `metrics`，面板会把远端 `hostId` 指标写入统一监控样本。`scripts/lxpanel-connector.mjs` 是内置轻量 agent 参考实现，会心跳、轮询命令、使用 `execFile` 参数数组执行 allowlist 内命令并回传输出。远程连接、SSH 会话、Web 终端代理和批量任务可以由本地连接器执行，面板只负责授权、编排和展示结果。
+连接器使用一次性可见令牌登记，后续通过 Bearer Token 心跳、领取命令和回传结果。服务端只保存令牌哈希，命令下发时用该哈希签名规范化 payload；内置 agent 用本地令牌计算同一哈希进行验签，结果回传时再对 `commandId/status/exitCode/stdoutTail/stderrTail` 签名。心跳可携带 `metrics`，面板会把远端 `hostId` 指标写入统一监控样本。`scripts/lxpanel-connector.mjs` 是内置轻量 agent 参考实现，会心跳、轮询命令、验签、使用 `execFile` 参数数组执行 allowlist 内命令并签名回传输出。远程连接、SSH 会话、Web 终端代理和批量任务可以由本地连接器执行，面板只负责授权、编排和展示结果。
 
 ## 前端体验
 
-前端导航配置集中在 `apps/web/src/navigation.ts`，同一份元数据同时驱动侧边栏、角色过滤、全局命令面板、页面记忆、最近访问和首页快捷入口。Shell 按总览、运维、文件与自动化、安全与交付分组，并支持按功能、资源和动作搜索；`apps/web/src/utils/preferences.ts` 负责保存当前页面、最近访问和表格密度等本地偏好。概览页作为日常工作台，聚合资源指标、安全提醒、告警状态和角色感知快捷入口，让用户打开面板后可以直接进入主机、应用、数据库、备份、安全或平台治理流程。
+前端导航配置集中在 `apps/web/src/navigation.ts`，同一份元数据同时驱动侧边栏、角色过滤、全局命令面板、页面记忆、最近访问和首页快捷入口。Shell 按总览、运维、文件与自动化、安全与交付分组，并支持按功能、资源和动作搜索；命令面板除了跳转页面，也能触发创建备份、告警巡检、OpenAPI 下载、诊断包生成和 Prometheus 指标导出等安全动作。`apps/web/src/utils/preferences.ts` 负责保存当前页面、最近访问、收藏入口、语言和表格密度等本地偏好。概览页作为日常工作台，聚合资源指标、安全提醒、告警状态和角色感知快捷入口，让用户打开面板后可以直接进入主机、应用、数据库、备份、安全或平台治理流程。主机、应用、数据库、备份和审计页面提供空状态、列表搜索、分步表单或统一确认面板，降低首次使用和危险操作的认知成本。
 
 ## 资源告警
 
@@ -78,8 +81,8 @@ API Token 由 `AuthStore` 生成并保存在 `PanelState.apiTokens` 中，状态
 
 `DatabaseStore` 保存 PostgreSQL、MySQL、MariaDB 连接登记信息，状态中优先存放 `encryptedUrl`，无加密密钥时才保留兼容 `url` 字段。列表接口始终通过共享契约返回 `maskedUrl`，手动备份时在 `LXPANEL_DATA_DIR/database-backups` 下生成 dump 文件，并把最近备份路径、备份状态和保留天数写回连接记录。恢复演练读取最近备份，按数据库类型调用受控 runner 校验可恢复性，并记录最近演练时间、状态和输出尾部。计划备份字段保存在连接记录中，调度器到期调用同一备份路径，随后按连接保留天数清理过期 dump，保证手动和自动行为一致。
 
-`BackupStore` 除本地快照外还管理远程目标。文件系统目标适合挂载 NAS、对象存储网关或备份卷；S3 兼容目标适合 MinIO、COS、OSS 等对象存储。同步时复制指定快照并写入同名 `.sha256` 文件或对象，目标最近同步状态会随状态保存，方便前端快速判断外部备份是否健康。
+`BackupStore` 除本地快照外还管理远程目标。文件系统目标适合挂载 NAS、对象存储网关或备份卷；S3 兼容目标适合 MinIO、COS、OSS 等对象存储。远程目标保存 workspace 字段并支持列表过滤。同步时复制指定快照并写入同名 `.sha256` 文件或对象，目标最近同步状态会随状态保存，方便前端快速判断外部备份是否健康。
 
 ## 平台治理
 
-`PlatformStore` 是商业化治理能力的聚合层，保存工作空间、访问策略、资源审批策略、终端会话、模板仓库、许可证和安全修复记录，并从现有状态生成容量计划、升级向导、离线交付清单、安装向导、SDK 示例、前端质量报告、OpenAPI JSON 和开放 API 摘要。访问策略按 workspace、resourceType、resourceId、role 和 permissions 评估，支持通配资源；资源审批策略按 workspace、resourceType、resourceId 和 action 匹配，命中后由业务路由统一消费审批单。许可证支持离线 `payload.signature` token、公钥验证和机器码绑定。状态归档以 dry-run 优先，执行时裁剪监控样本、告警历史和通知投递，SQLite 模式会额外落入 `state_archive` 表，JSON 模式保留轻量裁剪。自动化请求通过 `platform:read` 与 `platform:write` scope 进入同一权限模型。治理页同时读取审计完整性与合规接口，把安全、合规、容量和交付检查放到同一个操作面。
+`PlatformStore` 是商业化治理能力的聚合层，保存工作空间、访问策略、资源审批策略、终端会话、模板仓库、许可证和安全修复记录，并从现有状态生成容量计划、升级向导、离线交付清单、安装向导、诊断包、SDK 示例、前端质量报告、OpenAPI JSON 和开放 API 摘要。访问策略按 workspace、resourceType、resourceId、role 和 permissions 评估，支持通配资源；资源审批策略按 workspace、resourceType、resourceId 和 action 匹配，命中后由业务路由统一消费审批单，预检接口可在发起操作前返回目标格式和需要的批准人数。许可证支持离线 `payload.signature` token、公钥验证和机器码绑定，`scripts/license-issue.mjs` 可在离线环境生成签名 token。状态归档以 dry-run 优先，执行时裁剪监控样本、告警历史和通知投递，SQLite 模式会额外落入 `state_archive` 表并支持查询，JSON 模式保留轻量裁剪。模板仓库同步保存上一版快照，回滚接口恢复上一次导入模板集合。自动化请求通过 `platform:read` 与 `platform:write` scope 进入同一权限模型。治理页同时读取审计完整性与合规接口，把安全、合规、容量和交付检查放到同一个操作面。

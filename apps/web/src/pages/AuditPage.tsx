@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Download, RotateCw, Trash2 } from "lucide-react";
 import type { AuditEvent } from "@lxpanel/shared";
 import { api } from "../api/client.js";
+import { ConfirmDialog } from "../components/ConfirmDialog.js";
+import { EmptyState } from "../components/EmptyState.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { formatDate } from "../utils/format.js";
 
@@ -16,6 +18,7 @@ export function AuditPage(): JSX.Element {
   const [retainDays, setRetainDays] = useState("180");
   const [approvalId, setApprovalId] = useState("");
   const [packageHash, setPackageHash] = useState<string | null>(null);
+  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load(cursor?: string): Promise<void> {
@@ -53,19 +56,22 @@ export function AuditPage(): JSX.Element {
     }
   }
 
-  async function pruneAudit(): Promise<void> {
+  function pruneAudit(): void {
     if (!approvalId) {
       setError("清理审计需要审批单 ID。");
       return;
     }
-    if (!window.confirm(`仅保留最近 ${retainDays} 天审计日志，继续吗？`)) {
-      return;
-    }
+    setPruneConfirmOpen(true);
+  }
+
+  async function confirmPruneAudit(): Promise<void> {
     try {
       await api.pruneAudit(Number.parseInt(retainDays, 10), approvalId);
+      setPruneConfirmOpen(false);
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "清理失败。");
+      setPruneConfirmOpen(false);
     }
   }
 
@@ -75,6 +81,7 @@ export function AuditPage(): JSX.Element {
 
   return (
     <main className="page-stack">
+      <ConfirmDialog open={pruneConfirmOpen} title="清理审计日志" description={`仅保留最近 ${retainDays} 天审计日志，已归档或导出的证据请先确认。`} confirmText="清理" onConfirm={() => void confirmPruneAudit()} onCancel={() => setPruneConfirmOpen(false)} />
       <div className="page-heading"><div><h1>审计</h1><p>安全事件、导出与保留</p></div><button className="icon-button" onClick={() => void load()} title="刷新"><RotateCw size={18} /></button></div>
       {error ? <div className="form-error">{error}</div> : null}
       <section className="table-panel">
@@ -84,10 +91,10 @@ export function AuditPage(): JSX.Element {
         <p className="muted-text">匹配事件 {total} 条{packageHash ? `，签名包 manifest: ${packageHash}` : ""}</p>
       </section>
       <section className="table-panel">
-        <table>
+        {events.length === 0 ? <EmptyState title="没有匹配的审计事件" description="调整筛选条件，或等待系统产生新的审计事件。" /> : <table>
           <thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>对象</th><th>状态</th></tr></thead>
           <tbody>{events.map((item) => <tr key={item.id}><td>{formatDate(item.time)}</td><td>{item.actor}</td><td>{item.action}</td><td>{item.target}</td><td><StatusPill status={item.status} /></td></tr>)}</tbody>
-        </table>
+        </table>}
       </section>
     </main>
   );

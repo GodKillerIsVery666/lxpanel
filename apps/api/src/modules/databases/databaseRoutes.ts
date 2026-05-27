@@ -5,12 +5,12 @@ import { requireRole } from "../auth/authMiddleware.js";
 import { enforceResourceApproval } from "../platform/approvalGuard.js";
 
 export function registerDatabaseRoutes(app: FastifyInstance, services: Services): void {
-  app.get("/api/databases", async (request, reply) => {
+  app.get<{ Querystring: { workspace?: string } }>("/api/databases", async (request, reply) => {
     const user = await requireRole(request, reply, services, "operator");
     if (!user) {
       return;
     }
-    return { connections: await services.databaseStore.listConnections() };
+    return { connections: await services.databaseStore.listConnections(request.query.workspace) };
   });
 
   app.post("/api/databases", async (request, reply) => {

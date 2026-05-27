@@ -46,6 +46,8 @@ export interface ConnectorCommandRecord {
   connectorId: string;
   command: string;
   args: string[];
+  signaturePayload?: string;
+  signature?: string;
   status: "queued" | "running" | "success" | "failed";
   createdAt: string;
   createdBy: string;
@@ -133,6 +135,16 @@ export type SecurityRemediationRunRecord = SecurityRemediationRun;
 export type TerminalSessionRecord = TerminalSession;
 export type TemplateRepositoryRecord = TemplateRepository;
 export type ImportedAppTemplateRecord = ImportedAppTemplate;
+export interface TemplateRepositorySnapshotRecord {
+  id: string;
+  repositoryId: string;
+  repositoryName: string;
+  templateIds: string[];
+  templates: ImportedAppTemplateRecord[];
+  indexSha256?: string;
+  createdAt: string;
+  createdBy: string;
+}
 export type LicenseInfoRecord = LicenseInfo;
 export type ResourceApprovalPolicyRecord = ResourceApprovalPolicy;
 export type WorkspaceRecord = Workspace;
@@ -163,6 +175,7 @@ export interface PanelState {
   securityRemediationRuns?: SecurityRemediationRunRecord[];
   terminalSessions?: TerminalSessionRecord[];
   templateRepositories?: TemplateRepositoryRecord[];
+  templateRepositorySnapshots?: TemplateRepositorySnapshotRecord[];
   importedAppTemplates?: ImportedAppTemplateRecord[];
   license?: LicenseInfoRecord;
   resourceApprovalPolicies?: ResourceApprovalPolicyRecord[];
@@ -196,6 +209,7 @@ export function createInitialPanelState(): PanelState {
     securityRemediationRuns: [],
     terminalSessions: [],
     templateRepositories: [],
+    templateRepositorySnapshots: [],
     importedAppTemplates: [],
     resourceApprovalPolicies: [],
     workspaces: [{ id: "default", name: "默认工作空间", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), updatedBy: "system" }]

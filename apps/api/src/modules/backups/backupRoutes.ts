@@ -79,12 +79,12 @@ export function registerBackupRoutes(app: FastifyInstance, services: Services): 
     return { schedule };
   });
 
-  app.get("/api/backups/remote-targets", async (request, reply) => {
+  app.get<{ Querystring: { workspace?: string } }>("/api/backups/remote-targets", async (request, reply) => {
     const user = await requireRole(request, reply, services, "owner");
     if (!user) {
       return;
     }
-    return { targets: await services.backupStore.listRemoteTargets() };
+    return { targets: await services.backupStore.listRemoteTargets(request.query.workspace) };
   });
 
   app.post("/api/backups/remote-targets", async (request, reply) => {

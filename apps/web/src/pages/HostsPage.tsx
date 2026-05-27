@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Send, Terminal, Trash2 } from "lucide-react";
 import type { Connector, Host, HostGroup } from "@lxpanel/shared";
 import { api } from "../api/client.js";
+import { EmptyState } from "../components/EmptyState.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { formatDate } from "../utils/format.js";
+import { readDefaultWorkspacePreference } from "../utils/preferences.js";
 
 export function HostsPage(): JSX.Element {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [groups, setGroups] = useState<HostGroup[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [workspace] = useState(() => readDefaultWorkspacePreference());
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [tags, setTags] = useState("");
@@ -18,12 +21,17 @@ export function HostsPage(): JSX.Element {
   const [batchHostIds, setBatchHostIds] = useState("");
   const [batchCommand, setBatchCommand] = useState("hostname");
   const [sshUser, setSshUser] = useState("");
+  const [hostSearch, setHostSearch] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const filteredHosts = useMemo(() => {
+    const query = hostSearch.trim().toLowerCase();
+    return query ? hosts.filter((host) => [host.name, host.address ?? "", host.connectorName ?? "", host.status, ...host.tags].some((value) => value.toLowerCase().includes(query))) : hosts;
+  }, [hostSearch, hosts]);
 
   async function load(): Promise<void> {
     try {
-      const [hostResponse, groupResponse, connectorResponse] = await Promise.allSettled([api.hosts(), api.hostGroups(), api.connectors()]);
+      const [hostResponse, groupResponse, connectorResponse] = await Promise.allSettled([api.hosts(workspace), api.hostGroups(), api.connectors()]);
       if (hostResponse.status === "fulfilled") {
         setHosts(hostResponse.value.hosts);
       } else {
@@ -43,6 +51,7 @@ export function HostsPage(): JSX.Element {
   async function create(): Promise<void> {
     try {
       await api.createHost({
+        workspace,
         name,
         ...(address ? { address } : {}),
         tags: splitTags(tags),
@@ -82,7 +91,7 @@ export function HostsPage(): JSX.Element {
 
   async function runBatch(): Promise<void> {
     try {
-      const response = await api.createHostBatchCommand({ workspace: "default", hostIds: splitIds(batchHostIds), command: batchCommand, args: [] });
+      const response = await api.createHostBatchCommand({ workspace, hostIds: splitIds(batchHostIds), command: batchCommand, args: [] });
       setNotice(`已下发 ${response.commands.length} 个连接器命令。`);
       await load();
     } catch (caught) {
@@ -125,14 +134,15 @@ export function HostsPage(): JSX.Element {
         <div className="panel-title">主机组和批量任务</div>
         <div className="inline-form wrap"><input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="主机组名称" /><input value={groupHostIds} onChange={(event) => setGroupHostIds(event.target.value)} placeholder="主机 ID，逗号分隔" /><button type="button" onClick={() => void createGroup()}><Plus size={16} /> 建组</button></div>
         <div className="inline-form wrap"><input value={batchHostIds} onChange={(event) => setBatchHostIds(event.target.value)} placeholder="主机 ID，逗号分隔" /><input value={batchCommand} onChange={(event) => setBatchCommand(event.target.value)} placeholder="命令" /><button type="button" onClick={() => void runBatch()}><Send size={16} /> 下发</button></div>
-        <table><thead><tr><th>组名</th><th>主机数</th><th>更新时间</th></tr></thead><tbody>{groups.map((group) => <tr key={group.id}><td>{group.name}</td><td>{group.hostIds.length}</td><td>{formatDate(group.updatedAt)}</td></tr>)}</tbody></table>
+        {groups.length === 0 ? <EmptyState title="还没有主机组" description="主机组用于按业务或环境批量下发命令。" /> : <table><thead><tr><th>组名</th><th>主机数</th><th>更新时间</th></tr></thead><tbody>{groups.map((group) => <tr key={group.id}><td>{group.name}</td><td>{group.hostIds.length}</td><td>{formatDate(group.updatedAt)}</td></tr>)}</tbody></table>}
       </section>
       <section className="table-panel">
         <div className="panel-title">主机列表</div>
+        <div className="list-toolbar"><input value={hostSearch} onChange={(event) => setHostSearch(event.target.value)} placeholder="搜索主机、标签、连接器或状态" /><p className="muted-text">{filteredHosts.length} / {hosts.length}</p></div>
         <div className="inline-form wrap"><input value={sshUser} onChange={(event) => setSshUser(event.target.value)} placeholder="SSH 用户，可选" /></div>
-        <table>
+        {filteredHosts.length === 0 ? <EmptyState title="没有匹配的主机" description="新增主机或连接器心跳上报后会出现在这里。" /> : <table>
           <thead><tr><th>名称</th><th>状态</th><th>地址</th><th>标签</th><th>连接器</th><th>最近在线</th><th>操作</th></tr></thead>
-          <tbody>{hosts.map((host) => (
+          <tbody>{filteredHosts.map((host) => (
             <tr key={host.id}>
               <td>{host.name}</td>
               <td><StatusPill status={host.status} /></td>
@@ -143,7 +153,7 @@ export function HostsPage(): JSX.Element {
               <td className="row-actions"><button className="mini-button" onClick={() => void openSsh(host)}><Terminal size={14} /> SSH</button>{host.id.startsWith("connector:") ? null : <button className="mini-button" onClick={() => void remove(host.id)}><Trash2 size={14} /> 删除</button>}</td>
             </tr>
           ))}</tbody>
-        </table>
+        </table>}
       </section>
     </main>
   );

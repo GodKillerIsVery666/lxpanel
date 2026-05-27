@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Archive, Clock, Download, PauseCircle, RotateCw, ShieldCheck, Undo2, UploadCloud } from "lucide-react";
 import type { BackupSchedule, BackupSnapshot, BackupVerification, RemoteBackupTarget } from "@lxpanel/shared";
 import { api } from "../api/client.js";
+import { ConfirmDialog } from "../components/ConfirmDialog.js";
+import { EmptyState } from "../components/EmptyState.js";
 import { formatBytes, formatDate } from "../utils/format.js";
+import { readDefaultWorkspacePreference } from "../utils/preferences.js";
 
 export function BackupsPage(): JSX.Element {
   const [backups, setBackups] = useState<BackupSnapshot[]>([]);
   const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
+  const [workspace] = useState(() => readDefaultWorkspacePreference());
   const [everyHours, setEveryHours] = useState("24");
   const [restoreApprovalId, setRestoreApprovalId] = useState("");
   const [remoteTargets, setRemoteTargets] = useState<RemoteBackupTarget[]>([]);
@@ -21,11 +25,17 @@ export function BackupsPage(): JSX.Element {
   const [remoteSecretKey, setRemoteSecretKey] = useState("");
   const [remoteResult, setRemoteResult] = useState<string | null>(null);
   const [verification, setVerification] = useState<BackupVerification | null>(null);
+  const [backupSearch, setBackupSearch] = useState("");
+  const [pendingRestore, setPendingRestore] = useState<BackupSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const filteredBackups = useMemo(() => {
+    const query = backupSearch.trim().toLowerCase();
+    return query ? backups.filter((backup) => [backup.fileName, backup.path, backup.createdBy, backup.sha256 ?? ""].some((value) => value.toLowerCase().includes(query))) : backups;
+  }, [backupSearch, backups]);
 
   async function load(): Promise<void> {
     try {
-      const [backupResponse, remoteResponse] = await Promise.all([api.backups(), api.remoteBackupTargets()]);
+      const [backupResponse, remoteResponse] = await Promise.all([api.backups(), api.remoteBackupTargets(workspace)]);
       setBackups(backupResponse.backups);
       setSchedule(backupResponse.schedule);
       setEveryHours(String(backupResponse.schedule.everyHours));
@@ -80,25 +90,31 @@ export function BackupsPage(): JSX.Element {
     }
   }
 
-  async function restoreBackup(backup: BackupSnapshot): Promise<void> {
+  function restoreBackup(backup: BackupSnapshot): void {
     if (!restoreApprovalId) {
       setError("恢复备份需要审批单 ID。");
       return;
     }
-    if (!window.confirm(`恢复备份 ${backup.fileName} 会清空当前会话并回到快照状态，继续吗？`)) {
+    setPendingRestore(backup);
+  }
+
+  async function confirmRestore(): Promise<void> {
+    if (!pendingRestore) {
       return;
     }
     try {
-      await api.restoreBackup(backup.id, restoreApprovalId);
+      await api.restoreBackup(pendingRestore.id, restoreApprovalId);
       window.location.reload();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "恢复失败。");
+      setPendingRestore(null);
     }
   }
 
   async function createRemoteTarget(): Promise<void> {
     try {
       await api.createRemoteBackupTarget({
+        workspace,
         name: remoteName,
         type: remoteType,
         path: remoteType === "filesystem" ? remotePath : `${remoteEndpoint}/${remoteBucket}/${remotePrefix}`,
@@ -136,6 +152,7 @@ export function BackupsPage(): JSX.Element {
 
   return (
     <main className="page-stack">
+      <ConfirmDialog open={Boolean(pendingRestore)} title="恢复状态快照" description={pendingRestore ? `将恢复 ${pendingRestore.fileName}，当前会话会被清空并回到快照状态。` : ""} confirmText="恢复" onConfirm={() => void confirmRestore()} onCancel={() => setPendingRestore(null)} />
       <div className="page-heading"><div><h1>备份</h1><p>本地状态快照</p></div><div className="row-actions"><button className="ghost-button" onClick={() => void create()}><Archive size={16} /> 创建</button><button className="icon-button" onClick={() => void load()} title="刷新"><RotateCw size={18} /></button></div></div>
       {error ? <div className="form-error">{error}</div> : null}
       <section className="table-panel">
@@ -151,10 +168,10 @@ export function BackupsPage(): JSX.Element {
         <div className="panel-title">远程备份目标</div>
         <div className="inline-form wrap"><input value={remoteName} onChange={(event) => setRemoteName(event.target.value)} placeholder="目标名称" /><select value={remoteType} onChange={(event) => setRemoteType(event.target.value as RemoteBackupTarget["type"])}><option value="filesystem">文件系统</option><option value="s3">S3 兼容</option></select>{remoteType === "filesystem" ? <input value={remotePath} onChange={(event) => setRemotePath(event.target.value)} placeholder="挂载目录或共享目录路径" /> : <><input value={remoteEndpoint} onChange={(event) => setRemoteEndpoint(event.target.value)} placeholder="https://s3.example.com" /><input value={remoteBucket} onChange={(event) => setRemoteBucket(event.target.value)} placeholder="bucket" /><input value={remotePrefix} onChange={(event) => setRemotePrefix(event.target.value)} placeholder="prefix" /><input value={remoteRegion} onChange={(event) => setRemoteRegion(event.target.value)} placeholder="region" /><input value={remoteAccessKey} onChange={(event) => setRemoteAccessKey(event.target.value)} placeholder="access key" /><input value={remoteSecretKey} onChange={(event) => setRemoteSecretKey(event.target.value)} placeholder="secret key" type="password" /></>}<button type="button" onClick={() => void createRemoteTarget()}><UploadCloud size={16} /> 添加</button></div>
         {remoteResult ? <p className="notice">{remoteResult}</p> : null}
-        <table><thead><tr><th>名称</th><th>类型</th><th>路径/桶</th><th>密钥</th><th>状态</th><th>最近同步</th></tr></thead><tbody>{remoteTargets.map((target) => <tr key={target.id}><td>{target.name}</td><td>{target.type}</td><td><code className="inline-code">{target.type === "s3" ? `${target.bucket ?? "-"}/${target.prefix ?? ""}` : target.path}</code></td><td>{target.secretConfigured ? "已配置" : "-"}</td><td>{target.lastStatus ?? (target.enabled ? "enabled" : "disabled")}</td><td>{target.lastSyncedAt ? formatDate(target.lastSyncedAt) : "-"}</td></tr>)}</tbody></table>
+        {remoteTargets.length === 0 ? <EmptyState title="还没有远程备份目标" description="添加文件系统或 S3 兼容目标后，可将快照同步到异地。" /> : <table><thead><tr><th>名称</th><th>类型</th><th>路径/桶</th><th>密钥</th><th>状态</th><th>最近同步</th></tr></thead><tbody>{remoteTargets.map((target) => <tr key={target.id}><td>{target.name}</td><td>{target.type}</td><td><code className="inline-code">{target.type === "s3" ? `${target.bucket ?? "-"}/${target.prefix ?? ""}` : target.path}</code></td><td>{target.secretConfigured ? "已配置" : "-"}</td><td>{target.lastStatus ?? (target.enabled ? "enabled" : "disabled")}</td><td>{target.lastSyncedAt ? formatDate(target.lastSyncedAt) : "-"}</td></tr>)}</tbody></table>}
       </section>
       {verification ? <section className="table-panel"><div className="panel-title">校验结果</div><p className={verification.ok ? "status-line good" : "status-line bad"}>{verification.ok ? "通过" : "失败"}：{verification.fileName}</p><p className="muted-text">SHA-256：<code>{verification.sha256 || "-"}</code></p><p className="muted-text">状态字段：{verification.stateKeys.join(", ") || "-"}</p>{verification.issues.length ? <ul>{verification.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : null}</section> : null}
-      <section className="table-panel"><table><thead><tr><th>文件</th><th>大小</th><th>创建者</th><th>时间</th><th>校验</th><th>操作</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{backup.fileName}<div className="muted-text"><code>{backup.path}</code></div></td><td>{formatBytes(backup.sizeBytes)}</td><td>{backup.createdBy}</td><td>{formatDate(backup.createdAt)}</td><td><code>{backup.sha256?.slice(0, 16) ?? "-"}</code></td><td className="row-actions"><button title="校验" onClick={() => void verifyBackup(backup)}><ShieldCheck size={15} /></button><button title="下载" onClick={() => void downloadBackup(backup)}><Download size={15} /></button><button title="同步远程" onClick={() => void syncRemote(backup)}><UploadCloud size={15} /></button><button title="恢复" onClick={() => void restoreBackup(backup)}><Undo2 size={15} /></button></td></tr>)}</tbody></table></section>
+      <section className="table-panel"><div className="list-toolbar"><input value={backupSearch} onChange={(event) => setBackupSearch(event.target.value)} placeholder="搜索文件名、路径、创建者或哈希" /><p className="muted-text">{filteredBackups.length} / {backups.length}</p></div>{filteredBackups.length === 0 ? <EmptyState title="没有匹配的快照" description="创建备份后会出现在这里；也可以调整搜索条件。" action={<button className="ghost-button" type="button" onClick={() => void create()}><Archive size={16} /> 创建</button>} /> : <table><thead><tr><th>文件</th><th>大小</th><th>创建者</th><th>时间</th><th>校验</th><th>操作</th></tr></thead><tbody>{filteredBackups.map((backup) => <tr key={backup.id}><td>{backup.fileName}<div className="muted-text"><code>{backup.path}</code></div></td><td>{formatBytes(backup.sizeBytes)}</td><td>{backup.createdBy}</td><td>{formatDate(backup.createdAt)}</td><td><code>{backup.sha256?.slice(0, 16) ?? "-"}</code></td><td className="row-actions"><button title="校验" onClick={() => void verifyBackup(backup)}><ShieldCheck size={15} /></button><button title="下载" onClick={() => void downloadBackup(backup)}><Download size={15} /></button><button title="同步远程" onClick={() => void syncRemote(backup)}><UploadCloud size={15} /></button><button title="恢复" onClick={() => void restoreBackup(backup)}><Undo2 size={15} /></button></td></tr>)}</tbody></table>}</section>
     </main>
   );
 }

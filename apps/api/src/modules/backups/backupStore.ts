@@ -54,9 +54,9 @@ export class BackupStore {
     return (state.backups ?? []).length;
   }
 
-  async listRemoteTargets(): Promise<RemoteBackupTarget[]> {
+  async listRemoteTargets(workspace?: string): Promise<RemoteBackupTarget[]> {
     const state = await this.store.read();
-    return (state.remoteBackupTargets ?? []).slice().reverse().map(toPublicRemoteTarget);
+    return (state.remoteBackupTargets ?? []).filter((target) => !workspace || (target.workspace ?? "default") === workspace).slice().reverse().map(toPublicRemoteTarget);
   }
 
   async createRemoteTarget(input: CreateRemoteBackupTarget, actor: string): Promise<RemoteBackupTarget> {
@@ -64,6 +64,7 @@ export class BackupStore {
       const now = new Date().toISOString();
       const target: RemoteBackupTargetRecord = {
         id: randomToken(12),
+        workspace: input.workspace,
         name: input.name,
         type: input.type,
         path: input.path,
@@ -92,6 +93,7 @@ export class BackupStore {
       }
       const updated: RemoteBackupTargetRecord = {
         ...target,
+        ...(input.workspace ? { workspace: input.workspace } : {}),
         ...(input.name ? { name: input.name } : {}),
         ...(input.path ? { path: input.path } : {}),
         ...(input.endpoint ? { endpoint: input.endpoint } : {}),
@@ -403,6 +405,7 @@ function decryptSecret(value: string, key: Buffer): string {
 function toPublicRemoteTarget(target: RemoteBackupTargetRecord): RemoteBackupTarget {
   return {
     id: target.id,
+    workspace: target.workspace ?? "default",
     name: target.name,
     type: target.type,
     path: target.path,

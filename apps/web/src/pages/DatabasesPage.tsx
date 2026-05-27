@@ -1,24 +1,54 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Database, RotateCw, Save, Trash2 } from "lucide-react";
 import type { DatabaseConnection, DatabaseType } from "@lxpanel/shared";
 import { api } from "../api/client.js";
+import { EmptyState } from "../components/EmptyState.js";
+import { StepWizard, type WizardStep } from "../components/StepWizard.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { formatDate } from "../utils/format.js";
+import { readDefaultWorkspacePreference } from "../utils/preferences.js";
 
 export function DatabasesPage(): JSX.Element {
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
+  const [workspace] = useState(() => readDefaultWorkspacePreference());
   const [name, setName] = useState("");
   const [type, setType] = useState<DatabaseType>("postgres");
   const [url, setUrl] = useState("");
   const [retentionDays, setRetentionDays] = useState("30");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleEveryHours, setScheduleEveryHours] = useState("24");
+  const [formStep, setFormStep] = useState(0);
+  const [connectionSearch, setConnectionSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  const filteredConnections = useMemo(() => {
+    const query = connectionSearch.trim().toLowerCase();
+    return query ? connections.filter((connection) => [connection.name, connection.type, connection.workspace, connection.maskedUrl, connection.lastStatus ?? ""].some((value) => value.toLowerCase().includes(query))) : connections;
+  }, [connectionSearch, connections]);
+  const wizardSteps: WizardStep[] = [
+    {
+      id: "identity",
+      title: "基础信息",
+      detail: "先确认连接名称和数据库类型。",
+      content: <div className="inline-form wrap"><input value={name} onChange={(event) => setName(event.target.value)} placeholder="连接名称" /><select value={type} onChange={(event) => setType(event.target.value as DatabaseType)}><option value="postgres">PostgreSQL</option><option value="mysql">MySQL</option><option value="mariadb">MariaDB</option></select><button type="button" onClick={() => setFormStep(1)}>下一步</button></div>
+    },
+    {
+      id: "url",
+      title: "连接地址",
+      detail: "URL 会在后端按配置加密或隐藏密码后展示。",
+      content: <div className="inline-form wrap"><input value={url} onChange={(event) => setUrl(event.target.value)} placeholder={type === "postgres" ? "postgres://user:password@host:5432/db" : "mysql://user:password@host:3306/db"} /><button type="button" onClick={() => setFormStep(0)}>上一步</button><button type="button" onClick={() => setFormStep(2)}>下一步</button></div>
+    },
+    {
+      id: "policy",
+      title: "备份策略",
+      detail: "设置保留周期和计划备份间隔。",
+      content: <div className="inline-form wrap"><input value={retentionDays} onChange={(event) => setRetentionDays(event.target.value)} inputMode="numeric" placeholder="保留天数" /><label className="compact-check"><input type="checkbox" checked={scheduleEnabled} onChange={(event) => setScheduleEnabled(event.target.checked)} /> 计划</label><input value={scheduleEveryHours} onChange={(event) => setScheduleEveryHours(event.target.value)} inputMode="numeric" placeholder="间隔小时" /><button type="button" onClick={() => setFormStep(1)}>上一步</button><button type="button" onClick={() => void create()}><Database size={16} /> 添加</button></div>
+    }
+  ];
 
   async function load(): Promise<void> {
     try {
-      const response = await api.databaseConnections();
+      const response = await api.databaseConnections(workspace);
       setConnections(response.connections);
       setError(null);
     } catch (caught) {
@@ -28,9 +58,10 @@ export function DatabasesPage(): JSX.Element {
 
   async function create(): Promise<void> {
     try {
-      await api.createDatabaseConnection({ workspace: "default", name, type, url, enabled: true, backupRetentionDays: Number.parseInt(retentionDays, 10) || 30, scheduleEnabled, scheduleEveryHours: Number.parseInt(scheduleEveryHours, 10) || 24 });
+      await api.createDatabaseConnection({ workspace, name, type, url, enabled: true, backupRetentionDays: Number.parseInt(retentionDays, 10) || 30, scheduleEnabled, scheduleEveryHours: Number.parseInt(scheduleEveryHours, 10) || 24 });
       setName("");
       setUrl("");
+      setFormStep(0);
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "创建失败。");
@@ -95,21 +126,14 @@ export function DatabasesPage(): JSX.Element {
       {result ? <p className="notice">{result}</p> : null}
       <section className="table-panel">
         <div className="panel-title">新增连接</div>
-        <div className="inline-form wrap">
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="连接名称" />
-          <select value={type} onChange={(event) => setType(event.target.value as DatabaseType)}><option value="postgres">PostgreSQL</option><option value="mysql">MySQL</option><option value="mariadb">MariaDB</option></select>
-          <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder={type === "postgres" ? "postgres://user:password@host:5432/db" : "mysql://user:password@host:3306/db"} />
-          <input value={retentionDays} onChange={(event) => setRetentionDays(event.target.value)} inputMode="numeric" placeholder="保留天数" />
-          <label className="compact-check"><input type="checkbox" checked={scheduleEnabled} onChange={(event) => setScheduleEnabled(event.target.checked)} /> 计划</label>
-          <input value={scheduleEveryHours} onChange={(event) => setScheduleEveryHours(event.target.value)} inputMode="numeric" placeholder="间隔小时" />
-          <button type="button" onClick={() => void create()}><Database size={16} /> 添加</button>
-        </div>
+        <StepWizard steps={wizardSteps} activeStep={formStep} onStepChange={setFormStep} />
       </section>
       <section className="table-panel">
         <div className="panel-title">连接列表</div>
-        <table>
+        <div className="list-toolbar"><input value={connectionSearch} onChange={(event) => setConnectionSearch(event.target.value)} placeholder="搜索名称、类型、地址、状态或工作空间" /><p className="muted-text">{filteredConnections.length} / {connections.length}</p></div>
+        {filteredConnections.length === 0 ? <EmptyState title="没有匹配的数据库连接" description="新增连接后可执行备份、恢复演练和计划任务。" /> : <table>
           <thead><tr><th>名称</th><th>类型</th><th>状态</th><th>地址</th><th>保留</th><th>计划</th><th>最近备份</th><th>恢复演练</th><th>结果</th><th>操作</th></tr></thead>
-          <tbody>{connections.map((connection) => (
+          <tbody>{filteredConnections.map((connection) => (
             <tr key={connection.id}>
               <td>{connection.name}</td>
               <td>{connection.type}</td>
@@ -123,7 +147,7 @@ export function DatabasesPage(): JSX.Element {
               <td className="row-actions"><button onClick={() => void backup(connection)} title="备份"><Save size={14} /></button><button onClick={() => void restoreDrill(connection)} title="恢复演练"><RotateCw size={14} /></button><button onClick={() => void toggleSchedule(connection)}>{connection.scheduleEnabled ? "停计划" : "计划"}</button><button onClick={() => void toggle(connection)}>{connection.enabled ? "停用" : "启用"}</button><button onClick={() => void remove(connection.id)} title="删除"><Trash2 size={14} /></button></td>
             </tr>
           ))}</tbody>
-        </table>
+        </table>}
       </section>
     </main>
   );

@@ -570,6 +570,7 @@ export type HostStatus = z.infer<typeof HostStatusSchema>;
 
 export const HostSchema = z.object({
   id: z.string(),
+  workspace: z.string().min(2).max(80).default("default"),
   name: z.string(),
   address: z.string().optional(),
   tags: z.array(z.string()),
@@ -584,6 +585,7 @@ export const HostSchema = z.object({
 export type Host = z.infer<typeof HostSchema>;
 
 export const CreateHostSchema = z.object({
+  workspace: z.string().min(2).max(80).default("default"),
   name: z.string().min(2).max(80),
   address: z.string().max(200).optional(),
   tags: z.array(z.string().min(1).max(32)).max(16).default([]),
@@ -594,6 +596,7 @@ export type CreateHost = z.infer<typeof CreateHostSchema>;
 
 export const UpdateHostSchema = z.object({
   hostId: z.string().min(1),
+  workspace: z.string().min(2).max(80).optional(),
   name: z.string().min(2).max(80).optional(),
   address: z.string().max(200).optional(),
   tags: z.array(z.string().min(1).max(32)).max(16).optional(),
@@ -658,6 +661,8 @@ export const ConnectorCommandSchema = z.object({
   connectorName: z.string().optional(),
   command: z.string(),
   args: z.array(z.string()),
+  signaturePayload: z.string().optional(),
+  signature: z.string().optional(),
   status: ConnectorCommandStatusSchema,
   createdAt: z.string(),
   createdBy: z.string(),
@@ -681,7 +686,8 @@ export const ConnectorCommandResultSchema = z.object({
   status: z.enum(["success", "failed"]),
   exitCode: z.number().int().optional(),
   stdoutTail: z.string().max(12_000).default(""),
-  stderrTail: z.string().max(12_000).default("")
+  stderrTail: z.string().max(12_000).default(""),
+  signature: z.string().max(256).optional()
 });
 export type ConnectorCommandResult = z.infer<typeof ConnectorCommandResultSchema>;
 
@@ -961,6 +967,7 @@ export type UpdateBackupSchedule = z.infer<typeof UpdateBackupScheduleSchema>;
 
 export const RemoteBackupTargetSchema = z.object({
   id: z.string(),
+  workspace: z.string().min(2).max(80).default("default"),
   name: z.string(),
   type: z.enum(["filesystem", "s3"]),
   path: z.string(),
@@ -981,6 +988,7 @@ export const RemoteBackupTargetSchema = z.object({
 export type RemoteBackupTarget = z.infer<typeof RemoteBackupTargetSchema>;
 
 export const CreateRemoteBackupTargetSchema = z.object({
+  workspace: z.string().min(2).max(80).default("default"),
   name: z.string().min(2).max(80),
   type: z.enum(["filesystem", "s3"]).default("filesystem"),
   path: z.string().min(1).max(500),
@@ -1004,6 +1012,7 @@ export type CreateRemoteBackupTarget = z.infer<typeof CreateRemoteBackupTargetSc
 
 export const UpdateRemoteBackupTargetSchema = z.object({
   targetId: z.string().min(1),
+  workspace: z.string().min(2).max(80).optional(),
   name: z.string().min(2).max(80).optional(),
   path: z.string().min(1).max(500).optional(),
   endpoint: z.string().url().optional(),
@@ -1261,6 +1270,16 @@ export const TerminalSessionSchema = z.object({
 });
 export type TerminalSession = z.infer<typeof TerminalSessionSchema>;
 
+export const TerminalReplaySchema = z.object({
+  sessionId: z.string(),
+  hostName: z.string(),
+  generatedAt: z.string(),
+  lineCount: z.number().int().nonnegative(),
+  redacted: z.boolean(),
+  lines: z.array(TerminalTranscriptLineSchema)
+});
+export type TerminalReplay = z.infer<typeof TerminalReplaySchema>;
+
 export const CreateTerminalSessionSchema = z.object({
   hostId: z.string().min(1),
   username: z.string().min(1).max(80).optional(),
@@ -1301,6 +1320,13 @@ export const TemplateRepositorySchema = z.object({
   updatedBy: z.string()
 });
 export type TemplateRepository = z.infer<typeof TemplateRepositorySchema>;
+
+export const TemplateRepositoryRollbackSchema = z.object({
+  repository: TemplateRepositorySchema,
+  restoredTemplateIds: z.array(z.string()),
+  rolledBackAt: z.string()
+});
+export type TemplateRepositoryRollback = z.infer<typeof TemplateRepositoryRollbackSchema>;
 
 export const CreateTemplateRepositorySchema = z.object({
   name: z.string().min(2).max(80),
@@ -1395,6 +1421,14 @@ export const ResourceApprovalCheckSchema = z.object({
 });
 export type ResourceApprovalCheck = z.infer<typeof ResourceApprovalCheckSchema>;
 
+export const ResourceApprovalPrecheckSchema = z.object({
+  required: z.boolean(),
+  target: z.string(),
+  requiredApprovals: z.number().int().min(0).max(5),
+  policy: ResourceApprovalPolicySchema.optional()
+});
+export type ResourceApprovalPrecheck = z.infer<typeof ResourceApprovalPrecheckSchema>;
+
 export const WorkspaceSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -1415,7 +1449,7 @@ export type CreateWorkspace = z.infer<typeof CreateWorkspaceSchema>;
 export const WorkspaceOverviewSchema = z.object({
   generatedAt: z.string(),
   workspaces: z.array(WorkspaceSchema),
-  counts: z.array(z.object({ workspace: z.string(), policies: z.number().int().nonnegative(), approvalPolicies: z.number().int().nonnegative(), apps: z.number().int().nonnegative(), databases: z.number().int().nonnegative() }))
+  counts: z.array(z.object({ workspace: z.string(), policies: z.number().int().nonnegative(), approvalPolicies: z.number().int().nonnegative(), hosts: z.number().int().nonnegative().default(0), apps: z.number().int().nonnegative(), databases: z.number().int().nonnegative(), remoteBackupTargets: z.number().int().nonnegative().default(0) }))
 });
 export type WorkspaceOverview = z.infer<typeof WorkspaceOverviewSchema>;
 
@@ -1438,6 +1472,36 @@ export const StateArchiveResultSchema = z.object({
   generatedAt: z.string()
 });
 export type StateArchiveResult = z.infer<typeof StateArchiveResultSchema>;
+
+export const StateArchiveRecordSchema = z.object({
+  id: z.number().int().positive(),
+  bucket: z.string(),
+  recordId: z.string(),
+  eventTime: z.string(),
+  archivedAt: z.string(),
+  payload: z.unknown()
+});
+export type StateArchiveRecord = z.infer<typeof StateArchiveRecordSchema>;
+
+export const StateArchivePageSchema = z.object({
+  generatedAt: z.string(),
+  bucket: z.string().optional(),
+  records: z.array(StateArchiveRecordSchema),
+  archiveDriver: z.enum(["json-trim", "sqlite-table"]).default("json-trim")
+});
+export type StateArchivePage = z.infer<typeof StateArchivePageSchema>;
+
+export const DiagnosticsBundleSchema = z.object({
+  generatedAt: z.string(),
+  version: z.string(),
+  hostname: z.string(),
+  stateBytes: z.number().int().nonnegative(),
+  checks: z.array(z.object({ id: z.string(), title: z.string(), status: z.enum(["ok", "warn", "error"]), detail: z.string() })),
+  openApiPaths: z.number().int().nonnegative(),
+  frontendChecks: z.number().int().nonnegative(),
+  sha256: z.string()
+});
+export type DiagnosticsBundle = z.infer<typeof DiagnosticsBundleSchema>;
 
 export const InstallerGuideSchema = z.object({
   generatedAt: z.string(),

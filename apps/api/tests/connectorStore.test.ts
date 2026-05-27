@@ -1,4 +1,5 @@
 import { mkdtemp } from "node:fs/promises";
+import { createHash, createHmac } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -14,11 +15,15 @@ describe("连接器命令队列", () => {
     const queued = await connectorStore.createCommand({ connectorId: created.connector.id, command: "echo", args: ["ok"] }, "admin");
 
     const claimed = await connectorStore.claimCommands(created.token);
-    const completed = await connectorStore.completeCommand(created.token, { commandId: queued.id, status: "success", exitCode: 0, stdoutTail: "ok", stderrTail: "" });
+    const resultPayload = canonicalJson({ commandId: queued.id, status: "success", exitCode: 0, stdoutTail: "ok", stderrTail: "" });
+    const signature = createHmac("sha256", createHash("sha256").update(created.token).digest("base64url")).update(resultPayload).digest("base64url");
+    const completed = await connectorStore.completeCommand(created.token, { commandId: queued.id, status: "success", exitCode: 0, stdoutTail: "ok", stderrTail: "", signature });
     const commands = await connectorStore.listCommands(created.connector.id);
 
     expect(claimed).toHaveLength(1);
     expect(claimed?.[0]).toMatchObject({ id: queued.id, status: "running" });
+    expect(claimed?.[0]?.signaturePayload).toContain(queued.id);
+    expect(claimed?.[0]?.signature).toBeTruthy();
     expect(completed).toMatchObject({ status: "success", stdoutTail: "ok" });
     expect(commands[0]).toMatchObject({ id: queued.id, connectorName: "agent", status: "success" });
   });
@@ -46,3 +51,14 @@ describe("连接器命令队列", () => {
     expect(state.metricSamples?.[0]).toMatchObject({ hostId: "node-a", cpuPercent: 12, memoryPercent: 34, diskUsedPercent: 56 });
   });
 });
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}

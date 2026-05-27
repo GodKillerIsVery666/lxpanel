@@ -1,4 +1,5 @@
 import type { Connector, ConnectorCommand, ConnectorCommandResult, ConnectorHeartbeat, CreateConnector, CreateConnectorCommand } from "@lxpanel/shared";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { randomToken, sha256 } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import type { ConnectorCommandRecord, ConnectorRecord, MetricSampleRecord, PanelState } from "../state/panelState.js";
@@ -99,9 +100,15 @@ export class ConnectorStore {
         createdAt: new Date().toISOString(),
         createdBy: actor
       };
+      const signaturePayload = commandSignaturePayload(record);
+      const signedRecord: ConnectorCommandRecord = {
+        ...record,
+        signaturePayload,
+        signature: signPayload(connector.tokenHash, signaturePayload)
+      };
       return {
-        data: { ...state, connectorCommands: [...(state.connectorCommands ?? []), record].slice(-500) },
-        result: toCommand(record, state.connectors)
+        data: { ...state, connectorCommands: [...(state.connectorCommands ?? []), signedRecord].slice(-500) },
+        result: toCommand(signedRecord, state.connectors)
       };
     });
   }
@@ -133,6 +140,9 @@ export class ConnectorStore {
       const command = (state.connectorCommands ?? []).find((item) => item.id === result.commandId);
       if (!connector || !command || command.connectorId !== connector.id) {
         return { data: state, result: null };
+      }
+      if (result.signature && !verifySignature(connector.tokenHash, resultSignaturePayload(result), result.signature)) {
+        throw new Error("连接器命令结果签名无效。");
       }
       const updated: ConnectorCommandRecord = {
         ...command,
@@ -170,6 +180,8 @@ function toCommand(record: ConnectorCommandRecord, connectors: ConnectorRecord[]
     ...(connector ? { connectorName: connector.name } : {}),
     command: record.command,
     args: record.args,
+    ...(record.signaturePayload ? { signaturePayload: record.signaturePayload } : {}),
+    ...(record.signature ? { signature: record.signature } : {}),
     status: record.status,
     createdAt: record.createdAt,
     createdBy: record.createdBy,
@@ -179,6 +191,35 @@ function toCommand(record: ConnectorCommandRecord, connectors: ConnectorRecord[]
     ...(record.stdoutTail ? { stdoutTail: record.stdoutTail } : {}),
     ...(record.stderrTail ? { stderrTail: record.stderrTail } : {})
   };
+}
+
+function commandSignaturePayload(record: Pick<ConnectorCommandRecord, "id" | "connectorId" | "command" | "args" | "createdAt" | "createdBy">): string {
+  return canonicalJson({ id: record.id, connectorId: record.connectorId, command: record.command, args: record.args, createdAt: record.createdAt, createdBy: record.createdBy });
+}
+
+function resultSignaturePayload(result: ConnectorCommandResult): string {
+  return canonicalJson({ commandId: result.commandId, status: result.status, exitCode: result.exitCode, stdoutTail: result.stdoutTail, stderrTail: result.stderrTail });
+}
+
+function signPayload(secret: string, payload: string): string {
+  return createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+function verifySignature(secret: string, payload: string, signature: string): boolean {
+  const expected = Buffer.from(signPayload(secret, payload));
+  const actual = Buffer.from(signature);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function statusFor(lastSeenAt?: string): Connector["status"] {

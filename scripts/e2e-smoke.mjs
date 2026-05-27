@@ -35,6 +35,7 @@ try {
     await app.inject({ method: "GET", url: "/api/platform/license", headers: { cookie } }),
     await app.inject({ method: "POST", url: "/api/platform/license/verify", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ plan: "team", licensedTo: "e2e", maxHosts: 1, maxUsers: 1, maxApps: 1, features: [], offlineToken: "bad.token", publicKey: "bad-key" }) }),
     await app.inject({ method: "GET", url: "/api/platform/approval-policies", headers: { cookie } }),
+    await app.inject({ method: "POST", url: "/api/platform/approval-policies/check", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ workspace: "default", resourceType: "host", resourceId: "node-a", action: "host.batch_command" }) }),
     await app.inject({ method: "GET", url: "/api/platform/capacity-plan", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/platform/upgrade-plan", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/platform/delivery-checklist", headers: { cookie } }),
@@ -44,6 +45,8 @@ try {
     await app.inject({ method: "GET", url: "/api/platform/sdk-examples", headers: { cookie } }),
     await app.inject({ method: "GET", url: "/api/platform/frontend-quality", headers: { cookie } }),
     await app.inject({ method: "POST", url: "/api/platform/archive-state", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ dryRun: true }) }),
+    await app.inject({ method: "GET", url: "/api/platform/archive-records?limit=5", headers: { cookie } }),
+    await app.inject({ method: "GET", url: "/api/platform/diagnostics-bundle", headers: { cookie } }),
     await app.inject({ method: "POST", url: "/api/databases/cleanup", headers: { cookie } })
   ];
   for (const response of checks) {

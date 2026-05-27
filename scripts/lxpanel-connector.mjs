@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const panelUrl = readRequiredEnv("LXPANEL_URL").replace(/\/$/u, "");
 const token = readRequiredEnv("LXPANEL_CONNECTOR_TOKEN");
+const tokenHash = sha256(token);
 const connectorName = process.env.LXPANEL_CONNECTOR_NAME ?? hostname();
 const pollIntervalMs = parsePositiveInt(process.env.LXPANEL_CONNECTOR_POLL_MS ?? "5000");
 const commandTimeoutMs = parsePositiveInt(process.env.LXPANEL_CONNECTOR_COMMAND_TIMEOUT_MS ?? "60000");
@@ -40,6 +42,15 @@ async function pollCommands() {
 
 async function runAndReport(command) {
   const startedAt = Date.now();
+  if (!verifyCommandSignature(command)) {
+    await report(command.id, {
+      status: "failed",
+      exitCode: 126,
+      stdoutTail: "",
+      stderrTail: "invalid command signature"
+    });
+    return;
+  }
   if (!allowedCommands.includes(command.command)) {
     await report(command.id, {
       status: "failed",
@@ -75,10 +86,46 @@ async function runAndReport(command) {
 }
 
 async function report(commandId, result) {
+  const body = { commandId, ...result };
   await request("/api/connectors/commands/result", {
     method: "POST",
-    body: { commandId, ...result }
+    body: { ...body, signature: signPayload(resultSignaturePayload(body)) }
   });
+}
+
+function verifyCommandSignature(command) {
+  if (typeof command.signaturePayload !== "string" || typeof command.signature !== "string") {
+    return false;
+  }
+  return verifySignature(command.signaturePayload, command.signature);
+}
+
+function resultSignaturePayload(result) {
+  return canonicalJson({ commandId: result.commandId, status: result.status, exitCode: result.exitCode, stdoutTail: result.stdoutTail, stderrTail: result.stderrTail });
+}
+
+function signPayload(payload) {
+  return createHmac("sha256", tokenHash).update(payload).digest("base64url");
+}
+
+function verifySignature(payload, signature) {
+  const expected = Buffer.from(signPayload(payload));
+  const actual = Buffer.from(signature);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("base64url");
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (typeof value === "object" && value !== null) {
+    return `{${Object.keys(value).filter((key) => value[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 async function request(path, options) {

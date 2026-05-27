@@ -47,9 +47,9 @@ export class DatabaseStore {
     this.encryptionKey = encryptionSecret ? createHash("sha256").update(encryptionSecret).digest() : null;
   }
 
-  async listConnections(): Promise<DatabaseConnection[]> {
+  async listConnections(workspace?: string): Promise<DatabaseConnection[]> {
     const state = await this.store.read();
-    return (state.databaseConnections ?? []).slice().reverse().map((connection) => toPublicConnection(connection, this.readUrl(connection)));
+    return (state.databaseConnections ?? []).filter((connection) => !workspace || (connection.workspace ?? "default") === workspace).slice().reverse().map((connection) => toPublicConnection(connection, this.readUrl(connection)));
   }
 
   async createConnection(input: CreateDatabaseConnection, actor: string): Promise<DatabaseConnection> {

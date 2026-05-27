@@ -9,14 +9,14 @@ const offlineAfterMs = 1000 * 60 * 15;
 export class HostService {
   constructor(private readonly store: StateStore<PanelState>) {}
 
-  async list(): Promise<Host[]> {
+  async list(workspace?: string): Promise<Host[]> {
     const state = await this.store.read();
-    const hosts = (state.hosts ?? []).map((host) => toHost(host, state.connectors));
+    const hosts = (state.hosts ?? []).filter((host) => !workspace || (host.workspace ?? "default") === workspace).map((host) => toHost(host, state.connectors));
     const linkedConnectorIds = new Set(hosts.map((host) => host.connectorId).filter((id): id is string => Boolean(id)));
     const discovered = state.connectors
       .filter((connector) => !linkedConnectorIds.has(connector.id))
       .map(toDiscoveredHost);
-    return [...hosts, ...discovered].sort((left, right) => left.name.localeCompare(right.name));
+    return [...hosts, ...discovered.filter((host) => !workspace || host.workspace === workspace)].sort((left, right) => left.name.localeCompare(right.name));
   }
 
   async listGroups(): Promise<HostGroup[]> {
@@ -63,6 +63,7 @@ export class HostService {
       const now = new Date().toISOString();
       const record: HostRecord = {
         id: randomToken(12),
+        workspace: input.workspace,
         name: input.name,
         ...(input.address ? { address: input.address } : {}),
         tags: input.tags,
@@ -87,6 +88,7 @@ export class HostService {
       assertConnectorExists(input.connectorId, state.connectors);
       const updated: HostRecord = {
         ...existing,
+        ...(input.workspace ? { workspace: input.workspace } : {}),
         ...(input.name ? { name: input.name } : {}),
         ...(input.address ? { address: input.address } : {}),
         ...(input.tags ? { tags: input.tags } : {}),
@@ -114,6 +116,7 @@ function toHost(record: HostRecord, connectors: ConnectorRecord[]): Host {
   const connector = record.connectorId ? connectors.find((item) => item.id === record.connectorId) : undefined;
   return {
     id: record.id,
+    workspace: record.workspace ?? "default",
     name: record.name,
     ...(record.address ? { address: record.address } : {}),
     tags: record.tags,
@@ -130,6 +133,7 @@ function toHost(record: HostRecord, connectors: ConnectorRecord[]): Host {
 function toDiscoveredHost(connector: ConnectorRecord): Host {
   return {
     id: `connector:${connector.id}`,
+    workspace: "default",
     name: connector.name,
     tags: ["connector"],
     status: statusFor(connector.lastSeenAt),

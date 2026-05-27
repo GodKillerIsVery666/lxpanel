@@ -5,12 +5,12 @@ import { requireRole, requireUser } from "../auth/authMiddleware.js";
 import { enforceResourceApproval } from "../platform/approvalGuard.js";
 
 export function registerHostRoutes(app: FastifyInstance, services: Services): void {
-  app.get("/api/hosts", async (request, reply) => {
+  app.get<{ Querystring: { workspace?: string } }>("/api/hosts", async (request, reply) => {
     const user = await requireUser(request, reply, services);
     if (!user) {
       return;
     }
-    return { hosts: await services.hostService.list() };
+    return { hosts: await services.hostService.list(request.query.workspace) };
   });
 
   app.get("/api/hosts/groups", async (request, reply) => {

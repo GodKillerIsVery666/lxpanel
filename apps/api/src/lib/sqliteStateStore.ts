@@ -10,11 +10,21 @@ interface DatabaseLike {
 
 interface StatementLike {
   get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
   run(...params: unknown[]): unknown;
 }
 
 interface ValueRow {
   value: string;
+}
+
+interface ArchiveRow {
+  id: number;
+  bucket: string;
+  record_id: string;
+  event_time: string;
+  payload: string;
+  archived_at: string;
 }
 
 export class SqliteStateStore<TData extends object> implements StateStore<TData> {
@@ -79,6 +89,27 @@ export class SqliteStateStore<TData extends object> implements StateStore<TData>
     }
   }
 
+  queryArchiveRecords(input: { bucket?: string; limit?: number }): Promise<Array<{ id: number; bucket: string; recordId: string; eventTime: string; payload: unknown; archivedAt: string }>> {
+    try {
+      const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
+      const statement = input.bucket
+        ? this.db.prepare("SELECT id, bucket, record_id, event_time, payload, archived_at FROM state_archive WHERE bucket = ? ORDER BY event_time DESC, id DESC LIMIT ?")
+        : this.db.prepare("SELECT id, bucket, record_id, event_time, payload, archived_at FROM state_archive ORDER BY event_time DESC, id DESC LIMIT ?");
+      const rawRows = input.bucket ? statement.all(input.bucket, limit) : statement.all(limit);
+      const rows = rawRows.filter(isArchiveRow);
+      return Promise.resolve(rows.map((row) => ({
+        id: row.id,
+        bucket: row.bucket,
+        recordId: row.record_id,
+        eventTime: row.event_time,
+        archivedAt: row.archived_at,
+        payload: parsePayload(row.payload)
+      })));
+    } catch (error) {
+      return Promise.reject(normalizeError(error));
+    }
+  }
+
   close(): void {
     this.db.close();
   }
@@ -124,6 +155,24 @@ export class SqliteStateStore<TData extends object> implements StateStore<TData>
 
 function isValueRow(value: unknown): value is ValueRow {
   return typeof value === "object" && value !== null && "value" in value && typeof value.value === "string";
+}
+
+function isArchiveRow(value: unknown): value is ArchiveRow {
+  return typeof value === "object" && value !== null
+    && "id" in value && typeof value.id === "number"
+    && "bucket" in value && typeof value.bucket === "string"
+    && "record_id" in value && typeof value.record_id === "string"
+    && "event_time" in value && typeof value.event_time === "string"
+    && "payload" in value && typeof value.payload === "string"
+    && "archived_at" in value && typeof value.archived_at === "string";
+}
+
+function parsePayload(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
 }
 
 function normalizeError(error: unknown): Error {

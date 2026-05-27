@@ -18,7 +18,8 @@
     "lint": "npm run build -w @lxpanel/shared && eslint .",
     "e2e": "node scripts/e2e-smoke.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "package:release": "node scripts/package-release.mjs"
+    "package:release": "node scripts/package-release.mjs",
+    "license:issue": "node scripts/license-issue.mjs"
   },
   "devDependencies": {
     "@eslint/js": "latest",

@@ -13,12 +13,12 @@ export function registerAppRoutes(app: FastifyInstance, services: Services): voi
     return { templates: await services.appStore.listTemplates() };
   });
 
-  app.get("/api/apps/deployments", async (request, reply) => {
+  app.get<{ Querystring: { workspace?: string } }>("/api/apps/deployments", async (request, reply) => {
     const user = await requireUser(request, reply, services);
     if (!user) {
       return;
     }
-    return { deployments: await services.appStore.listDeployments() };
+    return { deployments: await services.appStore.listDeployments(request.query.workspace) };
   });
 
   app.get<{ Querystring: { deploymentId?: string } }>("/api/apps/deployments/health", async (request, reply) => {
