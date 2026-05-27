@@ -8,6 +8,8 @@ import {
   AuditIntegrityReportSchema,
   AuditPruneResultSchema,
   AuditQuerySchema,
+  AuditRetentionEvaluationSchema,
+  AuditRetentionPolicySchema,
   AuditRetentionSchema,
   AlertEventSchema,
   AlertSilenceSchema,
@@ -29,11 +31,15 @@ import {
   BackupRequestSchema,
   BackupRestoreRequestSchema,
   BackupRestoreResponseSchema,
+  BackupEncryptionPolicySchema,
+  BackupKeyRotationPlanSchema,
   BackupVerificationSchema,
   ComplianceReportSchema,
   CreateRemoteBackupTargetSchema,
   AuthSessionSchema,
   ConnectorCommandSchema,
+  ConnectorReleaseChannelSchema,
+  ConnectorReleaseManifestSchema,
   ConnectorUpgradePlanSchema,
   ConnectorUpgradeRequestSchema,
   ConnectorVersionPolicySchema,
@@ -79,11 +85,13 @@ import {
   FileReadRequestSchema,
   FileWriteRequestSchema,
   HostSchema,
+  HighAvailabilityPlanSchema,
   HostBatchCommandSchema,
   HostGroupSchema,
   HostSshSessionRequestSchema,
   FrontendQualityReportSchema,
   InstallerGuideSchema,
+  IdentityProviderSchema,
   LicenseStatusSchema,
   LicenseVerificationResultSchema,
   LogRootSchema,
@@ -98,6 +106,8 @@ import {
   OpenApiSummarySchema,
   OpenApiDocumentSchema,
   NotificationTestSchema,
+  PluginManifestSchema,
+  PluginPermissionEvaluationSchema,
   ProcessInfoSchema,
   RevokeApiTokenSchema,
   ResourceApprovalPolicySchema,
@@ -111,6 +121,7 @@ import {
   SecurityPostureSchema,
   ServiceInfoSchema,
   SetupRequestSchema,
+  SsoReadinessSchema,
   StateArchiveRequestSchema,
   StateArchivePageSchema,
   StateArchiveResultSchema,
@@ -244,6 +255,17 @@ const ConnectorCommandResponseSchema = z.object({ command: ConnectorCommandSchem
 const ConnectorCommandsOnlyResponseSchema = z.object({ commands: z.array(ConnectorCommandSchema) });
 const ConnectorVersionPolicyResponseSchema = z.object({ policy: ConnectorVersionPolicySchema });
 const ConnectorUpgradePlanResponseSchema = z.object({ plan: ConnectorUpgradePlanSchema });
+const IdentityProviderResponseSchema = z.object({ provider: IdentityProviderSchema.nullable() });
+const SsoReadinessResponseSchema = z.object({ readiness: SsoReadinessSchema });
+const ConnectorReleaseChannelsResponseSchema = z.object({ channels: z.array(ConnectorReleaseChannelSchema) });
+const ConnectorReleaseManifestResponseSchema = z.object({ manifest: ConnectorReleaseManifestSchema });
+const BackupEncryptionPolicyResponseSchema = z.object({ policy: BackupEncryptionPolicySchema });
+const BackupKeyRotationPlanResponseSchema = z.object({ plan: BackupKeyRotationPlanSchema });
+const AuditRetentionPoliciesResponseSchema = z.object({ policies: z.array(AuditRetentionPolicySchema) });
+const AuditRetentionEvaluationResponseSchema = z.object({ evaluation: AuditRetentionEvaluationSchema });
+const PluginManifestsResponseSchema = z.object({ plugins: z.array(PluginManifestSchema) });
+const PluginPermissionEvaluationResponseSchema = z.object({ evaluation: PluginPermissionEvaluationSchema });
+const HighAvailabilityPlanResponseSchema = z.object({ plan: HighAvailabilityPlanSchema });
 const DockerStatusResponseSchema = z.object({ status: DockerStatusSchema });
 const DockerContainersResponseSchema = z.object({ containers: z.array(DockerContainerSchema) });
 const DockerImagesResponseSchema = z.object({ images: z.array(DockerImageSchema) });
@@ -422,6 +444,17 @@ export const api = {
   tenantReport: (workspace = "default") => request(`/api/platform/tenant-report?workspace=${encodeURIComponent(workspace)}`, TenantReportResponseSchema),
   connectorVersionPolicy: () => request("/api/platform/connectors/version-policy", ConnectorVersionPolicyResponseSchema),
   scheduleConnectorUpgrade: (input: ConnectorUpgradeRequest) => request("/api/platform/connectors/upgrade", ConnectorUpgradePlanResponseSchema, "POST", ConnectorUpgradeRequestSchema.parse(input)),
+  identityProvider: () => request("/api/platform/identity-provider", IdentityProviderResponseSchema),
+  ssoReadiness: () => request("/api/platform/sso-readiness", SsoReadinessResponseSchema),
+  connectorReleaseChannels: () => request("/api/platform/connectors/release-channels", ConnectorReleaseChannelsResponseSchema),
+  connectorReleaseManifest: () => request("/api/platform/connectors/release-manifest", ConnectorReleaseManifestResponseSchema),
+  backupEncryptionPolicy: () => request("/api/platform/backup-encryption", BackupEncryptionPolicyResponseSchema),
+  backupKeyRotationPlan: () => request("/api/platform/backup-encryption/rotation-plan", BackupKeyRotationPlanResponseSchema),
+  auditRetentionPolicies: () => request("/api/platform/audit-retention-policies", AuditRetentionPoliciesResponseSchema),
+  auditRetentionEvaluation: () => request("/api/platform/audit-retention-policies/evaluate", AuditRetentionEvaluationResponseSchema, "POST", { workspace: "default", eventType: "*", eventCount: 0 }),
+  plugins: () => request("/api/platform/plugins", PluginManifestsResponseSchema),
+  pluginPermissionEvaluation: (pluginId: string) => request("/api/platform/plugins/evaluate", PluginPermissionEvaluationResponseSchema, "POST", { pluginId, requestedScopes: ["platform:read"] }),
+  highAvailabilityPlan: () => request("/api/platform/high-availability-plan", HighAvailabilityPlanResponseSchema),
   licenseStatus: () => request("/api/platform/license", LicenseStatusResponseSchema),
   updateLicense: (input: UpdateLicense) => request("/api/platform/license", LicenseStatusResponseSchema, "PUT", UpdateLicenseSchema.parse(input)),
   verifyLicense: (input: UpdateLicense) => request("/api/platform/license/verify", LicenseVerificationResponseSchema, "POST", UpdateLicenseSchema.parse(input)),

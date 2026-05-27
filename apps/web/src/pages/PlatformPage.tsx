@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Accessibility, Archive, ClipboardList, Code2, Database, Download, GitBranch, Globe2, KeyRound, Play, Plus, Send, ShieldCheck, Terminal } from "lucide-react";
-import type { AccessPolicy, CapacityPlan, ComplianceReport, ConnectorUpgradePlan, ConnectorVersionPolicy, DatabaseBackupCleanupResult, DeliveryChecklist, DiagnosticsBundle, FrontendQualityReport, InstallerGuide, LicenseStatus, OpenApiSummary, ResourceApprovalPolicy, ResourceApprovalPrecheck, SdkExample, SecurityHardeningPlan, SecurityRemediationRun, StateArchivePage, StateArchiveResult, TemplateRepository, TenantReport, TerminalReplay, TerminalSession, UpgradePlan, WorkspaceOverview } from "@lxpanel/shared";
+import type { AccessPolicy, AuditRetentionEvaluation, AuditRetentionPolicy, BackupEncryptionPolicy, BackupKeyRotationPlan, CapacityPlan, ComplianceReport, ConnectorReleaseManifest, ConnectorUpgradePlan, ConnectorVersionPolicy, DatabaseBackupCleanupResult, DeliveryChecklist, DiagnosticsBundle, FrontendQualityReport, HighAvailabilityPlan, InstallerGuide, LicenseStatus, OpenApiSummary, PluginManifest, ResourceApprovalPolicy, ResourceApprovalPrecheck, SdkExample, SecurityHardeningPlan, SecurityRemediationRun, SsoReadiness, StateArchivePage, StateArchiveResult, TemplateRepository, TenantReport, TerminalReplay, TerminalSession, UpgradePlan, WorkspaceOverview } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { platformText, type Locale } from "../i18n/resources.js";
@@ -28,6 +28,14 @@ export function PlatformPage(): JSX.Element {
   const [quality, setQuality] = useState<FrontendQualityReport | null>(null);
   const [workspaceOverview, setWorkspaceOverview] = useState<WorkspaceOverview | null>(null);
   const [connectorPolicy, setConnectorPolicy] = useState<ConnectorVersionPolicy | null>(null);
+  const [ssoReadiness, setSsoReadiness] = useState<SsoReadiness | null>(null);
+  const [releaseManifest, setReleaseManifest] = useState<ConnectorReleaseManifest | null>(null);
+  const [backupEncryption, setBackupEncryption] = useState<BackupEncryptionPolicy | null>(null);
+  const [backupRotation, setBackupRotation] = useState<BackupKeyRotationPlan | null>(null);
+  const [retentionPolicies, setRetentionPolicies] = useState<AuditRetentionPolicy[]>([]);
+  const [retentionEvaluation, setRetentionEvaluation] = useState<AuditRetentionEvaluation | null>(null);
+  const [plugins, setPlugins] = useState<PluginManifest[]>([]);
+  const [haPlan, setHaPlan] = useState<HighAvailabilityPlan | null>(null);
   const [upgradePlan, setUpgradePlan] = useState<ConnectorUpgradePlan | null>(null);
   const [tenantReport, setTenantReport] = useState<TenantReport | null>(null);
   const [terminalReplay, setTerminalReplay] = useState<TerminalReplay | null>(null);
@@ -57,8 +65,8 @@ export function PlatformPage(): JSX.Element {
 
   async function load(): Promise<void> {
     try {
-      const [policyResponse, approvalPolicyResponse, terminalResponse, repositoryResponse, licenseResponse, workspaceResponse, connectorPolicyResponse, remediationResponse, hardeningResponse, capacityResponse, upgradeResponse, deliveryResponse, openApiResponse, openApiDocumentResponse, complianceResponse, installerResponse, sdkResponse, qualityResponse] = await Promise.all([
-        api.accessPolicies(), api.approvalPolicies(), api.terminalSessions(), api.templateRepositories(), api.licenseStatus(), api.workspaces(), api.connectorVersionPolicy(), api.remediationRuns(), api.securityHardeningPlan(), api.capacityPlan(), api.upgradePlan(), api.deliveryChecklist(), api.openApiSummary(), api.openApiDocument(), api.complianceReport(), api.installerGuide(), api.sdkExamples(), api.frontendQuality()
+      const [policyResponse, approvalPolicyResponse, terminalResponse, repositoryResponse, licenseResponse, workspaceResponse, connectorPolicyResponse, ssoResponse, releaseResponse, backupEncryptionResponse, backupRotationResponse, retentionResponse, retentionEvaluationResponse, pluginsResponse, haResponse, remediationResponse, hardeningResponse, capacityResponse, upgradeResponse, deliveryResponse, openApiResponse, openApiDocumentResponse, complianceResponse, installerResponse, sdkResponse, qualityResponse] = await Promise.all([
+        api.accessPolicies(), api.approvalPolicies(), api.terminalSessions(), api.templateRepositories(), api.licenseStatus(), api.workspaces(), api.connectorVersionPolicy(), api.ssoReadiness(), api.connectorReleaseManifest(), api.backupEncryptionPolicy(), api.backupKeyRotationPlan(), api.auditRetentionPolicies(), api.auditRetentionEvaluation(), api.plugins(), api.highAvailabilityPlan(), api.remediationRuns(), api.securityHardeningPlan(), api.capacityPlan(), api.upgradePlan(), api.deliveryChecklist(), api.openApiSummary(), api.openApiDocument(), api.complianceReport(), api.installerGuide(), api.sdkExamples(), api.frontendQuality()
       ]);
       setPolicies(policyResponse.policies);
       setApprovalPolicies(approvalPolicyResponse.policies);
@@ -67,6 +75,14 @@ export function PlatformPage(): JSX.Element {
       setLicenseStatus(licenseResponse.status);
       setWorkspaceOverview(workspaceResponse.overview);
       setConnectorPolicy(connectorPolicyResponse.policy);
+      setSsoReadiness(ssoResponse.readiness);
+      setReleaseManifest(releaseResponse.manifest);
+      setBackupEncryption(backupEncryptionResponse.policy);
+      setBackupRotation(backupRotationResponse.plan);
+      setRetentionPolicies(retentionResponse.policies);
+      setRetentionEvaluation(retentionEvaluationResponse.evaluation);
+      setPlugins(pluginsResponse.plugins);
+      setHaPlan(haResponse.plan);
       setRuns(remediationResponse.runs);
       setHardening(hardeningResponse.plan);
       setCapacity(capacityResponse.plan);
@@ -327,6 +343,11 @@ export function PlatformPage(): JSX.Element {
         <div className="panel-title">连接器版本策略</div>
         <div className="inline-form wrap"><StatusPill status={(connectorPolicy?.connectors.some((item) => item.compatibility === "unsupported") ?? false) ? "warn" : "secure"} label={`${connectorPolicy?.recommendedVersion ?? "-"} 推荐`} /><button type="button" onClick={() => void scheduleConnectorUpgrade()}><Download size={16} /> 25% 灰度升级</button>{upgradePlan ? <span className="muted-text">已选择 {upgradePlan.selected.length}，跳过 {upgradePlan.skipped.length}，目标 {upgradePlan.targetVersion}</span> : null}</div>
         <table><thead><tr><th>连接器</th><th>状态</th><th>版本</th><th>兼容性</th><th>目标</th></tr></thead><tbody>{connectorPolicy?.connectors.map((connector) => <tr key={connector.connectorId}><td>{connector.name}</td><td><StatusPill status={connector.status === "online" ? "active" : connector.status === "stale" ? "warn" : "inactive"} label={connector.status} /></td><td>{connector.version ?? "unknown"}</td><td>{connector.compatibility}</td><td>{connector.upgradeTargetVersion}</td></tr>)}</tbody></table>
+      </section>
+      <section className="table-panel">
+        <div className="panel-title">商业化治理</div>
+        <div className="inline-form wrap"><StatusPill status={ssoReadiness?.enabled ? "secure" : "warn"} label={ssoReadiness?.enabled ? "SSO 已启用" : "SSO 未启用"} /><StatusPill status={backupEncryption?.enabled ? "secure" : "warn"} label={backupEncryption?.enabled ? `备份加密 v${backupEncryption.keyVersion}` : "备份未加密"} /><StatusPill status={releaseManifest?.verification.allArtifactsHaveSha256 ? "secure" : "warn"} label={`发行清单 ${releaseManifest?.manifestSha256.slice(0, 12) ?? "-"}`} /><StatusPill status={(haPlan?.checks.every((check) => check.ready) ?? false) ? "secure" : "warn"} label={haPlan?.mode ?? "single-node"} /></div>
+        <table><thead><tr><th>能力</th><th>状态</th><th>关键数据</th></tr></thead><tbody><tr><td>SSO/OIDC</td><td>{ssoReadiness?.checks.filter((check) => check.ready).length ?? 0}/{ssoReadiness?.checks.length ?? 0}</td><td>{ssoReadiness?.provider?.name ?? "未配置"} / {ssoReadiness?.localBreakGlassAvailable ? "保留本地应急" : "未保留本地应急"}</td></tr><tr><td>连接器发行</td><td>{releaseManifest?.verification.allArtifactsHaveSignature ? "签名齐全" : "需补签名"}</td><td>{releaseManifest?.channels.map((channel) => `${channel.name}:${channel.version}`).join(" / ") ?? "-"}</td></tr><tr><td>备份密钥</td><td>{backupRotation ? `v${backupRotation.currentKeyVersion} -> v${backupRotation.nextKeyVersion}` : "-"}</td><td>{backupEncryption?.nextRotationAt ? formatDate(backupEncryption.nextRotationAt) : "未排期"}</td></tr><tr><td>审计保留</td><td>{retentionPolicies.length} 条</td><td>{retentionEvaluation ? `${retentionEvaluation.retainDays} 天 / ${retentionEvaluation.archiveBeforeDelete ? "先归档" : "直接清理"}` : "-"}</td></tr><tr><td>插件权限</td><td>{plugins.length} 个</td><td>{plugins[0] ? `${plugins[0].id} / ${plugins[0].permissions.join(", ")}` : "未注册插件"}</td></tr><tr><td>高可用</td><td>{haPlan?.estimatedRecoveryMinutes ?? 0} 分钟 RTO</td><td>{haPlan?.rolloutSteps.map((step) => step.title).join(" / ") ?? "-"}</td></tr></tbody></table>
       </section>
       <section className="table-panel">
         <div className="panel-title">{text.approval}</div>

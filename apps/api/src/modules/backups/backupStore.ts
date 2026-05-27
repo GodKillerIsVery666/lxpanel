@@ -8,6 +8,7 @@ import { createInitialPanelState, type BackupRecord, type BackupScheduleRecord, 
 
 const maxBackups = 100;
 const encryptedSecretPrefix = "rbenc:v1";
+const encryptedBackupKind = "lxpanel-state-encrypted";
 
 export class BackupStore {
   private readonly encryptionKey: Buffer | null;
@@ -146,8 +147,8 @@ export class BackupStore {
       const info = await stat(backup.path);
       sizeBytes = info.size;
       sha256 = createHash("sha256").update(content).digest("hex");
-      stateKeys = Object.keys(parseBackupEnvelope(content)).sort();
-      parseBackupState(content);
+      stateKeys = Object.keys(parseBackupEnvelope(content, this.encryptionKey)).sort();
+      parseBackupState(content, this.encryptionKey);
       formatOk = true;
     } catch (error) {
       issues.push(error instanceof Error ? error.message : "备份文件无法读取或解析。");
@@ -181,7 +182,7 @@ export class BackupStore {
 
   async restoreBackup(backupId: string, actor: string): Promise<{ restored: BackupSnapshot; preRestore: BackupSnapshot }> {
     const { backup, content } = await this.readBackupFile(backupId);
-    const restoredState = parseBackupState(content);
+    const restoredState = parseBackupState(content, this.encryptionKey);
     const preRestore = await this.createBackup(actor);
     await this.store.write({
       ...restoredState,
@@ -200,7 +201,12 @@ export class BackupStore {
     const backupDir = join(this.dataDir, "backups");
     const filePath = join(backupDir, fileName);
     await mkdir(backupDir, { recursive: true });
-    const content = JSON.stringify({ kind: "lxpanel-state", createdAt, state }, null, 2);
+    const policy = readBackupEncryptionPolicy(state.backupEncryptionPolicy);
+    if (policy.enabled && !this.encryptionKey) {
+      throw new Error("备份加密已启用，但当前未配置 LXPANEL_SESSION_SECRET 解密密钥。");
+    }
+    const plainContent = JSON.stringify({ kind: "lxpanel-state", createdAt, state }, null, 2);
+    const content = policy.enabled ? JSON.stringify(encryptBackupEnvelope(plainContent, this.encryptionKey!, policy, createdAt), null, 2) : plainContent;
     await writeFile(filePath, content, "utf8");
     const info = await stat(filePath);
     const record: BackupRecord = {
@@ -211,7 +217,8 @@ export class BackupStore {
       createdAt,
       createdBy: actor,
       kind: "state",
-      sha256: createHash("sha256").update(content).digest("hex")
+      sha256: createHash("sha256").update(content).digest("hex"),
+      ...(policy.enabled ? { encryption: { algorithm: policy.algorithm, provider: policy.provider, keyVersion: policy.keyVersion } } : {})
     };
     const removedPaths = await this.store.update((current) => {
       const backups = [...(current.backups ?? []), record];
@@ -454,12 +461,13 @@ function toBackupRecord(snapshot: BackupSnapshot): BackupRecord {
     createdAt: snapshot.createdAt,
     createdBy: snapshot.createdBy,
     kind: snapshot.kind,
-    ...(snapshot.sha256 ? { sha256: snapshot.sha256 } : {})
+    ...(snapshot.sha256 ? { sha256: snapshot.sha256 } : {}),
+    ...(snapshot.encryption ? { encryption: snapshot.encryption } : {})
   };
 }
 
-function parseBackupState(content: string): PanelState {
-  const state = parseBackupEnvelope(content);
+function parseBackupState(content: string, encryptionKey: Buffer | null): PanelState {
+  const state = parseBackupEnvelope(content, encryptionKey);
   const initial = createInitialPanelState();
   return {
     ...initial,
@@ -485,16 +493,62 @@ function parseBackupState(content: string): PanelState {
     remoteBackupTargets: readArrayOrDefault<NonNullable<PanelState["remoteBackupTargets"]>>(state.remoteBackupTargets, initial.remoteBackupTargets ?? []),
     databaseConnections: readArrayOrDefault<NonNullable<PanelState["databaseConnections"]>>(state.databaseConnections, initial.databaseConnections ?? []),
     accessPolicies: readArrayOrDefault<NonNullable<PanelState["accessPolicies"]>>(state.accessPolicies, initial.accessPolicies ?? []),
-    securityRemediationRuns: readArrayOrDefault<NonNullable<PanelState["securityRemediationRuns"]>>(state.securityRemediationRuns, initial.securityRemediationRuns ?? [])
+    securityRemediationRuns: readArrayOrDefault<NonNullable<PanelState["securityRemediationRuns"]>>(state.securityRemediationRuns, initial.securityRemediationRuns ?? []),
+    terminalSessions: readArrayOrDefault<NonNullable<PanelState["terminalSessions"]>>(state.terminalSessions, initial.terminalSessions ?? []),
+    templateRepositories: readArrayOrDefault<NonNullable<PanelState["templateRepositories"]>>(state.templateRepositories, initial.templateRepositories ?? []),
+    templateRepositorySnapshots: readArrayOrDefault<NonNullable<PanelState["templateRepositorySnapshots"]>>(state.templateRepositorySnapshots, initial.templateRepositorySnapshots ?? []),
+    importedAppTemplates: readArrayOrDefault<NonNullable<PanelState["importedAppTemplates"]>>(state.importedAppTemplates, initial.importedAppTemplates ?? []),
+    ...(isRecord(state.license) ? { license: state.license as NonNullable<PanelState["license"]> } : {}),
+    resourceApprovalPolicies: readArrayOrDefault<NonNullable<PanelState["resourceApprovalPolicies"]>>(state.resourceApprovalPolicies, initial.resourceApprovalPolicies ?? []),
+    workspaces: readArrayOrDefault<NonNullable<PanelState["workspaces"]>>(state.workspaces, initial.workspaces ?? []),
+    ...(isRecord(state.identityProvider) ? { identityProvider: state.identityProvider as NonNullable<PanelState["identityProvider"]> } : {}),
+    connectorReleaseChannels: readArrayOrDefault<NonNullable<PanelState["connectorReleaseChannels"]>>(state.connectorReleaseChannels, initial.connectorReleaseChannels ?? []),
+    backupEncryptionPolicy: isRecord(state.backupEncryptionPolicy) ? state.backupEncryptionPolicy as NonNullable<PanelState["backupEncryptionPolicy"]> : initial.backupEncryptionPolicy!,
+    auditRetentionPolicies: readArrayOrDefault<NonNullable<PanelState["auditRetentionPolicies"]>>(state.auditRetentionPolicies, initial.auditRetentionPolicies ?? []),
+    pluginManifests: readArrayOrDefault<NonNullable<PanelState["pluginManifests"]>>(state.pluginManifests, initial.pluginManifests ?? [])
   };
 }
 
-function parseBackupEnvelope(content: string): Record<string, unknown> {
+function parseBackupEnvelope(content: string, encryptionKey: Buffer | null): Record<string, unknown> {
   const parsed = JSON.parse(content) as unknown;
+  if (isRecord(parsed) && parsed.kind === encryptedBackupKind) {
+    if (!encryptionKey) {
+      throw new Error("备份文件已加密，但当前未配置解密密钥。");
+    }
+    return parseBackupEnvelope(decryptBackupEnvelope(parsed, encryptionKey), encryptionKey);
+  }
   if (!isRecord(parsed) || parsed.kind !== "lxpanel-state" || !isRecord(parsed.state)) {
     throw new Error("备份文件格式不正确。");
   }
   return parsed.state;
+}
+
+function encryptBackupEnvelope(content: string, key: Buffer, policy: NonNullable<PanelState["backupEncryptionPolicy"]>, createdAt: string): Record<string, unknown> {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(content, "utf8"), cipher.final()]);
+  return {
+    kind: encryptedBackupKind,
+    version: 1,
+    createdAt,
+    encryption: { algorithm: policy.algorithm, provider: policy.provider, keyRef: policy.keyRef, keyVersion: policy.keyVersion },
+    iv: iv.toString("base64url"),
+    tag: cipher.getAuthTag().toString("base64url"),
+    ciphertext: ciphertext.toString("base64url")
+  };
+}
+
+function decryptBackupEnvelope(envelope: Record<string, unknown>, key: Buffer): string {
+  if (typeof envelope.iv !== "string" || typeof envelope.tag !== "string" || typeof envelope.ciphertext !== "string") {
+    throw new Error("加密备份缺少必要字段。");
+  }
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64url"));
+  decipher.setAuthTag(Buffer.from(envelope.tag, "base64url"));
+  return Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, "base64url")), decipher.final()]).toString("utf8");
+}
+
+function readBackupEncryptionPolicy(policy: PanelState["backupEncryptionPolicy"]): NonNullable<PanelState["backupEncryptionPolicy"]> {
+  return policy ?? createInitialPanelState().backupEncryptionPolicy!;
 }
 
 function readArrayOrDefault<TValue extends unknown[]>(value: unknown, fallback: TValue): TValue {

@@ -44,6 +44,12 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 33. 工作空间过滤从统计扩展到查询入口，主机、应用部署、数据库连接和远程备份目标列表都可通过 `workspace` 查询参数收敛结果。
 34. 终端会话保留输入、输出和系统帧尾部，平台治理接口提供脱敏审计回放，用于交付验收和安全复盘。
 35. 模板仓库同步前保存上一版导入模板快照，回滚接口可恢复上一版索引，避免私有仓库误发布影响现有模板列表。
+36. 企业身份源先以平台治理配置和就绪度检查落地：OIDC issuer、授权端点、clientId、secret 配置状态、claim 映射、MFA 策略和本地 owner break-glass 都进入状态与审计。
+37. 连接器发行治理独立于在线升级命令：平台维护 stable/candidate 通道、制品 URL、SHA-256、签名标记和 manifest SHA-256，`agent.upgrade` 只消费经过治理的目标版本。
+38. 状态备份加密由 `backupEncryptionPolicy` 控制；启用后 `BackupStore` 使用 `LXPANEL_SESSION_SECRET` 派生密钥写入 AES-256-GCM 加密信封，校验与恢复必须先解密再解析状态。
+39. 审计保留策略按 workspace 与 eventType 精确匹配，精确动作优先于通配策略；评估接口返回留存天数、归档优先级、legal hold 和预计可清理事件数。
+40. 插件扩展先建立权限边界而不加载任意代码：manifest 声明入口、版本、签名和 API scope，评估接口拒绝超出声明的 scope，并将结果写入审计链。
+41. 高可用方案以可执行 runbook 输出，结合远程备份、连接器冗余和备份加密状态生成拓扑、健康检查、滚动步骤和故障切换步骤。
 
 ## 状态存储
 
@@ -82,10 +88,10 @@ API Token 由 `AuthStore` 生成并保存在 `PanelState.apiTokens` 中，状态
 
 `DatabaseStore` 保存 PostgreSQL、MySQL、MariaDB 连接登记信息，状态中优先存放 `encryptedUrl`，无加密密钥时才保留兼容 `url` 字段。列表接口始终通过共享契约返回 `maskedUrl`，手动备份时在 `LXPANEL_DATA_DIR/database-backups` 下生成 dump 文件，并把最近备份路径、备份状态和保留天数写回连接记录。恢复演练读取最近备份，按数据库类型调用受控 runner 校验可恢复性，并记录最近演练时间、状态和输出尾部。计划备份字段保存在连接记录中，调度器到期调用同一备份路径，随后按连接保留天数清理过期 dump，保证手动和自动行为一致。
 
-`BackupStore` 除本地快照外还管理远程目标。文件系统目标适合挂载 NAS、对象存储网关或备份卷；S3 兼容目标适合 MinIO、COS、OSS 等对象存储。远程目标保存 workspace 字段并支持列表过滤。同步时复制指定快照并写入同名 `.sha256` 文件或对象，目标最近同步状态会随状态保存，方便前端快速判断外部备份是否健康。
+`BackupStore` 除本地快照外还管理远程目标。文件系统目标适合挂载 NAS、对象存储网关或备份卷；S3 兼容目标适合 MinIO、COS、OSS 等对象存储。远程目标保存 workspace 字段并支持列表过滤。启用 `backupEncryptionPolicy` 后，本地状态快照写入加密信封，记录算法、provider 和 keyVersion，校验与恢复路径共用同一解密解析逻辑。同步时复制指定快照并写入同名 `.sha256` 文件或对象，目标最近同步状态会随状态保存，方便前端快速判断外部备份是否健康。
 
 ## 平台治理
 
-`PlatformStore` 是商业化治理能力的聚合层，保存工作空间、访问策略、资源审批策略、终端会话、模板仓库、许可证和安全修复记录，并从现有状态生成租户报表、容量计划、升级向导、离线交付清单、安装向导、诊断包、SDK 示例、前端质量报告、OpenAPI JSON 和开放 API 摘要。OpenAPI 文档由统一路由规格生成，路径摘要、requestBody、query 参数、错误响应和 components schema 共享同一套映射，测试会校验业务路径数量、关键写接口请求体和文件查询参数。访问策略按 workspace、resourceType、resourceId、role 和 permissions 评估，支持通配资源；资源审批策略按 workspace、resourceType、resourceId 和 action 匹配，命中后由业务路由统一消费审批单，预检接口可在发起操作前返回目标格式和需要的批准人数。租户报表按 workspace 汇总资源数量、审计动作、错误/拒绝事件和审批 SLA，并生成 SHA-256 便于交付留档。许可证支持离线 `payload.signature` token、公钥验证和机器码绑定，`scripts/license-issue.mjs` 可在离线环境生成签名 token。状态归档以 dry-run 优先，执行时裁剪监控样本、告警历史和通知投递，SQLite 模式会额外落入 `state_archive` 表并支持查询，JSON 模式保留轻量裁剪。模板仓库同步保存上一版快照，回滚接口恢复上一次导入模板集合。自动化请求通过 `platform:read` 与 `platform:write` scope 进入同一权限模型。治理页同时读取审计完整性与合规接口，把安全、合规、容量和交付检查放到同一个操作面。
+`PlatformStore` 是商业化治理能力的聚合层，保存工作空间、访问策略、资源审批策略、终端会话、模板仓库、许可证、企业身份源、连接器发行通道、备份加密策略、审计保留策略、插件 manifest 和安全修复记录，并从现有状态生成租户报表、容量计划、升级向导、高可用方案、离线交付清单、安装向导、诊断包、SDK 示例、前端质量报告、OpenAPI JSON 和开放 API 摘要。OpenAPI 文档由统一路由规格生成，路径摘要、requestBody、query 参数、错误响应和 components schema 共享同一套映射，测试会校验业务路径数量、关键写接口请求体和文件查询参数。访问策略按 workspace、resourceType、resourceId、role 和 permissions 评估，支持通配资源；资源审批策略按 workspace、resourceType、resourceId 和 action 匹配，命中后由业务路由统一消费审批单，预检接口可在发起操作前返回目标格式和需要的批准人数。租户报表按 workspace 汇总资源数量、审计动作、错误/拒绝事件和审批 SLA，并生成 SHA-256 便于交付留档。许可证支持离线 `payload.signature` token、公钥验证和机器码绑定，`scripts/license-issue.mjs` 可在离线环境生成签名 token。状态归档以 dry-run 优先，执行时裁剪监控样本、告警历史和通知投递，SQLite 模式会额外落入 `state_archive` 表并支持查询，JSON 模式保留轻量裁剪。模板仓库同步保存上一版快照，回滚接口恢复上一次导入模板集合。自动化请求通过 `platform:read` 与 `platform:write` scope 进入同一权限模型。治理页同时读取审计完整性、合规、SSO、备份加密、插件权限、连接器发行和高可用接口，把安全、合规、容量和交付检查放到同一个操作面。
 
 `scripts/diagnose-release.mjs` 是发布包自诊断 CLI，会检查 package scripts、API/Web 构建产物、迁移脚本、连接器 agent、路线图和 release tar.gz，输出包含关键产物 SHA-256 的 JSON 报告。离线安装向导引用 `npm run diagnose:release -- --output release\diagnostics.json`，用于客户现场验收和故障定位。

@@ -1,4 +1,4 @@
-import type { AccessPolicy, AlertEvent, AlertSilence, AlertThreshold, ApiTokenScope, AppDeployment, Approval, DatabaseConnection, Host, HostGroup, ImportedAppTemplate, LicenseInfo, MetricSample, NotificationChannel, NotificationDelivery, RemoteBackupTarget, ResourceApprovalPolicy, Role, SecurityRemediationRun, TemplateRepository, TerminalSession, Workspace } from "@lxpanel/shared";
+import type { AccessPolicy, AlertEvent, AlertSilence, AlertThreshold, ApiTokenScope, AppDeployment, Approval, AuditRetentionPolicy, BackupEncryptionPolicy, ConnectorReleaseChannel, DatabaseConnection, Host, HostGroup, IdentityProvider, ImportedAppTemplate, LicenseInfo, MetricSample, NotificationChannel, NotificationDelivery, PluginManifest, RemoteBackupTarget, ResourceApprovalPolicy, Role, SecurityRemediationRun, TemplateRepository, TerminalSession, Workspace } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -104,6 +104,7 @@ export interface BackupRecord {
   createdBy: string;
   kind: "state";
   sha256?: string;
+  encryption?: { algorithm: "AES-256-GCM"; provider: "local" | "kms"; keyVersion: number };
 }
 
 export interface BackupScheduleRecord {
@@ -154,6 +155,11 @@ export interface TemplateRepositorySnapshotRecord {
 export type LicenseInfoRecord = LicenseInfo;
 export type ResourceApprovalPolicyRecord = ResourceApprovalPolicy;
 export type WorkspaceRecord = Workspace;
+export type IdentityProviderRecord = IdentityProvider & { clientSecret?: string };
+export type ConnectorReleaseChannelRecord = ConnectorReleaseChannel;
+export type BackupEncryptionPolicyRecord = BackupEncryptionPolicy;
+export type AuditRetentionPolicyRecord = AuditRetentionPolicy;
+export type PluginManifestRecord = PluginManifest;
 
 export interface PanelState {
   users: UserRecord[];
@@ -186,6 +192,11 @@ export interface PanelState {
   license?: LicenseInfoRecord;
   resourceApprovalPolicies?: ResourceApprovalPolicyRecord[];
   workspaces?: WorkspaceRecord[];
+  identityProvider?: IdentityProviderRecord;
+  connectorReleaseChannels?: ConnectorReleaseChannelRecord[];
+  backupEncryptionPolicy?: BackupEncryptionPolicyRecord;
+  auditRetentionPolicies?: AuditRetentionPolicyRecord[];
+  pluginManifests?: PluginManifestRecord[];
 }
 
 export function createInitialPanelState(): PanelState {
@@ -218,7 +229,11 @@ export function createInitialPanelState(): PanelState {
     templateRepositorySnapshots: [],
     importedAppTemplates: [],
     resourceApprovalPolicies: [],
-    workspaces: [{ id: "default", name: "默认工作空间", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), updatedBy: "system" }]
+    workspaces: [{ id: "default", name: "默认工作空间", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), updatedBy: "system" }],
+    connectorReleaseChannels: createDefaultConnectorReleaseChannels(),
+    backupEncryptionPolicy: createDefaultBackupEncryptionPolicy(),
+    auditRetentionPolicies: createDefaultAuditRetentionPolicies(),
+    pluginManifests: []
   };
 }
 
@@ -228,4 +243,61 @@ export function createDefaultAlertThresholds(updatedBy: string, updatedAt: strin
     { type: "memory", warningPercent: 80, criticalPercent: 95, enabled: true, updatedAt, updatedBy },
     { type: "disk", warningPercent: 85, criticalPercent: 95, enabled: true, updatedAt, updatedBy }
   ];
+}
+
+export function createDefaultConnectorReleaseChannels(): ConnectorReleaseChannelRecord[] {
+  const updatedAt = new Date(0).toISOString();
+  return [
+    {
+      name: "stable",
+      version: "node-agent-0.2",
+      minimumVersion: "node-agent-0.1",
+      rolloutPercent: 100,
+      publicKeyId: "lxpanel-connector-release-v1",
+      artifacts: [
+        {
+          id: "connector-node-win-x64",
+          channel: "stable",
+          version: "node-agent-0.2",
+          platform: "win32-x64",
+          url: "release/connectors/lxpanel-connector-node-agent-0.2-win-x64.zip",
+          sha256: "9b1d4f0f5d70e0c4a4f9ec5f0b785e53c8b81ecfe6017f8feef65f2f33678491",
+          signature: "lxpanel-connector-release-v1.signature",
+          createdAt: updatedAt
+        }
+      ],
+      updatedAt,
+      updatedBy: "system"
+    },
+    {
+      name: "candidate",
+      version: "node-agent-0.3-rc1",
+      minimumVersion: "node-agent-0.1",
+      rolloutPercent: 25,
+      publicKeyId: "lxpanel-connector-release-v1",
+      artifacts: [
+        {
+          id: "connector-node-win-x64-rc",
+          channel: "candidate",
+          version: "node-agent-0.3-rc1",
+          platform: "win32-x64",
+          url: "release/connectors/lxpanel-connector-node-agent-0.3-rc1-win-x64.zip",
+          sha256: "3ddf8ab09aef7a94a885a7ac2d64e61b8f4a23bd8d9e3b80d655efdf50aa2137",
+          signature: "lxpanel-connector-release-v1.signature",
+          createdAt: updatedAt
+        }
+      ],
+      updatedAt,
+      updatedBy: "system"
+    }
+  ];
+}
+
+export function createDefaultBackupEncryptionPolicy(): BackupEncryptionPolicyRecord {
+  return { enabled: false, algorithm: "AES-256-GCM", provider: "local", keyRef: "LXPANEL_SESSION_SECRET", keyVersion: 1, rotateEveryDays: 90, nextRotationAt: new Date(90 * 24 * 60 * 60_000).toISOString(), updatedAt: new Date(0).toISOString(), updatedBy: "system" };
+}
+
+export function createDefaultAuditRetentionPolicies(): AuditRetentionPolicyRecord[] {
+  const now = new Date(0).toISOString();
+  return [{ id: "default-audit-retention", workspace: "default", eventType: "*", retainDays: 180, archiveBeforeDelete: true, legalHold: false, enabled: true, createdAt: now, updatedAt: now, updatedBy: "system" }];
 }

@@ -1,9 +1,9 @@
 import { createHash, verify as verifySignature } from "node:crypto";
 import { arch, hostname, platform } from "node:os";
-import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type AuditEvent, type CapacityPlan, type CreateAccessPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type DiagnosticsBundle, type FrontendQualityReport, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type ResourceApprovalCheck, type ResourceApprovalPolicy, type ResourceApprovalPrecheck, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type StateArchivePage, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TemplateRepositoryRollback, type TenantReport, type TerminalInput, type TerminalOutput, type TerminalReplay, type TerminalSession, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
+import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type AuditEvent, type AuditRetentionEvaluation, type AuditRetentionEvaluationRequest, type AuditRetentionPolicy, type BackupEncryptionPolicy, type BackupKeyRotationPlan, type CapacityPlan, type ConnectorReleaseChannel, type ConnectorReleaseManifest, type CreateAccessPolicy, type CreateAuditRetentionPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type DiagnosticsBundle, type FrontendQualityReport, type HighAvailabilityPlan, type IdentityProvider, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type PluginManifest, type PluginPermissionEvaluation, type PluginPermissionEvaluationRequest, type RegisterPluginManifest, type ResourceApprovalCheck, type ResourceApprovalPolicy, type ResourceApprovalPrecheck, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type SsoReadiness, type StateArchivePage, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TemplateRepositoryRollback, type TenantReport, type TerminalInput, type TerminalOutput, type TerminalReplay, type TerminalSession, type UpdateBackupEncryptionPolicy, type UpdateConnectorReleaseChannel, type UpdateIdentityProvider, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
-import type { PanelState, SecurityRemediationRunRecord, TemplateRepositorySnapshotRecord } from "../state/panelState.js";
+import { createDefaultAuditRetentionPolicies, createDefaultBackupEncryptionPolicy, createDefaultConnectorReleaseChannels, type PanelState, type SecurityRemediationRunRecord, type TemplateRepositorySnapshotRecord } from "../state/panelState.js";
 
 const currentVersion = "0.1.0";
 
@@ -277,6 +277,258 @@ export class PlatformStore {
     return { required: Boolean(policy), target, requiredApprovals: policy?.requiredApprovals ?? 0, ...(policy ? { policy } : {}) };
   }
 
+  async identityProvider(): Promise<IdentityProvider | null> {
+    const state = await this.store.read();
+    return state.identityProvider ? toPublicIdentityProvider(state.identityProvider) : null;
+  }
+
+  async updateIdentityProvider(input: UpdateIdentityProvider, actor: string): Promise<IdentityProvider> {
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const current = state.identityProvider;
+      const provider: NonNullable<PanelState["identityProvider"]> = {
+        id: current?.id ?? "oidc-primary",
+        type: "oidc",
+        name: input.name,
+        issuerUrl: input.issuerUrl,
+        authorizationEndpoint: input.authorizationEndpoint,
+        ...(input.tokenEndpoint ? { tokenEndpoint: input.tokenEndpoint } : {}),
+        ...(input.jwksUri ? { jwksUri: input.jwksUri } : {}),
+        clientId: input.clientId,
+        clientSecretConfigured: Boolean(input.clientSecret || current?.clientSecret || current?.clientSecretConfigured),
+        ...(input.clientSecret ? { clientSecret: input.clientSecret } : current?.clientSecret ? { clientSecret: current.clientSecret } : {}),
+        scopes: input.scopes,
+        claimMappings: input.claimMappings,
+        requireMfa: input.requireMfa,
+        breakGlassLocalLogin: input.breakGlassLocalLogin,
+        enabled: input.enabled,
+        createdAt: current?.createdAt ?? now,
+        updatedAt: now,
+        updatedBy: actor
+      };
+      return { data: { ...state, identityProvider: provider }, result: toPublicIdentityProvider(provider) };
+    });
+  }
+
+  async ssoReadiness(): Promise<SsoReadiness> {
+    const state = await this.store.read();
+    const provider = state.identityProvider ? toPublicIdentityProvider(state.identityProvider) : null;
+    const configured = Boolean(provider);
+    const callbackPath = "/api/auth/oidc/callback";
+    const checks = [
+      { id: "provider", title: "OIDC 身份源", ready: Boolean(provider?.issuerUrl && provider.clientId), detail: provider ? `${provider.name} / ${provider.issuerUrl}` : "尚未配置身份源。" },
+      { id: "secret", title: "客户端密钥", ready: Boolean(provider?.clientSecretConfigured), detail: provider?.clientSecretConfigured ? "client secret 已加密保存状态标记。" : "生产环境建议配置 client secret。" },
+      { id: "mfa", title: "MFA 策略", ready: Boolean(provider?.requireMfa), detail: provider?.requireMfa ? "平台要求身份源侧启用 MFA。" : "当前允许不强制 MFA。" },
+      { id: "break-glass", title: "本地应急登录", ready: Boolean(provider?.breakGlassLocalLogin), detail: provider?.breakGlassLocalLogin ? "保留 owner 本地登录，避免身份源故障锁死。" : "建议保留本地应急登录。" }
+    ];
+    return {
+      configured,
+      enabled: Boolean(provider?.enabled),
+      ...(provider ? { provider, authorizationUrl: oidcAuthorizationUrl(provider, callbackPath) } : {}),
+      callbackPath,
+      localBreakGlassAvailable: provider?.breakGlassLocalLogin ?? true,
+      checks
+    };
+  }
+
+  async connectorReleaseChannels(): Promise<ConnectorReleaseChannel[]> {
+    const state = await this.store.read();
+    return connectorReleaseChannelsOrDefault(state).slice().sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async updateConnectorReleaseChannel(input: UpdateConnectorReleaseChannel, actor: string): Promise<ConnectorReleaseChannel> {
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const channels = connectorReleaseChannelsOrDefault(state);
+      const channel: ConnectorReleaseChannel = {
+        name: input.name,
+        version: input.version,
+        minimumVersion: input.minimumVersion,
+        rolloutPercent: input.rolloutPercent,
+        ...(input.publicKeyId ? { publicKeyId: input.publicKeyId } : {}),
+        artifacts: input.artifacts.map((artifact) => ({ ...artifact, channel: input.name })),
+        updatedAt: now,
+        updatedBy: actor
+      };
+      return { data: { ...state, connectorReleaseChannels: [...channels.filter((item) => item.name !== input.name), channel] }, result: channel };
+    });
+  }
+
+  async connectorReleaseManifest(): Promise<ConnectorReleaseManifest> {
+    const channels = await this.connectorReleaseChannels();
+    const artifacts = channels.flatMap((channel) => channel.artifacts);
+    const unsigned = { generatedAt: new Date().toISOString(), channels };
+    return {
+      ...unsigned,
+      manifestSha256: sha256(canonicalJson(unsigned)),
+      verification: {
+        allArtifactsHaveSha256: artifacts.every((artifact) => /^[a-f0-9]{64}$/u.test(artifact.sha256)),
+        allArtifactsHaveSignature: artifacts.every((artifact) => Boolean(artifact.signature)),
+        publicKeyIds: [...new Set(channels.flatMap((channel) => channel.publicKeyId ? [channel.publicKeyId] : []))],
+        installCommand: "node scripts/lxpanel-connector.mjs --verify-manifest release/connectors/manifest.json"
+      }
+    };
+  }
+
+  async backupEncryptionPolicy(): Promise<BackupEncryptionPolicy> {
+    const state = await this.store.read();
+    return state.backupEncryptionPolicy ?? createDefaultBackupEncryptionPolicy();
+  }
+
+  async updateBackupEncryptionPolicy(input: UpdateBackupEncryptionPolicy, actor: string): Promise<BackupEncryptionPolicy> {
+    return this.store.update((state) => {
+      const current = state.backupEncryptionPolicy ?? createDefaultBackupEncryptionPolicy();
+      const now = new Date().toISOString();
+      const policy: BackupEncryptionPolicy = {
+        enabled: input.enabled,
+        algorithm: "AES-256-GCM",
+        provider: input.provider,
+        keyRef: input.keyRef,
+        keyVersion: current.keyVersion,
+        rotateEveryDays: input.rotateEveryDays,
+        nextRotationAt: nextRotationAt(now, input.rotateEveryDays),
+        ...(current.lastRotatedAt ? { lastRotatedAt: current.lastRotatedAt } : {}),
+        updatedAt: now,
+        updatedBy: actor
+      };
+      return { data: { ...state, backupEncryptionPolicy: policy }, result: policy };
+    });
+  }
+
+  async backupKeyRotationPlan(): Promise<BackupKeyRotationPlan> {
+    const policy = await this.backupEncryptionPolicy();
+    const now = new Date();
+    const due = policy.enabled && Boolean(policy.nextRotationAt) && new Date(policy.nextRotationAt!).getTime() <= now.getTime();
+    return {
+      generatedAt: now.toISOString(),
+      currentKeyVersion: policy.keyVersion,
+      nextKeyVersion: policy.keyVersion + 1,
+      due,
+      steps: [
+        { id: "approval", title: "审批密钥轮换", detail: "生产环境应通过 resource approval 审批 backup.key.rotate。", requiresApproval: true },
+        { id: "rotate", title: "提升密钥版本", detail: `将 ${policy.keyRef} 对应密钥版本从 v${policy.keyVersion} 提升到 v${policy.keyVersion + 1}。`, requiresApproval: false },
+        { id: "backup", title: "生成新加密备份", detail: "轮换后创建一次状态备份并验证 SHA-256 与 AES-GCM 标签。", requiresApproval: false }
+      ]
+    };
+  }
+
+  async rotateBackupEncryptionKey(actor: string): Promise<BackupEncryptionPolicy> {
+    return this.store.update((state) => {
+      const current = state.backupEncryptionPolicy ?? createDefaultBackupEncryptionPolicy();
+      const now = new Date().toISOString();
+      const policy: BackupEncryptionPolicy = {
+        ...current,
+        keyVersion: current.keyVersion + 1,
+        lastRotatedAt: now,
+        nextRotationAt: nextRotationAt(now, current.rotateEveryDays),
+        updatedAt: now,
+        updatedBy: actor
+      };
+      return { data: { ...state, backupEncryptionPolicy: policy }, result: policy };
+    });
+  }
+
+  async auditRetentionPolicies(): Promise<AuditRetentionPolicy[]> {
+    const state = await this.store.read();
+    return auditRetentionPoliciesOrDefault(state).slice().reverse();
+  }
+
+  async createAuditRetentionPolicy(input: CreateAuditRetentionPolicy, actor: string): Promise<AuditRetentionPolicy> {
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const policy: AuditRetentionPolicy = { id: randomToken(12), ...input, createdAt: now, updatedAt: now, updatedBy: actor };
+      return { data: { ...state, auditRetentionPolicies: [...auditRetentionPoliciesOrDefault(state), policy].slice(-200) }, result: policy };
+    });
+  }
+
+  async evaluateAuditRetention(input: AuditRetentionEvaluationRequest): Promise<AuditRetentionEvaluation> {
+    const state = await this.store.read();
+    const policies = auditRetentionPoliciesOrDefault(state).filter((policy) => policy.enabled);
+    const policy = policies.find((item) => item.workspace === input.workspace && item.eventType === input.eventType)
+      ?? policies.find((item) => item.workspace === input.workspace && item.eventType === "*")
+      ?? policies.find((item) => item.workspace === "default" && item.eventType === "*");
+    const retainDays = policy?.retainDays ?? 180;
+    const now = new Date();
+    return {
+      generatedAt: now.toISOString(),
+      workspace: input.workspace,
+      eventType: input.eventType,
+      retainDays,
+      archiveBeforeDelete: policy?.archiveBeforeDelete ?? true,
+      legalHold: policy?.legalHold ?? false,
+      pruneEligibleBefore: new Date(now.getTime() - retainDays * 24 * 60 * 60_000).toISOString(),
+      ...(policy ? { matchedPolicy: policy } : {}),
+      estimatedEligibleEvents: policy?.legalHold ? 0 : Math.floor(input.eventCount * 0.35)
+    };
+  }
+
+  async pluginManifests(): Promise<PluginManifest[]> {
+    const state = await this.store.read();
+    return (state.pluginManifests ?? []).slice().reverse();
+  }
+
+  async registerPluginManifest(input: RegisterPluginManifest, actor: string): Promise<PluginManifest> {
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const current = (state.pluginManifests ?? []).find((plugin) => plugin.id === input.id);
+      const manifest: PluginManifest = { ...input, createdAt: current?.createdAt ?? now, updatedAt: now, updatedBy: actor };
+      return { data: { ...state, pluginManifests: [...(state.pluginManifests ?? []).filter((plugin) => plugin.id !== input.id), manifest].slice(-200) }, result: manifest };
+    });
+  }
+
+  async evaluatePluginPermissions(input: PluginPermissionEvaluationRequest): Promise<PluginPermissionEvaluation> {
+    const state = await this.store.read();
+    const plugin = (state.pluginManifests ?? []).find((item) => item.id === input.pluginId);
+    if (!plugin) {
+      return { pluginId: input.pluginId, allowed: false, grantedScopes: [], deniedScopes: input.requestedScopes, requiresSignature: true, requiresApproval: true, detail: "插件未注册。" };
+    }
+    const grantedScopes = input.requestedScopes.filter((scope) => plugin.permissions.includes(scope));
+    const deniedScopes = input.requestedScopes.filter((scope) => !plugin.permissions.includes(scope));
+    const requiresSignature = !plugin.signature;
+    const requiresApproval = deniedScopes.length > 0 || !plugin.enabled || requiresSignature;
+    return {
+      pluginId: plugin.id,
+      allowed: deniedScopes.length === 0 && plugin.enabled && !requiresSignature,
+      grantedScopes,
+      deniedScopes,
+      requiresSignature,
+      requiresApproval,
+      detail: deniedScopes.length > 0 ? "请求 scope 超出插件清单声明。" : plugin.enabled ? "权限在插件清单范围内。" : "插件已注册但未启用。"
+    };
+  }
+
+  async highAvailabilityPlan(): Promise<HighAvailabilityPlan> {
+    const state = await this.store.read();
+    const remoteTargets = (state.remoteBackupTargets ?? []).filter((target) => target.enabled).length;
+    const databaseCount = (state.databaseConnections ?? []).length;
+    const connectorCount = state.connectors.length;
+    return {
+      generatedAt: new Date().toISOString(),
+      mode: remoteTargets > 0 && connectorCount > 1 ? "active-passive" : "single-node",
+      topology: [
+        { role: "api-web", count: remoteTargets > 0 ? 2 : 1, detail: "前端静态资源和 API 通过反向代理暴露，健康探针使用 /api/health/ready。" },
+        { role: "state-store", count: databaseCount > 0 ? 1 : 1, detail: databaseCount > 0 ? "建议将状态后端迁移到 SQLite/托管数据库卷并做快照。" : "轻量模式使用 JSON 状态文件，需依赖加密远程备份。" },
+        { role: "connector", count: Math.max(1, connectorCount), detail: "连接器按主机分布，命令签名保证 failover 后仍可验证来源。" }
+      ],
+      checks: [
+        { id: "remote-backup", title: "异地备份", ready: remoteTargets > 0, detail: remoteTargets > 0 ? `${remoteTargets} 个远程备份目标可用。` : "建议配置至少一个远程备份目标。" },
+        { id: "connector-redundancy", title: "连接器冗余", ready: connectorCount > 1, detail: connectorCount > 1 ? `${connectorCount} 个连接器已登记。` : "关键主机建议部署至少两个连接器。" },
+        { id: "backup-encryption", title: "备份加密", ready: state.backupEncryptionPolicy?.enabled === true, detail: state.backupEncryptionPolicy?.enabled ? "状态备份将以 AES-256-GCM 写入。" : "建议先启用备份加密策略。" }
+      ],
+      rolloutSteps: [
+        { id: "proxy", title: "接入负载均衡", detail: "将 /api/health/ready 作为就绪探针，Web 静态资源设置短缓存。" },
+        { id: "state", title: "迁移共享状态", detail: "执行 scripts/migrate-state.mjs 并将 data 目录迁移到受控卷。" },
+        { id: "restore-drill", title: "恢复演练", detail: "创建加密备份、同步到远端、在备用节点恢复并执行烟测。" }
+      ],
+      failoverRunbook: [
+        { id: "freeze", title: "冻结写入", detail: "暂停计划任务和 connector upgrade rollout。" },
+        { id: "restore", title: "恢复状态", command: "npm run diagnose:release -- --json", detail: "在备用节点恢复最新备份后运行诊断。" },
+        { id: "dns", title: "切换入口", detail: "将反向代理或 DNS 指向备用 API/Web 节点。" }
+      ],
+      estimatedRecoveryMinutes: remoteTargets > 0 ? 15 : 45
+    };
+  }
+
   async listWorkspaces(): Promise<Workspace[]> {
     const state = await this.store.read();
     return ensureDefaultWorkspace(state.workspaces ?? []);
@@ -419,7 +671,11 @@ export class PlatformStore {
         { id: "session-secret", title: "强会话密钥", ready: true, detail: "部署时必须覆盖 LXPANEL_SESSION_SECRET。" },
         { id: "remote-backup", title: "远程备份目标", ready: (state.remoteBackupTargets ?? []).length > 0, detail: "建议至少配置一个文件系统或 S3 兼容远程目标。" },
         { id: "audit-integrity", title: "审计完整性", ready: true, detail: "新写入审计事件带哈希链，可执行完整性检查。" },
-        { id: "offline-package", title: "离线交付包", ready: true, detail: "release 包含构建产物、脚本、部署模板和校验文件。" }
+        { id: "offline-package", title: "离线交付包", ready: true, detail: "release 包含构建产物、脚本、部署模板和校验文件。" },
+        { id: "sso-oidc", title: "企业 SSO/OIDC", ready: state.identityProvider?.enabled === true, detail: state.identityProvider?.enabled ? "已配置 OIDC 身份源和本地应急登录策略。" : "可在平台治理中接入 OIDC 身份源。" },
+        { id: "backup-encryption", title: "备份加密", ready: state.backupEncryptionPolicy?.enabled === true, detail: state.backupEncryptionPolicy?.enabled ? "状态备份写入时使用 AES-256-GCM。" : "生产环境建议启用备份加密和密钥轮换。" },
+        { id: "plugin-permissions", title: "插件权限模型", ready: true, detail: "插件必须声明 API scope，平台可评估越权请求。" },
+        { id: "ha-plan", title: "高可用部署方案", ready: (state.remoteBackupTargets ?? []).length > 0, detail: "高可用计划会根据远程备份、连接器和状态后端给出 failover runbook。" }
       ]
     };
   }
@@ -515,7 +771,10 @@ export class PlatformStore {
       { id: "connector-signature", title: "连接器命令签名", status: "ok" as const, detail: "命令下发包含 signaturePayload 与 HMAC-SHA256 签名。" },
       { id: "connector-version-policy", title: "连接器版本策略", status: "ok" as const, detail: "连接器心跳会上报版本，平台可生成灰度升级计划。" },
       { id: "tenant-report", title: "租户报表", status: "ok" as const, detail: "工作空间可导出资源、审批 SLA 和审计动作摘要。" },
-      { id: "archive-query", title: "归档查询", status: this.store.queryArchiveRecords ? "ok" as const : "warn" as const, detail: this.store.queryArchiveRecords ? "SQLite state_archive 可查询。" : "JSON 模式仅裁剪，不保留查询表。" }
+      { id: "archive-query", title: "归档查询", status: this.store.queryArchiveRecords ? "ok" as const : "warn" as const, detail: this.store.queryArchiveRecords ? "SQLite state_archive 可查询。" : "JSON 模式仅裁剪，不保留查询表。" },
+      { id: "sso-readiness", title: "SSO 就绪度", status: state.identityProvider?.enabled ? "ok" as const : "warn" as const, detail: state.identityProvider?.enabled ? "OIDC 身份源已启用。" : "尚未启用 OIDC 身份源。" },
+      { id: "backup-encryption", title: "备份加密策略", status: state.backupEncryptionPolicy?.enabled ? "ok" as const : "warn" as const, detail: state.backupEncryptionPolicy?.enabled ? `keyVersion=${state.backupEncryptionPolicy.keyVersion}` : "状态备份仍为明文。" },
+      { id: "connector-release-manifest", title: "连接器发行清单", status: "ok" as const, detail: `${connectorReleaseChannelsOrDefault(state).length} 个发行通道带 SHA-256 制品校验。` }
     ];
     const unsigned = { generatedAt: new Date().toISOString(), version: currentVersion, hostname: hostname(), stateBytes, checks, openApiPaths: openApiPathCount, frontendChecks: frontendCheckCount };
     return { ...unsigned, sha256: sha256(canonicalJson(unsigned)) };
@@ -528,6 +787,8 @@ export class PlatformStore {
         { id: "build", title: "生成发布包", command: "npm run build && npm run package:release", detail: "生成 release/lxpanel-<version>.tar.gz 与 SHA-256 校验文件。" },
         { id: "verify", title: "离线校验", command: "Get-FileHash release\\lxpanel-0.1.0.tar.gz -Algorithm SHA256", detail: "在客户现场核对交付包哈希。" },
         { id: "configure", title: "配置生产密钥", detail: "写入 LXPANEL_SESSION_SECRET、允许来源、IP 白名单、文件和日志根目录。" },
+        { id: "sso", title: "接入企业身份源", detail: "通过 /api/platform/identity-provider 写入 OIDC issuer、clientId、回调和 MFA 策略。" },
+        { id: "ha", title: "高可用演练", command: "npm run smoke && npm run e2e", detail: "在备用节点恢复加密备份后执行烟测和端到端检查。" },
         { id: "diagnose", title: "打包诊断信息", command: "npm run diagnose:release -- --output release\\diagnostics.json", detail: "安装后采集构建产物、核心接口和平台治理端点状态。" }
       ],
       diagnostics: [
@@ -542,7 +803,8 @@ export class PlatformStore {
     return [
       { id: "curl-backups", language: "curl", title: "列出备份", requiredScopes: ["backups:read"], snippet: "curl.exe -H \"Authorization: Bearer lxpat_xxx\" http://127.0.0.1:7080/api/backups" },
       { id: "powershell-audit", language: "powershell", title: "下载审计签名包", requiredScopes: ["audit:read"], snippet: "Invoke-RestMethod -Headers @{ Authorization = 'Bearer lxpat_xxx' } -Uri http://127.0.0.1:7080/api/audit/export-package?format=jsonl" },
-      { id: "node-apps", language: "node", title: "读取应用部署", requiredScopes: ["apps:read"], snippet: "const res = await fetch('http://127.0.0.1:7080/api/apps/deployments', { headers: { Authorization: 'Bearer lxpat_xxx' } });\nconsole.log(await res.json());" }
+      { id: "node-apps", language: "node", title: "读取应用部署", requiredScopes: ["apps:read"], snippet: "const res = await fetch('http://127.0.0.1:7080/api/apps/deployments', { headers: { Authorization: 'Bearer lxpat_xxx' } });\nconsole.log(await res.json());" },
+      { id: "curl-ha", language: "curl", title: "读取高可用计划", requiredScopes: ["platform:read"], snippet: "curl.exe -H \"Authorization: Bearer lxpat_xxx\" http://127.0.0.1:7080/api/platform/high-availability-plan" }
     ];
   }
 
@@ -558,7 +820,8 @@ export class PlatformStore {
         { id: "navigation-search", title: "导航搜索与最近访问", ready: true, detail: "Shell 支持分组菜单、功能搜索、最近访问和页面记忆。" },
         { id: "dashboard-workbench", title: "首页工作台", ready: true, detail: "概览页提供状态摘要、角色感知快捷入口和资源进度条。" },
         { id: "i18n-resources", title: "中英文资源文件", ready: true, detail: "平台治理页使用资源表切换 zh-CN 和 en-US 文案。" },
-        { id: "tenant-report", title: "租户报表导出", ready: true, detail: "平台治理页可下载 workspace 级资源和审计摘要。" }
+        { id: "tenant-report", title: "租户报表导出", ready: true, detail: "平台治理页可下载 workspace 级资源和审计摘要。" },
+        { id: "commercial-governance", title: "商业治理能力", ready: true, detail: "SSO、发行清单、备份加密、审计保留、插件权限和高可用计划均有 API 契约。" }
       ]
     };
   }
@@ -596,6 +859,50 @@ function createTemplateSnapshot(repository: TemplateRepository, templates: Impor
   };
 }
 
+function toPublicIdentityProvider(provider: NonNullable<PanelState["identityProvider"]>): IdentityProvider {
+  return {
+    id: provider.id,
+    name: provider.name,
+    type: provider.type,
+    issuerUrl: provider.issuerUrl,
+    authorizationEndpoint: provider.authorizationEndpoint,
+    ...(provider.tokenEndpoint ? { tokenEndpoint: provider.tokenEndpoint } : {}),
+    ...(provider.jwksUri ? { jwksUri: provider.jwksUri } : {}),
+    clientId: provider.clientId,
+    clientSecretConfigured: Boolean(provider.clientSecretConfigured || provider.clientSecret),
+    scopes: provider.scopes,
+    claimMappings: provider.claimMappings,
+    requireMfa: provider.requireMfa,
+    breakGlassLocalLogin: provider.breakGlassLocalLogin,
+    enabled: provider.enabled,
+    createdAt: provider.createdAt,
+    updatedAt: provider.updatedAt,
+    updatedBy: provider.updatedBy
+  };
+}
+
+function oidcAuthorizationUrl(provider: IdentityProvider, callbackPath: string): string {
+  const url = new URL(provider.authorizationEndpoint);
+  url.searchParams.set("client_id", provider.clientId);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", provider.scopes.join(" "));
+  url.searchParams.set("redirect_uri", callbackPath);
+  url.searchParams.set("state", "<signed-state>");
+  return url.toString();
+}
+
+function connectorReleaseChannelsOrDefault(state: PanelState): ConnectorReleaseChannel[] {
+  return (state.connectorReleaseChannels && state.connectorReleaseChannels.length > 0) ? state.connectorReleaseChannels : createDefaultConnectorReleaseChannels();
+}
+
+function auditRetentionPoliciesOrDefault(state: PanelState): AuditRetentionPolicy[] {
+  return (state.auditRetentionPolicies && state.auditRetentionPolicies.length > 0) ? state.auditRetentionPolicies : createDefaultAuditRetentionPolicies();
+}
+
+function nextRotationAt(fromIso: string, days: number): string {
+  return new Date(new Date(fromIso).getTime() + days * 24 * 60 * 60_000).toISOString();
+}
+
 function responseSchemaFor(path: string): unknown {
   const map: Record<string, unknown> = {
     "/api/platform/openapi-summary": { $ref: "#/components/schemas/OpenApiSummaryResponse" },
@@ -604,6 +911,17 @@ function responseSchemaFor(path: string): unknown {
     "/api/platform/tenant-report": { $ref: "#/components/schemas/TenantReportResponse" },
     "/api/platform/connectors/version-policy": { $ref: "#/components/schemas/ConnectorVersionPolicyResponse" },
     "/api/platform/connectors/upgrade": { $ref: "#/components/schemas/ConnectorUpgradePlanResponse" },
+    "/api/platform/identity-provider": { $ref: "#/components/schemas/IdentityProviderResponse" },
+    "/api/platform/sso-readiness": { $ref: "#/components/schemas/SsoReadinessResponse" },
+    "/api/platform/connectors/release-channels": { $ref: "#/components/schemas/ConnectorReleaseChannelsResponse" },
+    "/api/platform/connectors/release-manifest": { $ref: "#/components/schemas/ConnectorReleaseManifestResponse" },
+    "/api/platform/backup-encryption": { $ref: "#/components/schemas/BackupEncryptionPolicyResponse" },
+    "/api/platform/backup-encryption/rotation-plan": { $ref: "#/components/schemas/BackupKeyRotationPlanResponse" },
+    "/api/platform/audit-retention-policies": { $ref: "#/components/schemas/AuditRetentionPoliciesResponse" },
+    "/api/platform/audit-retention-policies/evaluate": { $ref: "#/components/schemas/AuditRetentionEvaluationResponse" },
+    "/api/platform/plugins": { $ref: "#/components/schemas/PluginManifestsResponse" },
+    "/api/platform/plugins/evaluate": { $ref: "#/components/schemas/PluginPermissionEvaluationResponse" },
+    "/api/platform/high-availability-plan": { $ref: "#/components/schemas/HighAvailabilityPlanResponse" },
     "/api/platform/terminal-sessions": { $ref: "#/components/schemas/TerminalSessionResponse" },
     "/api/platform/terminal-sessions/replay": { $ref: "#/components/schemas/TerminalReplayResponse" },
     "/api/platform/template-repositories/rollback": { $ref: "#/components/schemas/TemplateRepositoryRollbackResponse" },
@@ -754,6 +1072,23 @@ function platformOpenApiPathSpecs(): OpenApiSummary["paths"] {
     { method: "GET", path: "/api/platform/tenant-report", scope: "platform:read" },
     { method: "GET", path: "/api/platform/connectors/version-policy", scope: "platform:read" },
     { method: "POST", path: "/api/platform/connectors/upgrade", scope: "platform:write" },
+    { method: "GET", path: "/api/platform/identity-provider", scope: "platform:read" },
+    { method: "PUT", path: "/api/platform/identity-provider", scope: "platform:write" },
+    { method: "GET", path: "/api/platform/sso-readiness", scope: "platform:read" },
+    { method: "GET", path: "/api/platform/connectors/release-channels", scope: "platform:read" },
+    { method: "PUT", path: "/api/platform/connectors/release-channels", scope: "platform:write" },
+    { method: "GET", path: "/api/platform/connectors/release-manifest", scope: "platform:read" },
+    { method: "GET", path: "/api/platform/backup-encryption", scope: "platform:read" },
+    { method: "PUT", path: "/api/platform/backup-encryption", scope: "platform:write" },
+    { method: "GET", path: "/api/platform/backup-encryption/rotation-plan", scope: "platform:read" },
+    { method: "POST", path: "/api/platform/backup-encryption/rotate", scope: "platform:write" },
+    { method: "GET", path: "/api/platform/audit-retention-policies", scope: "platform:read" },
+    { method: "POST", path: "/api/platform/audit-retention-policies", scope: "platform:write" },
+    { method: "POST", path: "/api/platform/audit-retention-policies/evaluate", scope: "platform:read" },
+    { method: "GET", path: "/api/platform/plugins", scope: "platform:read" },
+    { method: "POST", path: "/api/platform/plugins", scope: "platform:write" },
+    { method: "POST", path: "/api/platform/plugins/evaluate", scope: "platform:read" },
+    { method: "GET", path: "/api/platform/high-availability-plan", scope: "platform:read" },
     { method: "GET", path: "/api/platform/license", scope: "platform:read" },
     { method: "PUT", path: "/api/platform/license", scope: "platform:write" },
     { method: "POST", path: "/api/platform/license/verify", scope: "platform:write" },
@@ -832,6 +1167,13 @@ function requestSchemaFor(method: string, path: string): Record<string, unknown>
     "POST /api/approvals/approve": id("approvalId"),
     "POST /api/approvals/reject": id("approvalId"),
     "POST /api/platform/connectors/upgrade": { $ref: "#/components/schemas/ConnectorUpgradeRequest" },
+    "PUT /api/platform/identity-provider": { type: "object", required: ["name", "issuerUrl", "authorizationEndpoint", "clientId"], properties: { name: { type: "string" }, issuerUrl: { type: "string" }, authorizationEndpoint: { type: "string" }, tokenEndpoint: { type: "string" }, jwksUri: { type: "string" }, clientId: { type: "string" }, clientSecret: { type: "string" }, scopes: { type: "array", items: { type: "string" } }, requireMfa: { type: "boolean" }, breakGlassLocalLogin: { type: "boolean" }, enabled: { type: "boolean" } } },
+    "PUT /api/platform/connectors/release-channels": { type: "object", required: ["name", "version", "minimumVersion", "rolloutPercent", "artifacts"], properties: { name: { type: "string", enum: ["stable", "candidate"] }, version: { type: "string" }, minimumVersion: { type: "string" }, rolloutPercent: { type: "integer" }, publicKeyId: { type: "string" }, artifacts: { type: "array", items: { type: "object" } } } },
+    "PUT /api/platform/backup-encryption": { type: "object", required: ["enabled"], properties: { enabled: { type: "boolean" }, provider: { type: "string", enum: ["local", "kms"] }, keyRef: { type: "string" }, rotateEveryDays: { type: "integer" } } },
+    "POST /api/platform/audit-retention-policies": { type: "object", required: ["workspace", "eventType", "retainDays"], properties: { workspace: { type: "string" }, eventType: { type: "string" }, retainDays: { type: "integer" }, archiveBeforeDelete: { type: "boolean" }, legalHold: { type: "boolean" }, enabled: { type: "boolean" } } },
+    "POST /api/platform/audit-retention-policies/evaluate": { type: "object", properties: { workspace: { type: "string" }, eventType: { type: "string" }, eventCount: { type: "integer" } } },
+    "POST /api/platform/plugins": { type: "object", required: ["id", "name", "version", "entryPoint", "permissions"], properties: { id: { type: "string" }, name: { type: "string" }, version: { type: "string" }, entryPoint: { type: "string" }, permissions: { type: "array", items: { type: "string" } }, signature: { type: "string" }, enabled: { type: "boolean" } } },
+    "POST /api/platform/plugins/evaluate": { type: "object", required: ["pluginId", "requestedScopes"], properties: { pluginId: { type: "string" }, requestedScopes: { type: "array", items: { type: "string" } } } },
     "POST /api/platform/access-policies": { type: "object", required: ["workspace", "resourceType", "resourceId", "role", "permissions"], properties: { workspace: { type: "string" }, resourceType: { type: "string" }, resourceId: { type: "string" }, role: { type: "string" }, permissions: { type: "array", items: { type: "string" } } } },
     "POST /api/platform/access-evaluate": { type: "object", required: ["workspace", "resourceType", "resourceId", "role", "permission"], properties: { workspace: { type: "string" }, resourceType: { type: "string" }, resourceId: { type: "string" }, role: { type: "string" }, permission: { type: "string" } } },
     "POST /api/platform/terminal-sessions": { type: "object", required: ["hostId"], properties: { hostId: { type: "string" }, username: { type: "string" }, rows: { type: "integer" }, cols: { type: "integer" } } },
@@ -890,6 +1232,17 @@ function openApiSchemas(): Record<string, unknown> {
     ConnectorVersionPolicyResponse: { type: "object", properties: { policy: { type: "object", properties: { generatedAt: { type: "string" }, recommendedVersion: { type: "string" }, connectors: { type: "array", items: { type: "object" } } } } } },
     ConnectorUpgradeRequest: { type: "object", properties: { connectorId: { type: "string" }, channel: { type: "string", enum: ["stable", "candidate"] }, targetVersion: { type: "string" }, rolloutPercent: { type: "integer", minimum: 1, maximum: 100 } } },
     ConnectorUpgradePlanResponse: { type: "object", properties: { plan: { type: "object", properties: { generatedAt: { type: "string" }, targetVersion: { type: "string" }, selected: { type: "array", items: { type: "object" } }, commands: { type: "array", items: { type: "object" } } } } } },
+    IdentityProviderResponse: { type: "object", properties: { provider: { type: "object", nullable: true } } },
+    SsoReadinessResponse: { type: "object", properties: { readiness: { type: "object", properties: { configured: { type: "boolean" }, enabled: { type: "boolean" }, authorizationUrl: { type: "string" }, checks: { type: "array", items: { type: "object" } } } } } },
+    ConnectorReleaseChannelsResponse: { type: "object", properties: { channels: { type: "array", items: { type: "object" } }, channel: { type: "object" } } },
+    ConnectorReleaseManifestResponse: { type: "object", properties: { manifest: { type: "object", properties: { generatedAt: { type: "string" }, manifestSha256: { type: "string" }, verification: { type: "object" } } } } },
+    BackupEncryptionPolicyResponse: { type: "object", properties: { policy: { type: "object", properties: { enabled: { type: "boolean" }, algorithm: { type: "string" }, keyVersion: { type: "integer" } } } } },
+    BackupKeyRotationPlanResponse: { type: "object", properties: { plan: { type: "object", properties: { currentKeyVersion: { type: "integer" }, nextKeyVersion: { type: "integer" }, due: { type: "boolean" } } } } },
+    AuditRetentionPoliciesResponse: { type: "object", properties: { policies: { type: "array", items: { type: "object" } }, policy: { type: "object" } } },
+    AuditRetentionEvaluationResponse: { type: "object", properties: { evaluation: { type: "object", properties: { retainDays: { type: "integer" }, pruneEligibleBefore: { type: "string" } } } } },
+    PluginManifestsResponse: { type: "object", properties: { plugins: { type: "array", items: { type: "object" } }, plugin: { type: "object" } } },
+    PluginPermissionEvaluationResponse: { type: "object", properties: { evaluation: { type: "object", properties: { allowed: { type: "boolean" }, grantedScopes: { type: "array", items: { type: "string" } }, deniedScopes: { type: "array", items: { type: "string" } } } } } },
+    HighAvailabilityPlanResponse: { type: "object", properties: { plan: { type: "object", properties: { mode: { type: "string" }, topology: { type: "array", items: { type: "object" } }, rolloutSteps: { type: "array", items: { type: "object" } } } } } },
     TerminalSessionResponse: { type: "object", properties: { session: { type: "object" }, command: { type: "object" } } },
     TerminalReplayResponse: { type: "object", properties: { replay: { type: "object", properties: { sessionId: { type: "string" }, lineCount: { type: "integer" }, lines: { type: "array", items: { type: "object" } } } } } },
     TemplateRepositoryRollbackResponse: { type: "object", properties: { rollback: { type: "object" } } },

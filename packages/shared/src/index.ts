@@ -944,7 +944,12 @@ export const BackupSnapshotSchema = z.object({
   createdAt: z.string(),
   createdBy: z.string(),
   kind: z.enum(["state"]),
-  sha256: z.string().optional()
+  sha256: z.string().optional(),
+  encryption: z.object({
+    algorithm: z.literal("AES-256-GCM"),
+    provider: z.enum(["local", "kms"]),
+    keyVersion: z.number().int().min(1)
+  }).optional()
 });
 export type BackupSnapshot = z.infer<typeof BackupSnapshotSchema>;
 
@@ -1466,6 +1471,241 @@ export const ResourceApprovalPrecheckSchema = z.object({
   policy: ResourceApprovalPolicySchema.optional()
 });
 export type ResourceApprovalPrecheck = z.infer<typeof ResourceApprovalPrecheckSchema>;
+
+export const IdentityProviderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.literal("oidc"),
+  issuerUrl: z.string().url(),
+  authorizationEndpoint: z.string().url(),
+  tokenEndpoint: z.string().url().optional(),
+  jwksUri: z.string().url().optional(),
+  clientId: z.string(),
+  clientSecretConfigured: z.boolean().default(false),
+  scopes: z.array(z.string()).default(["openid", "profile", "email"]),
+  claimMappings: z.object({
+    subject: z.string().default("sub"),
+    email: z.string().default("email"),
+    name: z.string().default("name"),
+    groups: z.string().default("groups")
+  }),
+  requireMfa: z.boolean().default(true),
+  breakGlassLocalLogin: z.boolean().default(true),
+  enabled: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type IdentityProvider = z.infer<typeof IdentityProviderSchema>;
+
+export const UpdateIdentityProviderSchema = z.object({
+  name: z.string().min(2).max(80),
+  issuerUrl: z.string().url(),
+  authorizationEndpoint: z.string().url(),
+  tokenEndpoint: z.string().url().optional(),
+  jwksUri: z.string().url().optional(),
+  clientId: z.string().min(1).max(200),
+  clientSecret: z.string().min(1).max(1000).optional(),
+  scopes: z.array(z.string().min(1).max(80)).min(1).max(12).default(["openid", "profile", "email"]),
+  claimMappings: z.object({
+    subject: z.string().min(1).max(80).default("sub"),
+    email: z.string().min(1).max(80).default("email"),
+    name: z.string().min(1).max(80).default("name"),
+    groups: z.string().min(1).max(80).default("groups")
+  }).default({ subject: "sub", email: "email", name: "name", groups: "groups" }),
+  requireMfa: z.boolean().default(true),
+  breakGlassLocalLogin: z.boolean().default(true),
+  enabled: z.boolean().default(true)
+});
+export type UpdateIdentityProvider = z.infer<typeof UpdateIdentityProviderSchema>;
+
+export const SsoReadinessSchema = z.object({
+  configured: z.boolean(),
+  enabled: z.boolean(),
+  provider: IdentityProviderSchema.optional(),
+  authorizationUrl: z.string().optional(),
+  callbackPath: z.string(),
+  localBreakGlassAvailable: z.boolean(),
+  checks: z.array(z.object({ id: z.string(), title: z.string(), ready: z.boolean(), detail: z.string() }))
+});
+export type SsoReadiness = z.infer<typeof SsoReadinessSchema>;
+
+export const ConnectorReleaseArtifactSchema = z.object({
+  id: z.string(),
+  channel: z.enum(["stable", "candidate"]),
+  version: z.string(),
+  platform: z.string(),
+  url: z.string(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  signature: z.string().min(1).optional(),
+  createdAt: z.string()
+});
+export type ConnectorReleaseArtifact = z.infer<typeof ConnectorReleaseArtifactSchema>;
+
+export const ConnectorReleaseChannelSchema = z.object({
+  name: z.enum(["stable", "candidate"]),
+  version: z.string(),
+  minimumVersion: z.string(),
+  rolloutPercent: z.number().int().min(1).max(100),
+  publicKeyId: z.string().optional(),
+  artifacts: z.array(ConnectorReleaseArtifactSchema),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type ConnectorReleaseChannel = z.infer<typeof ConnectorReleaseChannelSchema>;
+
+export const UpdateConnectorReleaseChannelSchema = z.object({
+  name: z.enum(["stable", "candidate"]),
+  version: z.string().min(1).max(80),
+  minimumVersion: z.string().min(1).max(80),
+  rolloutPercent: z.number().int().min(1).max(100),
+  publicKeyId: z.string().max(120).optional(),
+  artifacts: z.array(ConnectorReleaseArtifactSchema.omit({ channel: true }).extend({ channel: z.enum(["stable", "candidate"]).optional() })).min(1).max(12)
+});
+export type UpdateConnectorReleaseChannel = z.infer<typeof UpdateConnectorReleaseChannelSchema>;
+
+export const ConnectorReleaseManifestSchema = z.object({
+  generatedAt: z.string(),
+  manifestSha256: z.string(),
+  channels: z.array(ConnectorReleaseChannelSchema),
+  verification: z.object({
+    allArtifactsHaveSha256: z.boolean(),
+    allArtifactsHaveSignature: z.boolean(),
+    publicKeyIds: z.array(z.string()),
+    installCommand: z.string()
+  })
+});
+export type ConnectorReleaseManifest = z.infer<typeof ConnectorReleaseManifestSchema>;
+
+export const BackupEncryptionPolicySchema = z.object({
+  enabled: z.boolean(),
+  algorithm: z.literal("AES-256-GCM"),
+  provider: z.enum(["local", "kms"]),
+  keyRef: z.string(),
+  keyVersion: z.number().int().min(1),
+  rotateEveryDays: z.number().int().min(1).max(730),
+  nextRotationAt: z.string().optional(),
+  lastRotatedAt: z.string().optional(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type BackupEncryptionPolicy = z.infer<typeof BackupEncryptionPolicySchema>;
+
+export const UpdateBackupEncryptionPolicySchema = z.object({
+  enabled: z.boolean(),
+  provider: z.enum(["local", "kms"]).default("local"),
+  keyRef: z.string().min(1).max(200).default("LXPANEL_SESSION_SECRET"),
+  rotateEveryDays: z.number().int().min(1).max(730).default(90)
+});
+export type UpdateBackupEncryptionPolicy = z.infer<typeof UpdateBackupEncryptionPolicySchema>;
+
+export const BackupKeyRotationPlanSchema = z.object({
+  generatedAt: z.string(),
+  currentKeyVersion: z.number().int().min(1),
+  nextKeyVersion: z.number().int().min(2),
+  due: z.boolean(),
+  steps: z.array(z.object({ id: z.string(), title: z.string(), detail: z.string(), requiresApproval: z.boolean() }))
+});
+export type BackupKeyRotationPlan = z.infer<typeof BackupKeyRotationPlanSchema>;
+
+export const AuditRetentionPolicySchema = z.object({
+  id: z.string(),
+  workspace: z.string().default("default"),
+  eventType: z.string().default("*"),
+  retainDays: z.number().int().min(1).max(3650),
+  archiveBeforeDelete: z.boolean(),
+  legalHold: z.boolean(),
+  enabled: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type AuditRetentionPolicy = z.infer<typeof AuditRetentionPolicySchema>;
+
+export const CreateAuditRetentionPolicySchema = z.object({
+  workspace: z.string().min(2).max(80).default("default"),
+  eventType: z.string().min(1).max(120).default("*"),
+  retainDays: z.number().int().min(1).max(3650),
+  archiveBeforeDelete: z.boolean().default(true),
+  legalHold: z.boolean().default(false),
+  enabled: z.boolean().default(true)
+});
+export type CreateAuditRetentionPolicy = z.infer<typeof CreateAuditRetentionPolicySchema>;
+
+export const AuditRetentionEvaluationRequestSchema = z.object({
+  workspace: z.string().min(2).max(80).default("default"),
+  eventType: z.string().min(1).max(120).default("*"),
+  eventCount: z.number().int().nonnegative().default(0)
+});
+export type AuditRetentionEvaluationRequest = z.infer<typeof AuditRetentionEvaluationRequestSchema>;
+
+export const AuditRetentionEvaluationSchema = z.object({
+  generatedAt: z.string(),
+  workspace: z.string(),
+  eventType: z.string(),
+  retainDays: z.number().int().min(1).max(3650),
+  archiveBeforeDelete: z.boolean(),
+  legalHold: z.boolean(),
+  pruneEligibleBefore: z.string(),
+  matchedPolicy: AuditRetentionPolicySchema.optional(),
+  estimatedEligibleEvents: z.number().int().nonnegative()
+});
+export type AuditRetentionEvaluation = z.infer<typeof AuditRetentionEvaluationSchema>;
+
+export const PluginManifestSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  version: z.string(),
+  description: z.string().optional(),
+  entryPoint: z.string(),
+  permissions: z.array(ApiTokenScopeSchema),
+  signature: z.string().optional(),
+  enabled: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type PluginManifest = z.infer<typeof PluginManifestSchema>;
+
+export const RegisterPluginManifestSchema = z.object({
+  id: z.string().min(2).max(80).regex(/^[A-Za-z0-9_.-]+$/u),
+  name: z.string().min(2).max(80),
+  version: z.string().min(1).max(80),
+  description: z.string().max(300).optional(),
+  entryPoint: z.string().min(1).max(240),
+  permissions: z.array(ApiTokenScopeSchema).min(1).max(20),
+  signature: z.string().max(4000).optional(),
+  enabled: z.boolean().default(false)
+});
+export type RegisterPluginManifest = z.infer<typeof RegisterPluginManifestSchema>;
+
+export const PluginPermissionEvaluationRequestSchema = z.object({
+  pluginId: z.string().min(1),
+  requestedScopes: z.array(ApiTokenScopeSchema).min(1).max(20)
+});
+export type PluginPermissionEvaluationRequest = z.infer<typeof PluginPermissionEvaluationRequestSchema>;
+
+export const PluginPermissionEvaluationSchema = z.object({
+  pluginId: z.string(),
+  allowed: z.boolean(),
+  grantedScopes: z.array(ApiTokenScopeSchema),
+  deniedScopes: z.array(ApiTokenScopeSchema),
+  requiresSignature: z.boolean(),
+  requiresApproval: z.boolean(),
+  detail: z.string()
+});
+export type PluginPermissionEvaluation = z.infer<typeof PluginPermissionEvaluationSchema>;
+
+export const HighAvailabilityPlanSchema = z.object({
+  generatedAt: z.string(),
+  mode: z.enum(["single-node", "active-passive", "active-active"]),
+  topology: z.array(z.object({ role: z.string(), count: z.number().int().min(1), detail: z.string() })),
+  checks: z.array(z.object({ id: z.string(), title: z.string(), ready: z.boolean(), detail: z.string() })),
+  rolloutSteps: z.array(z.object({ id: z.string(), title: z.string(), detail: z.string() })),
+  failoverRunbook: z.array(z.object({ id: z.string(), title: z.string(), command: z.string().optional(), detail: z.string() })),
+  estimatedRecoveryMinutes: z.number().int().min(1)
+});
+export type HighAvailabilityPlan = z.infer<typeof HighAvailabilityPlanSchema>;
 
 export const WorkspaceSchema = z.object({
   id: z.string(),

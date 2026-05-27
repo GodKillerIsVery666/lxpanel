@@ -3,7 +3,7 @@ import type { IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { AccessEvaluationRequestSchema, ConnectorUpgradeRequestSchema, CreateAccessPolicySchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, ResourceApprovalCheckSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateLicenseSchema } from "@lxpanel/shared";
+import { AccessEvaluationRequestSchema, AuditRetentionEvaluationRequestSchema, ConnectorUpgradeRequestSchema, CreateAccessPolicySchema, CreateAuditRetentionPolicySchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, PluginPermissionEvaluationRequestSchema, RegisterPluginManifestSchema, ResourceApprovalCheckSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateBackupEncryptionPolicySchema, UpdateConnectorReleaseChannelSchema, UpdateIdentityProviderSchema, UpdateLicenseSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole, requireUser, sessionCookieName } from "../auth/authMiddleware.js";
@@ -221,6 +221,164 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     const plan = await services.connectorStore.scheduleUpgrade(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "platform.connector.upgrade", target: input.connectorId ?? input.channel, ip: request.ip, status: "success", detail: `selected=${plan.selected.length};target=${plan.targetVersion}` });
     return { plan };
+  });
+
+  app.get("/api/platform/identity-provider", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { provider: await services.platformStore.identityProvider() };
+  });
+
+  app.put("/api/platform/identity-provider", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = UpdateIdentityProviderSchema.parse(request.body);
+    const provider = await services.platformStore.updateIdentityProvider(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "platform.identity_provider.update", target: provider.name, ip: request.ip, status: "success", detail: `enabled=${provider.enabled};mfa=${provider.requireMfa}` });
+    return { provider };
+  });
+
+  app.get("/api/platform/sso-readiness", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { readiness: await services.platformStore.ssoReadiness() };
+  });
+
+  app.get("/api/platform/connectors/release-channels", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    return { channels: await services.platformStore.connectorReleaseChannels() };
+  });
+
+  app.put("/api/platform/connectors/release-channels", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = UpdateConnectorReleaseChannelSchema.parse(request.body);
+    const channel = await services.platformStore.updateConnectorReleaseChannel(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "platform.connector_release.update", target: channel.name, ip: request.ip, status: "success", detail: `version=${channel.version};artifacts=${channel.artifacts.length}` });
+    return { channel };
+  });
+
+  app.get("/api/platform/connectors/release-manifest", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    return { manifest: await services.platformStore.connectorReleaseManifest() };
+  });
+
+  app.get("/api/platform/backup-encryption", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { policy: await services.platformStore.backupEncryptionPolicy() };
+  });
+
+  app.put("/api/platform/backup-encryption", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = UpdateBackupEncryptionPolicySchema.parse(request.body);
+    const policy = await services.platformStore.updateBackupEncryptionPolicy(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "platform.backup_encryption.update", target: policy.keyRef, ip: request.ip, status: "success", detail: `enabled=${policy.enabled};rotate=${policy.rotateEveryDays}` });
+    return { policy };
+  });
+
+  app.get("/api/platform/backup-encryption/rotation-plan", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { plan: await services.platformStore.backupKeyRotationPlan() };
+  });
+
+  app.post("/api/platform/backup-encryption/rotate", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const policy = await services.platformStore.rotateBackupEncryptionKey(user.username);
+    await services.auditLog.append({ actor: user.username, action: "platform.backup_encryption.rotate", target: policy.keyRef, ip: request.ip, status: "success", detail: `keyVersion=${policy.keyVersion}` });
+    return { policy };
+  });
+
+  app.get("/api/platform/audit-retention-policies", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { policies: await services.platformStore.auditRetentionPolicies() };
+  });
+
+  app.post("/api/platform/audit-retention-policies", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = CreateAuditRetentionPolicySchema.parse(request.body);
+    const policy = await services.platformStore.createAuditRetentionPolicy(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "platform.audit_retention.create", target: `${policy.workspace}:${policy.eventType}`, ip: request.ip, status: "success", detail: `retainDays=${policy.retainDays}` });
+    return { policy };
+  });
+
+  app.post("/api/platform/audit-retention-policies/evaluate", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = AuditRetentionEvaluationRequestSchema.parse(request.body ?? {});
+    const evaluation = await services.platformStore.evaluateAuditRetention(input);
+    return { evaluation };
+  });
+
+  app.get("/api/platform/plugins", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    return { plugins: await services.platformStore.pluginManifests() };
+  });
+
+  app.post("/api/platform/plugins", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = RegisterPluginManifestSchema.parse(request.body);
+    const plugin = await services.platformStore.registerPluginManifest(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "platform.plugin.register", target: plugin.id, ip: request.ip, status: "success", detail: `scopes=${plugin.permissions.join(",")}` });
+    return { plugin };
+  });
+
+  app.post("/api/platform/plugins/evaluate", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const input = PluginPermissionEvaluationRequestSchema.parse(request.body);
+    const evaluation = await services.platformStore.evaluatePluginPermissions(input);
+    await services.auditLog.append({ actor: user.username, action: "platform.plugin.evaluate", target: input.pluginId, ip: request.ip, status: evaluation.allowed ? "success" : "denied", detail: evaluation.detail });
+    return { evaluation };
+  });
+
+  app.get("/api/platform/high-availability-plan", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { plan: await services.platformStore.highAvailabilityPlan() };
   });
 
   app.get("/api/platform/license", async (request, reply) => {
