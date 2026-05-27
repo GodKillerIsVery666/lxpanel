@@ -22,12 +22,13 @@ import { SecurityPage } from "./pages/SecurityPage.js";
 import { ServicesPage } from "./pages/ServicesPage.js";
 import { TasksPage } from "./pages/TasksPage.js";
 import { UsersPage } from "./pages/UsersPage.js";
+import { canAccessView, navItems, type ViewId } from "./navigation.js";
 
-export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "databases" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "approvals" | "users" | "backups" | "security" | "platform" | "audit";
+const viewStorageKey = "lxpanel.activeView";
 
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null);
-  const [view, setView] = useState<ViewId>("dashboard");
+  const [view, setView] = useState<ViewId>(() => readStoredView());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,6 +44,17 @@ export default function App(): JSX.Element {
     setStatus({ setupRequired: false, user });
   }
 
+  function navigate(nextView: ViewId): void {
+    setView(nextView);
+    window.localStorage.setItem(viewStorageKey, nextView);
+  }
+
+  useEffect(() => {
+    if (status?.user && !canAccessView(status.user, view)) {
+      navigate("dashboard");
+    }
+  }, [status, view]);
+
   if (error) {
     return <main className="login-screen"><div className="login-panel"><h1>连接失败</h1><div className="form-error">{error}</div></div></main>;
   }
@@ -56,13 +68,13 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <Shell user={status.user} activeView={view} onNavigate={setView} onLogout={() => void logout()}>
-      {renderView(view)}
+    <Shell user={status.user} activeView={view} onNavigate={navigate} onLogout={() => void logout()}>
+      {renderView(view, navigate, status.user)}
     </Shell>
   );
 }
 
-function renderView(view: ViewId): JSX.Element {
+function renderView(view: ViewId, navigate: (view: ViewId) => void, user: AuthUser): JSX.Element {
   switch (view) {
     case "hosts": return <HostsPage />;
     case "monitoring": return <MonitoringPage />;
@@ -84,6 +96,15 @@ function renderView(view: ViewId): JSX.Element {
     case "platform": return <PlatformPage />;
     case "audit": return <AuditPage />;
     case "dashboard":
-    default: return <DashboardPage />;
+    default: return <DashboardPage user={user} onNavigate={navigate} />;
   }
+}
+
+function readStoredView(): ViewId {
+  const storedView = window.localStorage.getItem(viewStorageKey);
+  return isViewId(storedView) ? storedView : "dashboard";
+}
+
+function isViewId(value: string | null): value is ViewId {
+  return navItems.some((item) => item.id === value);
 }

@@ -22,6 +22,14 @@ export function formatDuration(seconds: number): string {
   return `${minutes} 分钟`;
 }
 
+export function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0%";
+  }
+  const bounded = Math.min(Math.max(value, 0), 100);
+  return `${Math.round(bounded)}%`;
+}
+
 export function formatDate(value?: string): string {
   if (!value) {
     return "-";
