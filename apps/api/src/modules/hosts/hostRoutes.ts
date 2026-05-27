@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { CreateHostGroupSchema, CreateHostSchema, HostBatchCommandSchema, HostSshSessionRequestSchema, UpdateHostSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
+import { enforceResourceApproval } from "../platform/approvalGuard.js";
 
 export function registerHostRoutes(app: FastifyInstance, services: Services): void {
   app.get("/api/hosts", async (request, reply) => {
@@ -78,6 +79,11 @@ export function registerHostRoutes(app: FastifyInstance, services: Services): vo
       return;
     }
     const input = HostBatchCommandSchema.parse(request.body);
+    const resourceId = input.hostIds.length === 1 ? input.hostIds[0] ?? "*" : "*";
+    const approved = await enforceResourceApproval(services, reply, { workspace: input.workspace, resourceType: "host", resourceId, action: "host.batch_command", ...(input.approvalId ? { approvalId: input.approvalId } : {}) }, user.username);
+    if (!approved) {
+      return;
+    }
     const targets = await services.hostService.resolveCommandTargets(input.hostIds);
     const commands = [];
     for (const target of targets) {

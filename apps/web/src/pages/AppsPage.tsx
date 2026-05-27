@@ -40,7 +40,7 @@ export function AppsPage(): JSX.Element {
 
   async function deploy(): Promise<void> {
     try {
-      await api.createAppDeployment({ templateId, name, variables, autoStart });
+      await api.createAppDeployment({ workspace: "default", templateId, name, variables, autoStart });
       setName("");
       await load();
     } catch (caught) {
@@ -50,7 +50,7 @@ export function AppsPage(): JSX.Element {
 
   async function action(deploymentId: string, actionName: AppDeploymentAction["action"]): Promise<void> {
     try {
-      await api.runAppDeploymentAction({ deploymentId, action: actionName });
+      await api.runAppDeploymentAction({ workspace: "default", deploymentId, action: actionName });
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作失败。");
@@ -59,7 +59,7 @@ export function AppsPage(): JSX.Element {
 
   async function upgrade(deployment: AppDeployment): Promise<void> {
     try {
-      await api.updateAppDeployment({ deploymentId: deployment.id, variables: deployment.variables, autoRestart: false });
+      await api.updateAppDeployment({ workspace: deployment.workspace, deploymentId: deployment.id, variables: deployment.variables, autoRestart: false });
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "升级失败。");
@@ -68,7 +68,7 @@ export function AppsPage(): JSX.Element {
 
   async function rollback(deployment: AppDeployment): Promise<void> {
     try {
-      await api.rollbackAppDeployment({ deploymentId: deployment.id, autoRestart: false });
+      await api.rollbackAppDeployment({ workspace: deployment.workspace, deploymentId: deployment.id, autoRestart: false });
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "回滚失败。");

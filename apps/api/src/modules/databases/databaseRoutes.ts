@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { CreateDatabaseConnectionSchema, DatabaseBackupRequestSchema, DatabaseRestoreDrillRequestSchema, UpdateDatabaseConnectionSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole } from "../auth/authMiddleware.js";
+import { enforceResourceApproval } from "../platform/approvalGuard.js";
 
 export function registerDatabaseRoutes(app: FastifyInstance, services: Services): void {
   app.get("/api/databases", async (request, reply) => {
@@ -59,8 +60,22 @@ export function registerDatabaseRoutes(app: FastifyInstance, services: Services)
       return;
     }
     const input = DatabaseBackupRequestSchema.parse(request.body);
+    const approved = await enforceResourceApproval(services, reply, { workspace: input.workspace, resourceType: "database", resourceId: input.connectionId, action: "database.backup", ...(input.approvalId ? { approvalId: input.approvalId } : {}) }, user.username);
+    if (!approved) {
+      return;
+    }
     const result = await services.databaseStore.backupConnection(input.connectionId, user.username);
     await services.auditLog.append({ actor: user.username, action: "database.backup", target: input.connectionId, ip: request.ip, status: result.status === "success" ? "success" : "error", detail: result.error ?? result.outputTail });
+    return { result };
+  });
+
+  app.post("/api/databases/cleanup", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const result = await services.databaseStore.cleanupExpiredBackups();
+    await services.auditLog.append({ actor: user.username, action: "database.backup.cleanup", target: "database-backups", ip: request.ip, status: result.issues.length > 0 ? "error" : "success", detail: `removed=${result.removed};retained=${result.retained}` });
     return { result };
   });
 

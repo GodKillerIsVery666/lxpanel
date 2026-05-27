@@ -12,7 +12,7 @@ describe("应用商店", () => {
     const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
     const appStore = new AppStore(store, root);
 
-    const deployment = await appStore.createDeployment({ templateId: "redis", name: "redis-prod", variables: { REDIS_PORT: "6380", REDIS_PASSWORD: "secret" }, autoStart: false }, "admin");
+    const deployment = await appStore.createDeployment({ workspace: "default", templateId: "redis", name: "redis-prod", variables: { REDIS_PORT: "6380", REDIS_PASSWORD: "secret" }, autoStart: false }, "admin");
     const compose = await readFile(deployment.composePath, "utf8");
     const deployments = await appStore.listDeployments();
 
@@ -28,10 +28,10 @@ describe("应用商店", () => {
     const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
     const runner: ComposeRunner = (_composePath, action) => Promise.resolve({ stdout: `ok ${action}`, stderr: "" });
     const appStore = new AppStore(store, root, runner);
-    const deployment = await appStore.createDeployment({ templateId: "nginx-static", name: "web-prod", variables: { HTTP_PORT: "8088" }, autoStart: false }, "admin");
+    const deployment = await appStore.createDeployment({ workspace: "default", templateId: "nginx-static", name: "web-prod", variables: { HTTP_PORT: "8088" }, autoStart: false }, "admin");
 
-    const running = await appStore.runAction({ deploymentId: deployment.id, action: "up" }, "admin");
-    const stopped = await appStore.runAction({ deploymentId: deployment.id, action: "down" }, "admin");
+    const running = await appStore.runAction({ workspace: "default", deploymentId: deployment.id, action: "up" }, "admin");
+    const stopped = await appStore.runAction({ workspace: "default", deploymentId: deployment.id, action: "down" }, "admin");
 
     expect(running.status).toBe("running");
     expect(stopped.status).toBe("stopped");
@@ -42,8 +42,8 @@ describe("应用商店", () => {
     const root = await mkdtemp(join(tmpdir(), "lxpanel-apps-health-"));
     const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
     const appStore = new AppStore(store, root);
-    const template = appStore.listTemplates()[0];
-    const deployment = await appStore.createDeployment({ templateId: "nginx-static", name: "web-health", variables: { HTTP_PORT: "8090" }, autoStart: false }, "admin");
+    const template = (await appStore.listTemplates())[0];
+    const deployment = await appStore.createDeployment({ workspace: "default", templateId: "nginx-static", name: "web-health", variables: { HTTP_PORT: "8090" }, autoStart: false }, "admin");
 
     const health = await appStore.checkHealth(deployment.id);
 
@@ -56,11 +56,11 @@ describe("应用商店", () => {
     const root = await mkdtemp(join(tmpdir(), "lxpanel-apps-upgrade-"));
     const store = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
     const appStore = new AppStore(store, root);
-    const deployment = await appStore.createDeployment({ templateId: "nginx-static", name: "web-upgrade", variables: { HTTP_PORT: "8080" }, autoStart: false }, "admin");
+    const deployment = await appStore.createDeployment({ workspace: "default", templateId: "nginx-static", name: "web-upgrade", variables: { HTTP_PORT: "8080" }, autoStart: false }, "admin");
 
-    const upgraded = await appStore.updateDeployment({ deploymentId: deployment.id, variables: { HTTP_PORT: "8081" }, autoRestart: false }, "admin");
+    const upgraded = await appStore.updateDeployment({ workspace: "default", deploymentId: deployment.id, variables: { HTTP_PORT: "8081" }, autoRestart: false }, "admin");
     const upgradedCompose = await readFile(upgraded.composePath, "utf8");
-    const rolledBack = await appStore.rollbackDeployment({ deploymentId: deployment.id, autoRestart: false }, "admin");
+    const rolledBack = await appStore.rollbackDeployment({ workspace: "default", deploymentId: deployment.id, autoRestart: false }, "admin");
     const rollbackCompose = await readFile(rolledBack.composePath, "utf8");
 
     expect(upgraded.version).toBe(2);

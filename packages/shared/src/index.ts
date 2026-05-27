@@ -623,7 +623,9 @@ export type CreateHostGroup = z.infer<typeof CreateHostGroupSchema>;
 export const HostBatchCommandSchema = z.object({
   hostIds: z.array(z.string().min(1)).min(1).max(100),
   command: z.string().min(1).max(180).regex(/^[A-Za-z0-9_.:/\-]+$/u),
-  args: z.array(z.string().max(240)).max(24).default([])
+  args: z.array(z.string().max(240)).max(24).default([]),
+  workspace: z.string().min(2).max(80).default("default"),
+  approvalId: z.string().min(1).optional()
 });
 export type HostBatchCommand = z.infer<typeof HostBatchCommandSchema>;
 
@@ -740,11 +742,33 @@ export const AppTemplateSchema = z.object({
 });
 export type AppTemplate = z.infer<typeof AppTemplateSchema>;
 
+export const TemplateRepositoryIndexTemplateSchema = AppTemplateSchema.extend({
+  compose: z.string().min(1).max(40_000)
+});
+export type TemplateRepositoryIndexTemplate = z.infer<typeof TemplateRepositoryIndexTemplateSchema>;
+
+export const TemplateRepositoryIndexSchema = z.object({
+  version: z.string().min(1).max(40),
+  generatedAt: z.string().optional(),
+  templates: z.array(TemplateRepositoryIndexTemplateSchema).max(500),
+  signature: z.string().max(4000).optional(),
+  publicKeyId: z.string().max(120).optional()
+});
+export type TemplateRepositoryIndex = z.infer<typeof TemplateRepositoryIndexSchema>;
+
+export const ImportedAppTemplateSchema = TemplateRepositoryIndexTemplateSchema.extend({
+  repositoryId: z.string(),
+  importedAt: z.string(),
+  indexSha256: z.string().optional()
+});
+export type ImportedAppTemplate = z.infer<typeof ImportedAppTemplateSchema>;
+
 export const AppDeploymentStatusSchema = z.enum(["created", "running", "stopped", "failed"]);
 export type AppDeploymentStatus = z.infer<typeof AppDeploymentStatusSchema>;
 
 export const AppDeploymentSchema = z.object({
   id: z.string(),
+  workspace: z.string().default("default"),
   name: z.string(),
   templateId: z.string(),
   templateName: z.string(),
@@ -762,29 +786,37 @@ export const AppDeploymentSchema = z.object({
 export type AppDeployment = z.infer<typeof AppDeploymentSchema>;
 
 export const CreateAppDeploymentSchema = z.object({
+  workspace: z.string().min(2).max(80).default("default"),
   templateId: z.string().min(1),
   name: z.string().min(2).max(80).regex(/^[A-Za-z0-9_.-]+$/u),
   variables: z.record(z.string(), z.string().max(240)).default({}),
-  autoStart: z.boolean().default(false)
+  autoStart: z.boolean().default(false),
+  approvalId: z.string().min(1).optional()
 });
 export type CreateAppDeployment = z.infer<typeof CreateAppDeploymentSchema>;
 
 export const AppDeploymentActionSchema = z.object({
   deploymentId: z.string().min(1),
-  action: z.enum(["up", "down", "restart"])
+  action: z.enum(["up", "down", "restart"]),
+  workspace: z.string().min(2).max(80).default("default"),
+  approvalId: z.string().min(1).optional()
 });
 export type AppDeploymentAction = z.infer<typeof AppDeploymentActionSchema>;
 
 export const UpdateAppDeploymentSchema = z.object({
   deploymentId: z.string().min(1),
   variables: z.record(z.string(), z.string().max(240)).default({}),
-  autoRestart: z.boolean().default(false)
+  autoRestart: z.boolean().default(false),
+  workspace: z.string().min(2).max(80).default("default"),
+  approvalId: z.string().min(1).optional()
 });
 export type UpdateAppDeployment = z.infer<typeof UpdateAppDeploymentSchema>;
 
 export const RollbackAppDeploymentSchema = z.object({
   deploymentId: z.string().min(1),
-  autoRestart: z.boolean().default(false)
+  autoRestart: z.boolean().default(false),
+  workspace: z.string().min(2).max(80).default("default"),
+  approvalId: z.string().min(1).optional()
 });
 export type RollbackAppDeployment = z.infer<typeof RollbackAppDeploymentSchema>;
 
@@ -1049,6 +1081,7 @@ export type DatabaseType = z.infer<typeof DatabaseTypeSchema>;
 
 export const DatabaseConnectionSchema = z.object({
   id: z.string(),
+  workspace: z.string().default("default"),
   name: z.string(),
   type: DatabaseTypeSchema,
   maskedUrl: z.string(),
@@ -1070,6 +1103,7 @@ export const DatabaseConnectionSchema = z.object({
 export type DatabaseConnection = z.infer<typeof DatabaseConnectionSchema>;
 
 export const CreateDatabaseConnectionSchema = z.object({
+  workspace: z.string().min(2).max(80).default("default"),
   name: z.string().min(2).max(80),
   type: DatabaseTypeSchema.default("postgres"),
   url: z.string().url(),
@@ -1086,6 +1120,7 @@ export type CreateDatabaseConnection = z.infer<typeof CreateDatabaseConnectionSc
 
 export const UpdateDatabaseConnectionSchema = z.object({
   connectionId: z.string().min(1),
+  workspace: z.string().min(2).max(80).optional(),
   name: z.string().min(2).max(80).optional(),
   url: z.string().url().optional(),
   backupRetentionDays: z.number().int().min(1).max(3650).optional(),
@@ -1096,7 +1131,9 @@ export const UpdateDatabaseConnectionSchema = z.object({
 export type UpdateDatabaseConnection = z.infer<typeof UpdateDatabaseConnectionSchema>;
 
 export const DatabaseBackupRequestSchema = z.object({
-  connectionId: z.string().min(1)
+  connectionId: z.string().min(1),
+  workspace: z.string().min(2).max(80).default("default"),
+  approvalId: z.string().min(1).optional()
 });
 export type DatabaseBackupRequest = z.infer<typeof DatabaseBackupRequestSchema>;
 
@@ -1108,6 +1145,14 @@ export const DatabaseBackupResultSchema = z.object({
   error: z.string().optional()
 });
 export type DatabaseBackupResult = z.infer<typeof DatabaseBackupResultSchema>;
+
+export const DatabaseBackupCleanupResultSchema = z.object({
+  checkedAt: z.string(),
+  removed: z.number().int().nonnegative(),
+  retained: z.number().int().nonnegative(),
+  issues: z.array(z.string())
+});
+export type DatabaseBackupCleanupResult = z.infer<typeof DatabaseBackupCleanupResultSchema>;
 
 export const DatabaseRestoreDrillRequestSchema = z.object({
   connectionId: z.string().min(1)
@@ -1204,11 +1249,14 @@ export const TerminalSessionSchema = z.object({
   hostName: z.string(),
   connectorId: z.string(),
   commandId: z.string(),
+  streamUrl: z.string().optional(),
   username: z.string().optional(),
   status: TerminalSessionStatusSchema,
   createdAt: z.string(),
   createdBy: z.string(),
   lastInputAt: z.string().optional(),
+  lastOutputAt: z.string().optional(),
+  outputCursor: z.number().int().nonnegative().default(0),
   transcriptTail: z.array(TerminalTranscriptLineSchema).default([])
 });
 export type TerminalSession = z.infer<typeof TerminalSessionSchema>;
@@ -1227,6 +1275,14 @@ export const TerminalInputSchema = z.object({
 });
 export type TerminalInput = z.infer<typeof TerminalInputSchema>;
 
+export const TerminalOutputSchema = z.object({
+  sessionId: z.string().min(1),
+  output: z.string().min(1).max(12_000),
+  cursor: z.number().int().nonnegative().optional(),
+  status: TerminalSessionStatusSchema.optional()
+});
+export type TerminalOutput = z.infer<typeof TerminalOutputSchema>;
+
 export const TemplateRepositorySchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -1235,8 +1291,11 @@ export const TemplateRepositorySchema = z.object({
   publicKey: z.string().optional(),
   enabled: z.boolean(),
   templateCount: z.number().int().nonnegative().default(0),
+  importedTemplateIds: z.array(z.string()).default([]),
+  indexSha256: z.string().optional(),
   lastSyncAt: z.string().optional(),
   lastStatus: z.enum(["success", "failed", "pending"]).optional(),
+  lastError: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   updatedBy: z.string()
@@ -1261,6 +1320,12 @@ export const LicenseInfoSchema = z.object({
   maxApps: z.number().int().min(1),
   features: z.array(z.string()),
   offlineToken: z.string().optional(),
+  publicKey: z.string().optional(),
+  machineCode: z.string().optional(),
+  issuer: z.string().optional(),
+  verificationStatus: z.enum(["verified", "invalid", "unverified"]).default("unverified"),
+  verifiedAt: z.string().optional(),
+  verificationError: z.string().optional(),
   updatedAt: z.string(),
   updatedBy: z.string()
 });
@@ -1281,12 +1346,25 @@ export const UpdateLicenseSchema = z.object({
   maxUsers: z.number().int().min(1).max(100000),
   maxApps: z.number().int().min(1).max(100000),
   features: z.array(z.string().min(1).max(80)).max(50).default([]),
-  offlineToken: z.string().max(2000).optional()
+  offlineToken: z.string().max(4000).optional(),
+  publicKey: z.string().max(4000).optional()
 });
 export type UpdateLicense = z.infer<typeof UpdateLicenseSchema>;
 
+export const LicenseVerificationResultSchema = z.object({
+  ok: z.boolean(),
+  checkedAt: z.string(),
+  machineCode: z.string(),
+  plan: z.enum(["community", "team", "enterprise"]).optional(),
+  licensedTo: z.string().optional(),
+  expiresAt: z.string().optional(),
+  error: z.string().optional()
+});
+export type LicenseVerificationResult = z.infer<typeof LicenseVerificationResultSchema>;
+
 export const ResourceApprovalPolicySchema = z.object({
   id: z.string(),
+  workspace: z.string().default("default"),
   resourceType: ResourceTypeSchema,
   resourceId: z.string(),
   action: z.string(),
@@ -1299,6 +1377,7 @@ export const ResourceApprovalPolicySchema = z.object({
 export type ResourceApprovalPolicy = z.infer<typeof ResourceApprovalPolicySchema>;
 
 export const CreateResourceApprovalPolicySchema = z.object({
+  workspace: z.string().min(2).max(80).default("default"),
   resourceType: ResourceTypeSchema,
   resourceId: z.string().min(1).max(240),
   action: z.string().min(1).max(120),
@@ -1306,6 +1385,39 @@ export const CreateResourceApprovalPolicySchema = z.object({
   enabled: z.boolean().default(true)
 });
 export type CreateResourceApprovalPolicy = z.infer<typeof CreateResourceApprovalPolicySchema>;
+
+export const ResourceApprovalCheckSchema = z.object({
+  workspace: z.string().min(2).max(80).default("default"),
+  resourceType: ResourceTypeSchema,
+  resourceId: z.string().min(1).max(240),
+  action: z.string().min(1).max(120),
+  approvalId: z.string().min(1).optional()
+});
+export type ResourceApprovalCheck = z.infer<typeof ResourceApprovalCheckSchema>;
+
+export const WorkspaceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type Workspace = z.infer<typeof WorkspaceSchema>;
+
+export const CreateWorkspaceSchema = z.object({
+  id: z.string().min(2).max(80).regex(/^[A-Za-z0-9_.-]+$/u),
+  name: z.string().min(2).max(80),
+  description: z.string().max(300).optional()
+});
+export type CreateWorkspace = z.infer<typeof CreateWorkspaceSchema>;
+
+export const WorkspaceOverviewSchema = z.object({
+  generatedAt: z.string(),
+  workspaces: z.array(WorkspaceSchema),
+  counts: z.array(z.object({ workspace: z.string(), policies: z.number().int().nonnegative(), approvalPolicies: z.number().int().nonnegative(), apps: z.number().int().nonnegative(), databases: z.number().int().nonnegative() }))
+});
+export type WorkspaceOverview = z.infer<typeof WorkspaceOverviewSchema>;
 
 export const StateArchiveRequestSchema = z.object({
   dryRun: z.boolean().default(true),
@@ -1321,6 +1433,8 @@ export const StateArchiveResultSchema = z.object({
   removedMetricSamples: z.number().int().nonnegative(),
   removedAlertEvents: z.number().int().nonnegative(),
   removedNotificationDeliveries: z.number().int().nonnegative(),
+  archivedRecords: z.number().int().nonnegative().default(0),
+  archiveDriver: z.enum(["json-trim", "sqlite-table"]).default("json-trim"),
   generatedAt: z.string()
 });
 export type StateArchiveResult = z.infer<typeof StateArchiveResultSchema>;
@@ -1376,6 +1490,9 @@ export const OpenApiSummarySchema = z.object({
   webhookEvents: z.array(z.string())
 });
 export type OpenApiSummary = z.infer<typeof OpenApiSummarySchema>;
+
+export const OpenApiDocumentSchema = z.record(z.string(), z.unknown());
+export type OpenApiDocument = z.infer<typeof OpenApiDocumentSchema>;
 
 function isSupportedDatabaseUrl(type: z.infer<typeof DatabaseTypeSchema>, value: string): boolean {
   if (type === "postgres") {

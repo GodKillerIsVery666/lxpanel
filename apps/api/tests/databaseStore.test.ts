@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,7 +12,7 @@ describe("数据库管理", () => {
     const stateStore = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
     const databaseStore = new DatabaseStore(stateStore, root, "session-secret");
 
-    const connection = await databaseStore.createConnection({ name: "prod", type: "postgres", url: "postgres://admin:secret@127.0.0.1:5432/app", enabled: true, backupRetentionDays: 30 }, "owner");
+    const connection = await databaseStore.createConnection({ workspace: "default", name: "prod", type: "postgres", url: "postgres://admin:secret@127.0.0.1:5432/app", enabled: true, backupRetentionDays: 30 }, "owner");
     const state = await stateStore.read();
 
     expect(connection.maskedUrl).toContain("admin:***");
@@ -29,7 +29,7 @@ describe("数据库管理", () => {
       return { stdout: "dump ok", stderr: "" };
     };
     const databaseStore = new DatabaseStore(stateStore, root, "session-secret", runner);
-    const connection = await databaseStore.createConnection({ name: "prod", type: "postgres", url: "postgres://admin:secret@127.0.0.1:5432/app", enabled: true, backupRetentionDays: 30 }, "owner");
+    const connection = await databaseStore.createConnection({ workspace: "default", name: "prod", type: "postgres", url: "postgres://admin:secret@127.0.0.1:5432/app", enabled: true, backupRetentionDays: 30 }, "owner");
 
     const result = await databaseStore.backupConnection(connection.id, "owner");
     const content = await readFile(result.filePath, "utf8");
@@ -53,7 +53,7 @@ describe("数据库管理", () => {
       return { stdout: `${type} drill ${content.includes("CREATE TABLE") ? "ok" : "bad"}`, stderr: "" };
     };
     const databaseStore = new DatabaseStore(stateStore, root, "session-secret", runner, drillRunner);
-    const connection = await databaseStore.createConnection({ name: "mysql-prod", type: "mysql", url: "mysql://admin:secret@127.0.0.1:3306/app", enabled: true, backupRetentionDays: 7 }, "owner");
+    const connection = await databaseStore.createConnection({ workspace: "default", name: "mysql-prod", type: "mysql", url: "mysql://admin:secret@127.0.0.1:3306/app", enabled: true, backupRetentionDays: 7 }, "owner");
 
     const backup = await databaseStore.backupConnection(connection.id, "owner");
     const drill = await databaseStore.runRestoreDrill(connection.id, "owner");
@@ -74,7 +74,7 @@ describe("数据库管理", () => {
       return { stdout: "scheduled ok", stderr: "" };
     };
     const databaseStore = new DatabaseStore(stateStore, root, "session-secret", runner);
-    const connection = await databaseStore.createConnection({ name: "scheduled", type: "postgres", url: "postgres://admin:secret@127.0.0.1:5432/app", enabled: true, backupRetentionDays: 14, scheduleEnabled: true, scheduleEveryHours: 6 }, "owner");
+    const connection = await databaseStore.createConnection({ workspace: "default", name: "scheduled", type: "postgres", url: "postgres://admin:secret@127.0.0.1:5432/app", enabled: true, backupRetentionDays: 14, scheduleEnabled: true, scheduleEveryHours: 6 }, "owner");
     await stateStore.update((state) => ({
       data: { ...state, databaseConnections: (state.databaseConnections ?? []).map((item) => item.id === connection.id ? { ...item, nextBackupAt: "2026-05-22T08:00:00.000Z" } : item) },
       result: undefined
@@ -87,5 +87,26 @@ describe("数据库管理", () => {
     expect(results[0]?.status).toBe("success");
     expect(list[0]?.lastScheduledBackupAt).toBe("2026-05-22T09:00:00.000Z");
     expect(list[0]?.nextBackupAt).toBe("2026-05-22T15:00:00.000Z");
+  });
+
+  it("按连接保留策略清理过期数据库 dump", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-db-cleanup-"));
+    const backupDir = join(root, "database-backups");
+    await mkdir(backupDir, { recursive: true });
+    const stateStore = new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState);
+    const databaseStore = new DatabaseStore(stateStore, root, "session-secret");
+    await databaseStore.createConnection({ workspace: "default", name: "prod", type: "postgres", url: "postgres://admin:secret@127.0.0.1:5432/app", enabled: true, backupRetentionDays: 1 }, "owner");
+    const oldPath = join(backupDir, "prod-old.dump");
+    const newPath = join(backupDir, "prod-new.dump");
+    await writeFile(oldPath, "old", "utf8");
+    await writeFile(newPath, "new", "utf8");
+    await utimes(oldPath, new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z"));
+
+    const result = await databaseStore.cleanupExpiredBackups(new Date("2026-05-22T00:00:00.000Z"));
+    const retained = await stat(newPath);
+
+    expect(result.removed).toBe(1);
+    expect(result.retained).toBe(1);
+    expect(retained.isFile()).toBe(true);
   });
 });

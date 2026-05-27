@@ -63,6 +63,22 @@ export class SqliteStateStore<TData extends object> implements StateStore<TData>
     }
   }
 
+  archiveRecords(bucket: string, records: Array<{ id: string; time: string; payload: unknown }>): Promise<number> {
+    try {
+      this.db.exec("BEGIN IMMEDIATE");
+      const statement = this.db.prepare("INSERT INTO state_archive (bucket, record_id, event_time, payload, archived_at) VALUES (?, ?, ?, ?, ?)");
+      const archivedAt = new Date().toISOString();
+      for (const record of records) {
+        statement.run(bucket, record.id, record.time, JSON.stringify(record.payload), archivedAt);
+      }
+      this.db.exec("COMMIT");
+      return Promise.resolve(records.length);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      return Promise.reject(normalizeError(error));
+    }
+  }
+
   close(): void {
     this.db.close();
   }
@@ -71,6 +87,8 @@ export class SqliteStateStore<TData extends object> implements StateStore<TData>
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA synchronous = NORMAL");
     this.db.exec("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)");
+    this.db.exec("CREATE TABLE IF NOT EXISTS state_archive (id INTEGER PRIMARY KEY AUTOINCREMENT, bucket TEXT NOT NULL, record_id TEXT NOT NULL, event_time TEXT NOT NULL, payload TEXT NOT NULL, archived_at TEXT NOT NULL)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_state_archive_bucket_time ON state_archive(bucket, event_time)");
     const existing = this.selectState();
     if (!existing) {
       this.writeSync(seedData ?? this.cloneInitial());

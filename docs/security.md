@@ -8,12 +8,12 @@
 - 会话 Cookie 使用 HMAC 签名，服务端只保存会话哈希。
 - `owner` 可以查看活动会话并强制撤销。
 - API Token 使用 `lxpat_` 前缀，服务端只保存 SHA-256 哈希，创建后明文只展示一次，调用时同时受用户角色和 Token 作用域限制，并记录最近使用时间、到期状态和即将到期提醒；平台治理接口独立使用 `platform:read`、`platform:write` 作用域。
-- 审批中心保存高风险操作审批单，`backup.restore`、`audit.prune`、`security.remediate` 与 `resource.access` 必须携带已批准、未过期且未消费的审批单 ID；审批单支持配置所需批准人数，记录每次批准/驳回意见，并向通知渠道发送系统事件。平台治理页可登记资源级审批策略，后续高风险路由可统一消费。
+- 审批中心保存高风险操作审批单，`backup.restore`、`audit.prune`、`security.remediate` 与 `resource.access` 必须携带已批准、未过期且未消费的审批单 ID；审批单支持配置所需批准人数，记录每次批准/驳回意见，并向通知渠道发送系统事件。资源级审批策略已嵌入数据库备份、主机批量命令和应用高风险操作，目标格式为 `workspace:resourceType:resourceId:action`。
 - 登录接口有速率限制。
 - 所有响应带基础安全头，写请求会校验 Origin/Fetch Metadata，降低 Cookie 认证下的 CSRF 风险。
 - 可通过 `LXPANEL_IP_ALLOWLIST` 限制允许访问面板的源 IP。
 - 状态备份恢复需要服务端确认短语和审批单，会先生成恢复前快照，并清空恢复后会话，避免旧快照中的会话继续有效；备份页可校验文件大小、SHA-256 和备份格式，并可把快照复制到受控文件系统或 S3 兼容远程目标，S3 secret key 加密保存。
-- 数据库连接 URL 新写入时可用 `LXPANEL_SESSION_SECRET` 派生密钥加密保存，接口只返回脱敏地址；数据库备份通过参数化 dump 调用执行，支持 PostgreSQL、MySQL、MariaDB，并记录手动备份、计划备份和恢复演练结果。
+- 数据库连接 URL 新写入时可用 `LXPANEL_SESSION_SECRET` 派生密钥加密保存，接口只返回脱敏地址；数据库备份通过参数化 dump 调用执行，支持 PostgreSQL、MySQL、MariaDB，并记录手动备份、计划备份、过期 dump 清理和恢复演练结果。
 - 文件目录访问、文本写入、建目录和删除均限制在 `LXPANEL_FILE_ROOTS` 内，写操作至少需要 `operator` 角色并记录审计。
 - 服务控制只允许合法 systemd service 名称。
 - Docker 容器动作只接受受限 ID/名称字符，至少需要 `operator` 角色，并记录审计。
@@ -24,11 +24,12 @@
 - 应用商店只允许内置 Docker Compose 模板，变量禁止换行和控制字符，动作通过参数化 `docker compose` 执行；模板展示来源、签名和验证状态，部署健康检查不会执行任意用户输入命令。
 - 通知渠道仅支持 HTTP/HTTPS Webhook，创建、测试、删除均需要 `operator` 并记录审计；可通过 `LXPANEL_WEBHOOK_ALLOWLIST` 限制出站目标，接口返回会脱敏 Webhook URL，服务端状态中加密保存新渠道 URL，`owner` 可执行密钥迁移/重加密。
 - 主机资产写操作需要 `operator`，viewer 只能只读查看。
-- 审计日志记录登录、初始化、连接器创建、审批和服务动作，新写入事件带哈希链字段，并支持筛选、分页查询、CSV/JSONL 导出、签名 manifest 包、完整性校验、合规统计和带审批的按保留天数清理。
+- 审计日志记录登录、初始化、连接器创建、审批和服务动作，新写入事件带哈希链字段，并支持筛选、分页查询、CSV/JSONL 导出、签名 manifest 包、tar 签名包下载、完整性校验、合规统计和带审批的按保留天数清理。
 - 安全态势页输出结构化检查项，覆盖会话密钥、HTTPS Cookie、IP 白名单、状态存储、备份、Docker socket 和 SSH 基础配置，并提供防火墙访问网段、SSH 密码/root 登录、Docker socket 权限边界的加固计划。
 - 安全态势页会检查 API Token 到期风险，提示已过期、7 天内到期或未设置到期时间的自动化密钥。
-- 主机组、批量命令、SSH 会话请求和 Web 终端代理都通过连接器命令队列排队，连接器 agent 默认只执行 allowlist 中的命令，使用 `execFile` 参数数组，不通过 shell 拼接；连接器心跳上报的监控指标只写入数值样本，不接受任意执行载荷。
-- 平台许可证和模板仓库当前用于商业治理和交付记录，生产强校验应进一步接入离线签名验签与模板索引签名校验。
+- 主机组、批量命令、SSH 会话请求和 Web 终端代理都通过连接器命令队列排队，连接器 agent 默认只执行 allowlist 中的命令，使用 `execFile` 参数数组，不通过 shell 拼接；连接器心跳上报的监控指标只写入数值样本，不接受任意执行载荷。WebSocket 终端通道只接受已认证 operator，会话输入仍转为 `terminal.input` 连接器命令。
+- 平台许可证支持离线 token、公钥验签和机器码绑定；模板仓库支持内部信任与签名信任模式，签名模式会校验 index 签名后再导入模板。
+- SQLite 状态存储会把归档出的历史样本写入 `state_archive` 表，避免大 JSON 文档长期膨胀；JSON 模式仅执行轻量裁剪。
 - 平台治理页的自动化安全修复默认支持 dry-run 记录，实际高风险修复应配合审批单和连接器 allowlist 执行。
 
 ## 生产部署要求
@@ -50,12 +51,14 @@
 15. 连接器 agent 运行账号应使用最小权限，并将 `LXPANEL_CONNECTOR_ALLOW_COMMANDS` 收敛到真实需要的命令集合。
 16. 资源访问策略和资源审批策略上线前应先用平台治理页的访问评估验证 owner、operator、viewer 和自动化 Token 的实际授权。
 17. Web 终端代理只应开放给可信 operator，并通过连接器 allowlist 限制 `terminal.open`、`terminal.input`、`terminal.close` 的实际处理逻辑。
+18. 离线许可证公钥应随交付包固定分发，私钥不得进入客户现场；生成许可证时应绑定平台页展示的机器码。
+19. 私有模板仓库若使用 `signed` 模式，仓库公钥和 index 签名应通过独立渠道交付并定期轮换。
 
 ## 后续强化
 
-- 资源级审批策略强制执行和审批单二次确认。
+- 审批策略可视化评估和审批单二次确认。
 - 连接器端到端命令签名。
 - API Token 创建时二次确认和到期通知。
-- 审计导出压缩包和第三方验签工具。
-- WebSocket 终端交互通道的最小权限隔离。
-- 商业许可证和模板仓库的离线签名验签。
+- 审计导出第三方验签工具。
+- WebSocket 终端交互通道的会话审计回放和敏感信息脱敏。
+- 商业许可证签发工具和模板仓库版本回滚。

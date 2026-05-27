@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Accessibility, Archive, ClipboardList, Code2, GitBranch, KeyRound, Play, Plus, Send, ShieldCheck, Terminal } from "lucide-react";
-import type { AccessPolicy, CapacityPlan, ComplianceReport, DeliveryChecklist, FrontendQualityReport, InstallerGuide, LicenseStatus, OpenApiSummary, ResourceApprovalPolicy, SdkExample, SecurityHardeningPlan, SecurityRemediationRun, StateArchiveResult, TemplateRepository, TerminalSession, UpgradePlan } from "@lxpanel/shared";
+import { Accessibility, Archive, ClipboardList, Code2, Database, Download, GitBranch, Globe2, KeyRound, Play, Plus, Send, ShieldCheck, Terminal } from "lucide-react";
+import type { AccessPolicy, CapacityPlan, ComplianceReport, DatabaseBackupCleanupResult, DeliveryChecklist, FrontendQualityReport, InstallerGuide, LicenseStatus, OpenApiSummary, ResourceApprovalPolicy, SdkExample, SecurityHardeningPlan, SecurityRemediationRun, StateArchiveResult, TemplateRepository, TerminalSession, UpgradePlan, WorkspaceOverview } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
+import { platformText, type Locale } from "../i18n/resources.js";
 import { formatDate } from "../utils/format.js";
 
 export function PlatformPage(): JSX.Element {
@@ -17,12 +18,17 @@ export function PlatformPage(): JSX.Element {
   const [upgrade, setUpgrade] = useState<UpgradePlan | null>(null);
   const [delivery, setDelivery] = useState<DeliveryChecklist | null>(null);
   const [openApi, setOpenApi] = useState<OpenApiSummary | null>(null);
+  const [openApiPaths, setOpenApiPaths] = useState(0);
   const [compliance, setCompliance] = useState<ComplianceReport | null>(null);
   const [archiveResult, setArchiveResult] = useState<StateArchiveResult | null>(null);
+  const [cleanupResult, setCleanupResult] = useState<DatabaseBackupCleanupResult | null>(null);
   const [installer, setInstaller] = useState<InstallerGuide | null>(null);
   const [sdkExamples, setSdkExamples] = useState<SdkExample[]>([]);
   const [quality, setQuality] = useState<FrontendQualityReport | null>(null);
+  const [workspaceOverview, setWorkspaceOverview] = useState<WorkspaceOverview | null>(null);
+  const [locale, setLocale] = useState<Locale>("zh-CN");
   const [workspace, setWorkspace] = useState("default");
+  const [workspaceName, setWorkspaceName] = useState("客户项目");
   const [resourceType, setResourceType] = useState<AccessPolicy["resourceType"]>("host");
   const [resourceId, setResourceId] = useState("*");
   const [role, setRole] = useState<AccessPolicy["role"]>("operator");
@@ -34,26 +40,31 @@ export function PlatformPage(): JSX.Element {
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [licensePlan, setLicensePlan] = useState<"community" | "team" | "enterprise">("team");
   const [licenseTo, setLicenseTo] = useState("customer");
+  const [licenseToken, setLicenseToken] = useState("");
+  const [licensePublicKey, setLicensePublicKey] = useState("");
   const [approvalAction, setApprovalAction] = useState("backup.restore");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const text = platformText[locale];
 
   async function load(): Promise<void> {
     try {
-      const [policyResponse, approvalPolicyResponse, terminalResponse, repositoryResponse, licenseResponse, remediationResponse, hardeningResponse, capacityResponse, upgradeResponse, deliveryResponse, openApiResponse, complianceResponse, installerResponse, sdkResponse, qualityResponse] = await Promise.all([
-        api.accessPolicies(), api.approvalPolicies(), api.terminalSessions(), api.templateRepositories(), api.licenseStatus(), api.remediationRuns(), api.securityHardeningPlan(), api.capacityPlan(), api.upgradePlan(), api.deliveryChecklist(), api.openApiSummary(), api.complianceReport(), api.installerGuide(), api.sdkExamples(), api.frontendQuality()
+      const [policyResponse, approvalPolicyResponse, terminalResponse, repositoryResponse, licenseResponse, workspaceResponse, remediationResponse, hardeningResponse, capacityResponse, upgradeResponse, deliveryResponse, openApiResponse, openApiDocumentResponse, complianceResponse, installerResponse, sdkResponse, qualityResponse] = await Promise.all([
+        api.accessPolicies(), api.approvalPolicies(), api.terminalSessions(), api.templateRepositories(), api.licenseStatus(), api.workspaces(), api.remediationRuns(), api.securityHardeningPlan(), api.capacityPlan(), api.upgradePlan(), api.deliveryChecklist(), api.openApiSummary(), api.openApiDocument(), api.complianceReport(), api.installerGuide(), api.sdkExamples(), api.frontendQuality()
       ]);
       setPolicies(policyResponse.policies);
       setApprovalPolicies(approvalPolicyResponse.policies);
       setTerminalSessions(terminalResponse.sessions);
       setRepositories(repositoryResponse.repositories);
       setLicenseStatus(licenseResponse.status);
+      setWorkspaceOverview(workspaceResponse.overview);
       setRuns(remediationResponse.runs);
       setHardening(hardeningResponse.plan);
       setCapacity(capacityResponse.plan);
       setUpgrade(upgradeResponse.plan);
       setDelivery(deliveryResponse.checklist);
       setOpenApi(openApiResponse.summary);
+      setOpenApiPaths(Object.keys((openApiDocumentResponse.paths as Record<string, unknown> | undefined) ?? {}).length);
       setCompliance(complianceResponse.report);
       setInstaller(installerResponse.guide);
       setSdkExamples(sdkResponse.examples);
@@ -76,11 +87,21 @@ export function PlatformPage(): JSX.Element {
 
   async function createApprovalPolicy(): Promise<void> {
     try {
-      await api.createApprovalPolicy({ resourceType, resourceId, action: approvalAction, requiredApprovals: 2, enabled: true });
+      await api.createApprovalPolicy({ workspace, resourceType, resourceId, action: approvalAction, requiredApprovals: 2, enabled: true });
       setNotice("资源级审批策略已保存。");
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存审批策略失败。");
+    }
+  }
+
+  async function createWorkspace(): Promise<void> {
+    try {
+      await api.createWorkspace({ id: workspace, name: workspaceName, description: "created from platform governance" });
+      setNotice("工作空间已创建。");
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "创建工作空间失败。");
     }
   }
 
@@ -126,10 +147,21 @@ export function PlatformPage(): JSX.Element {
 
   async function saveLicense(): Promise<void> {
     try {
-      await api.updateLicense({ plan: licensePlan, licensedTo: licenseTo, maxHosts: licensePlan === "enterprise" ? 500 : 50, maxUsers: licensePlan === "enterprise" ? 200 : 20, maxApps: licensePlan === "enterprise" ? 500 : 50, features: ["terminal", "templates", "audit-package", "offline-delivery"] });
+      const payload = { plan: licensePlan, licensedTo: licenseTo, maxHosts: licensePlan === "enterprise" ? 500 : 50, maxUsers: licensePlan === "enterprise" ? 200 : 20, maxApps: licensePlan === "enterprise" ? 500 : 50, features: ["terminal", "templates", "audit-package", "offline-delivery"], ...(licenseToken ? { offlineToken: licenseToken } : {}), ...(licensePublicKey ? { publicKey: licensePublicKey } : {}) };
+      const response = await api.updateLicense(payload);
+      setNotice(response.status.license.verificationStatus === "invalid" ? response.status.license.verificationError ?? "许可证验签失败。" : "许可证已保存。");
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存许可证失败。");
+    }
+  }
+
+  async function verifyLicense(): Promise<void> {
+    try {
+      const response = await api.verifyLicense({ plan: licensePlan, licensedTo: licenseTo, maxHosts: 1, maxUsers: 1, maxApps: 1, features: [], ...(licenseToken ? { offlineToken: licenseToken } : {}), ...(licensePublicKey ? { publicKey: licensePublicKey } : {}) });
+      setNotice(response.result.ok ? `许可证有效，机器码 ${response.result.machineCode}` : response.result.error ?? "许可证验签失败。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "许可证验签失败。");
     }
   }
 
@@ -153,39 +185,63 @@ export function PlatformPage(): JSX.Element {
     }
   }
 
+  async function cleanupDatabaseBackups(): Promise<void> {
+    try {
+      const response = await api.cleanupDatabaseBackups();
+      setCleanupResult(response.result);
+      setNotice(`数据库备份清理完成：删除 ${response.result.removed} 个。`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "数据库备份清理失败。");
+    }
+  }
+
+  async function downloadAuditBundle(): Promise<void> {
+    try {
+      await api.downloadAuditBundle("jsonl");
+      setNotice("审计签名包已生成。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "生成审计签名包失败。");
+    }
+  }
+
   useEffect(() => {
     void load();
   }, []);
 
   return (
     <main className="page-stack">
-      <div className="page-heading"><div><h1>平台治理</h1><p>商业交付、安全治理和开放集成</p></div></div>
+      <div className="page-heading"><div><h1>{text.title}</h1><p>{text.subtitle}</p></div><select value={locale} onChange={(event) => setLocale(event.target.value as Locale)} aria-label="Language"><option value="zh-CN">中文</option><option value="en-US">English</option></select></div>
       {error ? <div className="form-error">{error}</div> : null}
       {notice ? <p className="notice">{notice}</p> : null}
       <section className="table-panel">
-        <div className="panel-title">Web 终端代理</div>
+        <div className="panel-title">{text.terminal}</div>
         <div className="inline-form wrap"><input value={terminalHostId} onChange={(event) => setTerminalHostId(event.target.value)} placeholder="主机 ID" aria-label="主机 ID" /><input value={terminalUser} onChange={(event) => setTerminalUser(event.target.value)} placeholder="SSH 用户" aria-label="SSH 用户" /><button type="button" onClick={() => void openTerminal()}><Terminal size={16} /> 打开</button></div>
-        <table><thead><tr><th>主机</th><th>状态</th><th>命令</th><th>输入</th></tr></thead><tbody>{terminalSessions.map((session) => <tr key={session.id}><td>{session.hostName}</td><td><StatusPill status={session.status === "failed" ? "failed" : session.status === "closed" ? "inactive" : "active"} label={session.status} /></td><td><code className="inline-code">{session.commandId}</code></td><td className="row-actions"><input value={terminalInput} onChange={(event) => setTerminalInput(event.target.value)} placeholder="输入内容" aria-label="终端输入" /><button title="发送终端输入" onClick={() => void sendTerminalInput(session.id)}><Send size={14} /></button></td></tr>)}</tbody></table>
+        <table><thead><tr><th>主机</th><th>状态</th><th>流式通道</th><th>输入</th></tr></thead><tbody>{terminalSessions.map((session) => <tr key={session.id}><td>{session.hostName}</td><td><StatusPill status={session.status === "failed" ? "failed" : session.status === "closed" ? "inactive" : "active"} label={`${session.status} #${session.outputCursor ?? 0}`} /></td><td><code className="inline-code">{session.streamUrl ?? api.terminalWebSocketUrl(session.id)}</code></td><td className="row-actions"><input value={terminalInput} onChange={(event) => setTerminalInput(event.target.value)} placeholder="输入内容" aria-label="终端输入" /><button title="发送终端输入" onClick={() => void sendTerminalInput(session.id)}><Send size={14} /></button></td></tr>)}</tbody></table>
       </section>
       <section className="table-panel">
-        <div className="panel-title">模板仓库和许可证</div>
+        <div className="panel-title">{text.templates}</div>
         <div className="inline-form wrap"><input value={repositoryName} onChange={(event) => setRepositoryName(event.target.value)} placeholder="仓库名称" /><input value={repositoryUrl} onChange={(event) => setRepositoryUrl(event.target.value)} placeholder="https://templates.example.com/index.json" /><button type="button" onClick={() => void createRepository()}><GitBranch size={16} /> 添加仓库</button></div>
-        <table><thead><tr><th>仓库</th><th>信任</th><th>状态</th><th>模板</th><th>操作</th></tr></thead><tbody>{repositories.map((repository) => <tr key={repository.id}><td>{repository.name}</td><td>{repository.trustMode}</td><td>{repository.lastStatus ?? "pending"}</td><td>{repository.templateCount}</td><td><button className="mini-button" onClick={() => void syncRepository(repository.id)}>同步</button></td></tr>)}</tbody></table>
-        <div className="inline-form wrap"><select value={licensePlan} onChange={(event) => setLicensePlan(event.target.value as "community" | "team" | "enterprise")} aria-label="许可证版本"><option value="community">community</option><option value="team">team</option><option value="enterprise">enterprise</option></select><input value={licenseTo} onChange={(event) => setLicenseTo(event.target.value)} placeholder="授权客户" /><button type="button" onClick={() => void saveLicense()}><KeyRound size={16} /> 保存授权</button></div>
-        <p className="muted-text">授权：{licenseStatus?.license.plan ?? "-"} / 主机 {licenseStatus?.usage.hosts ?? 0}/{licenseStatus?.license.maxHosts ?? 0} / 用户 {licenseStatus?.usage.users ?? 0}/{licenseStatus?.license.maxUsers ?? 0} / 应用 {licenseStatus?.usage.apps ?? 0}/{licenseStatus?.license.maxApps ?? 0}</p>
+        <table><thead><tr><th>仓库</th><th>信任</th><th>状态</th><th>模板</th><th>索引</th><th>操作</th></tr></thead><tbody>{repositories.map((repository) => <tr key={repository.id}><td>{repository.name}</td><td>{repository.trustMode}</td><td>{repository.lastError ?? repository.lastStatus ?? "pending"}</td><td>{repository.templateCount}</td><td><code className="inline-code">{repository.indexSha256?.slice(0, 16) ?? "-"}</code></td><td><button className="mini-button" onClick={() => void syncRepository(repository.id)}>同步</button></td></tr>)}</tbody></table>
+        <div className="inline-form wrap"><select value={licensePlan} onChange={(event) => setLicensePlan(event.target.value as "community" | "team" | "enterprise")} aria-label="许可证版本"><option value="community">community</option><option value="team">team</option><option value="enterprise">enterprise</option></select><input value={licenseTo} onChange={(event) => setLicenseTo(event.target.value)} placeholder="授权客户" /><input value={licenseToken} onChange={(event) => setLicenseToken(event.target.value)} placeholder="离线许可证 token" /><input value={licensePublicKey} onChange={(event) => setLicensePublicKey(event.target.value)} placeholder="验签公钥 PEM" /><button type="button" onClick={() => void verifyLicense()}><ShieldCheck size={16} /> 验签</button><button type="button" onClick={() => void saveLicense()}><KeyRound size={16} /> 保存授权</button></div>
+        <p className="muted-text">授权：{licenseStatus?.license.plan ?? "-"} / {licenseStatus?.license.verificationStatus ?? "unverified"} / 机器码 {licenseStatus?.license.machineCode ?? "-"} / 主机 {licenseStatus?.usage.hosts ?? 0}/{licenseStatus?.license.maxHosts ?? 0} / 用户 {licenseStatus?.usage.users ?? 0}/{licenseStatus?.license.maxUsers ?? 0} / 应用 {licenseStatus?.usage.apps ?? 0}/{licenseStatus?.license.maxApps ?? 0}</p>
       </section>
       <section className="table-panel">
-        <div className="panel-title">资源访问和审批策略</div>
+        <div className="panel-title">{text.workspace}</div>
+        <div className="inline-form wrap"><input value={workspace} onChange={(event) => setWorkspace(event.target.value)} placeholder="工作空间 ID" /><input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="工作空间名称" /><button type="button" onClick={() => void createWorkspace()}><Globe2 size={16} /> 创建</button></div>
+        <table><thead><tr><th>工作空间</th><th>策略</th><th>审批</th><th>应用</th><th>数据库</th></tr></thead><tbody>{workspaceOverview?.counts.map((item) => <tr key={item.workspace}><td>{item.workspace}</td><td>{item.policies}</td><td>{item.approvalPolicies}</td><td>{item.apps}</td><td>{item.databases}</td></tr>)}</tbody></table>
+      </section>
+      <section className="table-panel">
+        <div className="panel-title">{text.approval}</div>
         <div className="inline-form wrap"><input value={workspace} onChange={(event) => setWorkspace(event.target.value)} placeholder="工作空间" /><select value={resourceType} onChange={(event) => setResourceType(event.target.value as AccessPolicy["resourceType"])}><option value="host">主机</option><option value="app">应用</option><option value="fileRoot">文件根</option><option value="database">数据库</option><option value="backupTarget">备份目标</option><option value="workspace">工作空间</option></select><input value={resourceId} onChange={(event) => setResourceId(event.target.value)} placeholder="资源 ID 或 *" /><select value={role} onChange={(event) => setRole(event.target.value as AccessPolicy["role"])}><option value="viewer">viewer</option><option value="operator">operator</option><option value="owner">owner</option></select><select value={permission} onChange={(event) => setPermission(event.target.value)}><option value="read">read</option><option value="write">write</option><option value="approve">approve</option><option value="admin">admin</option></select><button type="button" onClick={() => void createPolicy()}><Plus size={16} /> 访问</button></div>
         <div className="inline-form wrap"><input value={approvalAction} onChange={(event) => setApprovalAction(event.target.value)} placeholder="动作" /><button type="button" onClick={() => void createApprovalPolicy()}><ShieldCheck size={16} /> 审批策略</button></div>
         <p className="muted-text">访问策略 {policies.length} 条，审批策略 {approvalPolicies.length} 条。</p>
       </section>
-      <section className="table-panel"><div className="panel-title">审计完整性和合规报表</div><p className="muted-text">事件：{compliance?.totalEvents ?? 0}，拒绝：{compliance?.denied ?? 0}，错误：{compliance?.errors ?? 0}</p><StatusPill status={compliance?.integrity.ok ? "secure" : "warn"} label={compliance?.integrity.ok ? "哈希链正常" : "需要检查"} />{compliance?.integrity.latestHash ? <code className="path-code">{compliance.integrity.latestHash}</code> : null}</section>
+      <section className="table-panel"><div className="panel-title">{text.audit}</div><p className="muted-text">事件：{compliance?.totalEvents ?? 0}，拒绝：{compliance?.denied ?? 0}，错误：{compliance?.errors ?? 0}</p><div className="inline-form wrap"><StatusPill status={compliance?.integrity.ok ? "secure" : "warn"} label={compliance?.integrity.ok ? "哈希链正常" : "需要检查"} /><button type="button" onClick={() => void downloadAuditBundle()}><Download size={16} /> 下载签名包</button></div>{compliance?.integrity.latestHash ? <code className="path-code">{compliance.integrity.latestHash}</code> : null}</section>
       <section className="table-panel"><div className="panel-title">自动化安全修复</div><table><thead><tr><th>项目</th><th>风险</th><th>建议</th><th>操作</th></tr></thead><tbody>{hardening?.items.map((item) => <tr key={item.id}><td>{item.title}</td><td>{item.risk}</td><td>{item.recommendation}</td><td><button className="mini-button" onClick={() => void dryRun(item.id)}><Play size={14} /> dry-run</button></td></tr>)}</tbody></table><p className="muted-text">最近运行：{runs[0] ? `${runs[0].itemId} / ${runs[0].status} / ${formatDate(runs[0].createdAt)}` : "无"}</p></section>
-      <section className="table-panel"><div className="panel-title">容量、归档和升级</div><p>状态体积：{capacity?.stateBytes ?? 0} bytes；主机：{capacity?.hosts ?? 0}；样本：{capacity?.metricSamples ?? 0}</p>{capacity?.recommendations.map((item) => <p className="notice" key={item}>{item}</p>)}<div className="inline-form wrap"><button type="button" onClick={() => void archiveState(true)}><Archive size={16} /> 归档预演</button><button type="button" onClick={() => void archiveState(false)}><Archive size={16} /> 执行归档</button></div>{archiveResult ? <p className="muted-text">移除样本 {archiveResult.removedMetricSamples}，状态 {archiveResult.beforeBytes} -&gt; {archiveResult.afterBytes} bytes</p> : null}<table><tbody>{upgrade?.steps.map((step) => <tr key={step.id}><td><ClipboardList size={14} /> {step.title}</td><td><StatusPill status={step.status === "ready" ? "secure" : "warn"} /></td><td>{step.detail}</td></tr>)}</tbody></table></section>
+      <section className="table-panel"><div className="panel-title">{text.capacity}</div><p>状态体积：{capacity?.stateBytes ?? 0} bytes；主机：{capacity?.hosts ?? 0}；样本：{capacity?.metricSamples ?? 0}</p>{capacity?.recommendations.map((item) => <p className="notice" key={item}>{item}</p>)}<div className="inline-form wrap"><button type="button" onClick={() => void archiveState(true)}><Archive size={16} /> 归档预演</button><button type="button" onClick={() => void archiveState(false)}><Archive size={16} /> 执行归档</button><button type="button" onClick={() => void cleanupDatabaseBackups()}><Database size={16} /> 清理数据库备份</button></div>{archiveResult ? <p className="muted-text">移除样本 {archiveResult.removedMetricSamples}，归档 {archiveResult.archivedRecords}，驱动 {archiveResult.archiveDriver}，状态 {archiveResult.beforeBytes} -&gt; {archiveResult.afterBytes} bytes</p> : null}{cleanupResult ? <p className="muted-text">数据库 dump 删除 {cleanupResult.removed}，保留 {cleanupResult.retained}，问题 {cleanupResult.issues.length}</p> : null}<table><tbody>{upgrade?.steps.map((step) => <tr key={step.id}><td><ClipboardList size={14} /> {step.title}</td><td><StatusPill status={step.status === "ready" ? "secure" : "warn"} /></td><td>{step.detail}</td></tr>)}</tbody></table></section>
       <section className="table-panel"><div className="panel-title">离线安装向导</div><table><tbody>{installer?.steps.map((step) => <tr key={step.id}><td>{step.title}</td><td>{step.command ? <code className="inline-code">{step.command}</code> : "-"}</td><td>{step.detail}</td></tr>)}</tbody></table><p className="muted-text">交付清单：{delivery?.items.filter((item) => item.ready).length ?? 0}/{delivery?.items.length ?? 0}</p></section>
-      <section className="table-panel"><div className="panel-title">开放 API 和 SDK 示例</div><p className="muted-text">Webhook 事件：{openApi?.webhookEvents.join(", ")}</p><table><thead><tr><th>语言</th><th>示例</th><th>Scope</th><th>代码</th></tr></thead><tbody>{sdkExamples.map((example) => <tr key={example.id}><td>{example.language}</td><td>{example.title}</td><td>{example.requiredScopes.join(", ")}</td><td><pre className="inline-log"><Code2 size={14} /> {example.snippet}</pre></td></tr>)}</tbody></table></section>
-      <section className="table-panel"><div className="panel-title">可访问性与国际化</div><p className="muted-text"><Accessibility size={14} /> 当前语言：{quality?.locale ?? "zh-CN"}</p><table><tbody>{quality?.checks.map((check) => <tr key={check.id}><td>{check.title}</td><td><StatusPill status={check.ready ? "secure" : "warn"} /></td><td>{check.detail}</td></tr>)}</tbody></table></section>
+      <section className="table-panel"><div className="panel-title">{text.openApi}</div><p className="muted-text">OpenAPI paths：{openApiPaths}；Webhook 事件：{openApi?.webhookEvents.join(", ")}</p><table><thead><tr><th>语言</th><th>示例</th><th>Scope</th><th>代码</th></tr></thead><tbody>{sdkExamples.map((example) => <tr key={example.id}><td>{example.language}</td><td>{example.title}</td><td>{example.requiredScopes.join(", ")}</td><td><pre className="inline-log"><Code2 size={14} /> {example.snippet}</pre></td></tr>)}</tbody></table></section>
+      <section className="table-panel"><div className="panel-title">{text.quality}</div><p className="muted-text"><Accessibility size={14} /> 当前语言：{locale} / 报告：{quality?.locale ?? "zh-CN"}</p><table><tbody>{quality?.checks.map((check) => <tr key={check.id}><td>{check.title}</td><td><StatusPill status={check.ready ? "secure" : "warn"} /></td><td>{check.detail}</td></tr>)}</tbody></table></section>
     </main>
   );
 }

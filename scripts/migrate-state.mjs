@@ -37,9 +37,15 @@ const state = {
   securityRemediationRuns: [],
   terminalSessions: [],
   templateRepositories: [],
+  importedAppTemplates: [],
   resourceApprovalPolicies: [],
+  workspaces: [{ id: "default", name: "默认工作空间", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), updatedBy: "system" }],
   ...parsed
 };
+
+if (!(state.workspaces ?? []).some((workspace) => workspace.id === "default")) {
+  state.workspaces = [{ id: "default", name: "默认工作空间", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), updatedBy: "system" }, ...(state.workspaces ?? [])];
+}
 
 for (const approval of state.approvals ?? []) {
   approval.requiredApprovals ??= 1;
@@ -48,15 +54,34 @@ for (const approval of state.approvals ?? []) {
 }
 
 for (const deployment of state.appDeployments ?? []) {
+  deployment.workspace ??= "default";
   deployment.version ??= 1;
   deployment.revisionCount ??= deployment.revisions?.length ?? 0;
   deployment.revisions ??= [];
 }
 
 for (const connection of state.databaseConnections ?? []) {
+  connection.workspace ??= "default";
   connection.backupRetentionDays ??= 30;
   connection.scheduleEnabled ??= false;
   connection.scheduleEveryHours ??= 24;
+}
+
+for (const session of state.terminalSessions ?? []) {
+  session.outputCursor ??= 0;
+  session.streamUrl ??= `/api/platform/terminal-sessions/ws?sessionId=${encodeURIComponent(session.id)}`;
+}
+
+for (const repository of state.templateRepositories ?? []) {
+  repository.importedTemplateIds ??= [];
+}
+
+for (const policy of state.resourceApprovalPolicies ?? []) {
+  policy.workspace ??= "default";
+}
+
+if (state.license) {
+  state.license.verificationStatus ??= state.license.offlineToken ? "unverified" : "unverified";
 }
 
 for (const target of state.remoteBackupTargets ?? []) {

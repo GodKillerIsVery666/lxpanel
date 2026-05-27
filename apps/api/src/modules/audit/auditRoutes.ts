@@ -48,6 +48,19 @@ export function registerAuditRoutes(app: FastifyInstance, services: Services): v
     return { package: auditPackage };
   });
 
+  app.get("/api/audit/export-bundle", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const query = AuditExportQuerySchema.parse(request.query);
+    const bundle = await services.auditLog.exportBundle(query);
+    await services.auditLog.append({ actor: user.username, action: "audit.export_bundle", target: query.format, ip: request.ip, status: "success", detail: bundle.manifestSha256 });
+    reply.header("content-type", bundle.contentType);
+    reply.header("content-disposition", `attachment; filename="${bundle.fileName}"`);
+    return bundle.buffer;
+  });
+
   app.get("/api/audit/integrity", async (request, reply) => {
     const user = await requireRole(request, reply, services, "owner");
     if (!user) {

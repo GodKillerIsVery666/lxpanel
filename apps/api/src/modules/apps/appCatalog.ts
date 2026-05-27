@@ -1,6 +1,6 @@
 import type { AppTemplate } from "@lxpanel/shared";
 
-interface CatalogTemplate extends AppTemplate {
+export interface CatalogTemplate extends AppTemplate {
   render(values: Record<string, string>): string;
 }
 

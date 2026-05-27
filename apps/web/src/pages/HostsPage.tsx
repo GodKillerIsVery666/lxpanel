@@ -82,7 +82,7 @@ export function HostsPage(): JSX.Element {
 
   async function runBatch(): Promise<void> {
     try {
-      const response = await api.createHostBatchCommand({ hostIds: splitIds(batchHostIds), command: batchCommand, args: [] });
+      const response = await api.createHostBatchCommand({ workspace: "default", hostIds: splitIds(batchHostIds), command: batchCommand, args: [] });
       setNotice(`已下发 ${response.commands.length} 个连接器命令。`);
       await load();
     } catch (caught) {

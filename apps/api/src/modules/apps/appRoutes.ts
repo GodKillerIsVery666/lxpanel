@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { AppDeploymentActionSchema, BackupRequestSchema, CreateAppDeploymentSchema, RollbackAppDeploymentSchema, UpdateAppDeploymentSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
+import { enforceResourceApproval } from "../platform/approvalGuard.js";
 
 export function registerAppRoutes(app: FastifyInstance, services: Services): void {
   app.get("/api/apps/templates", async (request, reply) => {
@@ -9,7 +10,7 @@ export function registerAppRoutes(app: FastifyInstance, services: Services): voi
     if (!user) {
       return;
     }
-    return { templates: services.appStore.listTemplates() };
+    return { templates: await services.appStore.listTemplates() };
   });
 
   app.get("/api/apps/deployments", async (request, reply) => {
@@ -35,6 +36,10 @@ export function registerAppRoutes(app: FastifyInstance, services: Services): voi
       return;
     }
     const input = CreateAppDeploymentSchema.parse(request.body);
+    const approved = await enforceResourceApproval(services, reply, { workspace: input.workspace, resourceType: "app", resourceId: input.templateId, action: "app.deploy", ...(input.approvalId ? { approvalId: input.approvalId } : {}) }, user.username);
+    if (!approved) {
+      return;
+    }
     const deployment = await services.appStore.createDeployment(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "app.deploy", target: deployment.name, ip: request.ip, status: deployment.status === "failed" ? "error" : "success", detail: deployment.lastOutputTail });
     return { deployment };
@@ -46,6 +51,10 @@ export function registerAppRoutes(app: FastifyInstance, services: Services): voi
       return;
     }
     const input = AppDeploymentActionSchema.parse(request.body);
+    const approved = await enforceResourceApproval(services, reply, { workspace: input.workspace, resourceType: "app", resourceId: input.deploymentId, action: `app.${input.action}`, ...(input.approvalId ? { approvalId: input.approvalId } : {}) }, user.username);
+    if (!approved) {
+      return;
+    }
     const deployment = await services.appStore.runAction(input, user.username);
     await services.auditLog.append({ actor: user.username, action: `app.${input.action}`, target: deployment.name, ip: request.ip, status: deployment.status === "failed" ? "error" : "success", detail: deployment.lastOutputTail });
     return { deployment };
@@ -57,6 +66,10 @@ export function registerAppRoutes(app: FastifyInstance, services: Services): voi
       return;
     }
     const input = UpdateAppDeploymentSchema.parse(request.body);
+    const approved = await enforceResourceApproval(services, reply, { workspace: input.workspace, resourceType: "app", resourceId: input.deploymentId, action: "app.upgrade", ...(input.approvalId ? { approvalId: input.approvalId } : {}) }, user.username);
+    if (!approved) {
+      return;
+    }
     const deployment = await services.appStore.updateDeployment(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "app.upgrade", target: deployment.name, ip: request.ip, status: deployment.status === "failed" ? "error" : "success", detail: deployment.lastOutputTail });
     return { deployment };
@@ -68,6 +81,10 @@ export function registerAppRoutes(app: FastifyInstance, services: Services): voi
       return;
     }
     const input = RollbackAppDeploymentSchema.parse(request.body);
+    const approved = await enforceResourceApproval(services, reply, { workspace: input.workspace, resourceType: "app", resourceId: input.deploymentId, action: "app.rollback", ...(input.approvalId ? { approvalId: input.approvalId } : {}) }, user.username);
+    if (!approved) {
+      return;
+    }
     const deployment = await services.appStore.rollbackDeployment(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "app.rollback", target: deployment.name, ip: request.ip, status: deployment.status === "failed" ? "error" : "success", detail: deployment.lastOutputTail });
     return { deployment };

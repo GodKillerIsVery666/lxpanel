@@ -9,6 +9,13 @@ export interface AuditPruneResult {
   remaining: number;
 }
 
+export interface AuditExportBundle {
+  fileName: string;
+  contentType: string;
+  buffer: Buffer;
+  manifestSha256: string;
+}
+
 export class AuditLog {
   constructor(private readonly filePath: string) {}
 
@@ -71,6 +78,30 @@ export class AuditLog {
       integrity,
       eventCount: filterEvents(await this.readEvents(), query).length,
       manifest
+    };
+  }
+
+  async exportBundle(query: AuditExportQuery): Promise<AuditExportBundle> {
+    const generatedAt = new Date().toISOString().replace(/[:.]/gu, "-");
+    const content = await this.export(query);
+    const signedPackage = await this.exportSignedPackage(query);
+    const manifest = JSON.stringify(signedPackage.manifest, null, 2);
+    const integrity = JSON.stringify(signedPackage.integrity, null, 2);
+    const checksums = [
+      `${signedPackage.contentSha256}  audit.${query.format}`,
+      `${sha256(manifest)}  manifest.json`,
+      `${sha256(integrity)}  integrity.json`
+    ].join("\n");
+    return {
+      fileName: `lxpanel-audit-${generatedAt}.tar`,
+      contentType: "application/x-tar",
+      manifestSha256: signedPackage.manifestSha256,
+      buffer: createTar([
+        { name: `audit.${query.format}`, content },
+        { name: "manifest.json", content: manifest },
+        { name: "integrity.json", content: integrity },
+        { name: "SHA256SUMS", content: `${checksums}\n` }
+      ])
     };
   }
 
@@ -194,4 +225,36 @@ function hashAuditEvent(event: AuditEvent): string {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function createTar(files: Array<{ name: string; content: string }>): Buffer {
+  const chunks: Buffer[] = [];
+  for (const file of files) {
+    const content = Buffer.from(file.content, "utf8");
+    const header = tarHeader(file.name, content.length);
+    chunks.push(header, content, Buffer.alloc((512 - (content.length % 512)) % 512));
+  }
+  chunks.push(Buffer.alloc(1024));
+  return Buffer.concat(chunks);
+}
+
+function tarHeader(name: string, size: number): Buffer {
+  const header = Buffer.alloc(512, 0);
+  writeTarField(header, 0, 100, name);
+  writeTarField(header, 100, 8, "0000644\0");
+  writeTarField(header, 108, 8, "0000000\0");
+  writeTarField(header, 116, 8, "0000000\0");
+  writeTarField(header, 124, 12, size.toString(8).padStart(11, "0") + "\0");
+  writeTarField(header, 136, 12, Math.floor(Date.now() / 1000).toString(8).padStart(11, "0") + "\0");
+  header.fill(0x20, 148, 156);
+  writeTarField(header, 156, 1, "0");
+  writeTarField(header, 257, 6, "ustar\0");
+  writeTarField(header, 263, 2, "00");
+  const checksum = [...header].reduce((sum, value) => sum + value, 0);
+  writeTarField(header, 148, 8, checksum.toString(8).padStart(6, "0") + "\0 ");
+  return header;
+}
+
+function writeTarField(header: Buffer, offset: number, length: number, value: string): void {
+  header.write(value.slice(0, length), offset, length, "ascii");
 }

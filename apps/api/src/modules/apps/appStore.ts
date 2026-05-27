@@ -1,11 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AppDeployment, AppDeploymentAction, AppDeploymentHealth, CreateAppDeployment, RollbackAppDeployment, UpdateAppDeployment } from "@lxpanel/shared";
+import type { AppDeployment, AppDeploymentAction, AppDeploymentHealth, AppTemplate, CreateAppDeployment, ImportedAppTemplate, RollbackAppDeployment, UpdateAppDeployment } from "@lxpanel/shared";
 import { runCommand, type CommandResult } from "../../lib/command.js";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import type { AppDeploymentRecord, AppDeploymentRevisionRecord, PanelState } from "../state/panelState.js";
-import { findTemplate, publicTemplates } from "./appCatalog.js";
+import { findTemplate as findBuiltinTemplate, publicTemplates, type CatalogTemplate } from "./appCatalog.js";
 
 const outputLimit = 12_000;
 
@@ -25,8 +25,9 @@ export class AppStore {
     private readonly composeRunner: ComposeRunner = defaultComposeRunner
   ) {}
 
-  listTemplates() {
-    return publicTemplates();
+  async listTemplates(): Promise<AppTemplate[]> {
+    const state = await this.store.read();
+    return [...publicTemplates(), ...(state.importedAppTemplates ?? []).map(toPublicImportedTemplate)];
   }
 
   async listDeployments(): Promise<AppDeployment[]> {
@@ -35,7 +36,7 @@ export class AppStore {
   }
 
   async createDeployment(input: CreateAppDeployment, actor: string): Promise<AppDeployment> {
-    const template = findTemplate(input.templateId);
+    const template = await this.findTemplate(input.templateId);
     if (!template) {
       throw new Error("应用模板不存在。");
     }
@@ -49,6 +50,7 @@ export class AppStore {
     const now = new Date().toISOString();
     const deployment: AppDeploymentRecord = {
       id,
+        workspace: input.workspace,
       name: input.name,
       templateId: template.id,
       templateName: template.name,
@@ -65,9 +67,9 @@ export class AppStore {
       result: undefined
     }));
     if (input.autoStart) {
-      return this.runAction({ deploymentId: id, action: "up" }, actor);
+      return this.runAction({ deploymentId: id, action: "up", workspace: input.workspace }, actor);
     }
-    return deployment;
+    return toPublicDeployment(deployment);
   }
 
   async runAction(input: AppDeploymentAction, actor: string): Promise<AppDeployment> {
@@ -99,7 +101,7 @@ export class AppStore {
     if (!deployment) {
       throw new Error("应用部署不存在。");
     }
-    const template = findTemplate(deployment.templateId);
+    const template = await this.findTemplate(deployment.templateId);
     if (!template) {
       throw new Error("应用模板不存在。");
     }
@@ -128,7 +130,7 @@ export class AppStore {
       }
       return { data: { ...current, appDeployments: next }, result: toPublicDeployment(result) };
     });
-    return input.autoRestart ? this.runAction({ deploymentId: updated.id, action: "restart" }, actor) : updated;
+    return input.autoRestart ? this.runAction({ deploymentId: updated.id, action: "restart", workspace: updated.workspace }, actor) : updated;
   }
 
   async rollbackDeployment(input: RollbackAppDeployment, actor: string): Promise<AppDeployment> {
@@ -164,12 +166,12 @@ export class AppStore {
       }
       return { data: { ...current, appDeployments: next }, result: toPublicDeployment(result) };
     });
-    return input.autoRestart ? this.runAction({ deploymentId: updated.id, action: "restart" }, actor) : updated;
+    return input.autoRestart ? this.runAction({ deploymentId: updated.id, action: "restart", workspace: updated.workspace }, actor) : updated;
   }
 
   async checkHealth(deploymentId: string): Promise<AppDeploymentHealth> {
     const deployment = await this.findDeployment(deploymentId);
-    const template = findTemplate(deployment.templateId);
+    const template = await this.findTemplate(deployment.templateId);
     if (deployment.status === "failed") {
       return { deploymentId, status: "unhealthy", checkedAt: new Date().toISOString(), detail: deployment.lastOutputTail ?? "部署处于失败状态。" };
     }
@@ -193,6 +195,16 @@ export class AppStore {
     return deployment;
   }
 
+  private async findTemplate(templateId: string): Promise<CatalogTemplate | undefined> {
+    const builtin = findBuiltinTemplate(templateId);
+    if (builtin) {
+      return builtin;
+    }
+    const state = await this.store.read();
+    const imported = (state.importedAppTemplates ?? []).find((template) => template.id === templateId);
+    return imported ? toRuntimeImportedTemplate(imported) : undefined;
+  }
+
   private async saveRevision(deployment: AppDeploymentRecord, actor: string): Promise<AppDeploymentRevisionRecord> {
     const version = deployment.version ?? 1;
     const revisionPath = deployment.composePath.replace(/docker-compose\.yml$/u, `docker-compose.v${version}.yml`);
@@ -205,6 +217,7 @@ export class AppStore {
 function toPublicDeployment(deployment: AppDeploymentRecord): AppDeployment {
   return {
     id: deployment.id,
+    workspace: deployment.workspace ?? "default",
     name: deployment.name,
     templateId: deployment.templateId,
     templateName: deployment.templateName,
@@ -219,6 +232,40 @@ function toPublicDeployment(deployment: AppDeploymentRecord): AppDeployment {
     ...(deployment.lastActionBy ? { lastActionBy: deployment.lastActionBy } : {}),
     ...(deployment.lastOutputTail ? { lastOutputTail: deployment.lastOutputTail } : {})
   };
+}
+
+function toPublicImportedTemplate(template: ImportedAppTemplate): AppTemplate {
+  return {
+    id: template.id,
+    name: template.name,
+    category: template.category,
+    description: template.description,
+    image: template.image,
+    source: template.source,
+    signature: template.signature,
+    verified: template.verified,
+    healthCheck: template.healthCheck,
+    variables: template.variables
+  };
+}
+
+function toRuntimeImportedTemplate(template: ImportedAppTemplate): CatalogTemplate {
+  return {
+    ...toPublicImportedTemplate(template),
+    render: (values) => renderImportedCompose(template.compose, values)
+  };
+}
+
+function renderImportedCompose(compose: string, values: Record<string, string>): string {
+  return compose.replace(/\{\{([A-Z0-9_]+)\}\}/gu, (_match, key: string) => quoteYaml(readValue(values, key)));
+}
+
+function quoteYaml(value: string): string {
+  return JSON.stringify(value);
+}
+
+function readValue(values: Record<string, string>, key: string): string {
+  return values[key] ?? "";
 }
 
 function mergeVariables(variables: Array<{ key: string; defaultValue: string; required: boolean }>, input: Record<string, string>): Record<string, string> {

@@ -58,6 +58,10 @@ export class SchedulerService {
       for (const result of databaseBackups) {
         await this.auditLog.append({ actor: "scheduler", action: "database.backup.scheduled", target: result.connectionId, status: result.status === "success" ? "success" : "error", detail: result.error ?? result.outputTail });
       }
+      const cleanup = await this.databaseStore.cleanupExpiredBackups(now);
+      if (cleanup.removed > 0 || cleanup.issues.length > 0) {
+        await this.auditLog.append({ actor: "scheduler", action: "database.backup.cleanup", target: "database-backups", status: cleanup.issues.length > 0 ? "error" : "success", detail: `removed=${cleanup.removed};retained=${cleanup.retained}` });
+      }
       await this.monitoringService.recordLocalSample(now);
       const alerts = await this.alertService.check(now);
       const deliveries = await this.notificationService.notifyAlerts(alerts);

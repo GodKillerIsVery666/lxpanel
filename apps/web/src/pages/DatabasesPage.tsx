@@ -28,7 +28,7 @@ export function DatabasesPage(): JSX.Element {
 
   async function create(): Promise<void> {
     try {
-      await api.createDatabaseConnection({ name, type, url, enabled: true, backupRetentionDays: Number.parseInt(retentionDays, 10) || 30, scheduleEnabled, scheduleEveryHours: Number.parseInt(scheduleEveryHours, 10) || 24 });
+      await api.createDatabaseConnection({ workspace: "default", name, type, url, enabled: true, backupRetentionDays: Number.parseInt(retentionDays, 10) || 30, scheduleEnabled, scheduleEveryHours: Number.parseInt(scheduleEveryHours, 10) || 24 });
       setName("");
       setUrl("");
       await load();

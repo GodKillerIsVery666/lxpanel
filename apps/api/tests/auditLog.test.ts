@@ -68,10 +68,13 @@ describe("审计日志", () => {
     const firstPage = await auditLog.page({ limit: 2 });
     const secondPage = await auditLog.page({ limit: 2, cursor: firstPage.nextCursor });
     const auditPackage = await auditLog.exportSignedPackage({ format: "jsonl", limit: 10 });
+    const bundle = await auditLog.exportBundle({ format: "jsonl", limit: 10 });
 
     expect(firstPage.events.map((event) => event.action)).toEqual(["three", "two"]);
     expect(secondPage.events.map((event) => event.action)).toEqual(["one"]);
     expect(auditPackage.contentSha256).toMatch(/^[a-f0-9]{64}$/u);
     expect(auditPackage.manifestSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(bundle.fileName).toMatch(/lxpanel-audit-.+\.tar/u);
+    expect(bundle.buffer.toString("ascii")).toContain("manifest.json");
   });
 });

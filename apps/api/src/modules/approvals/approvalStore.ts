@@ -15,6 +15,7 @@ export interface ApprovalConsumeInput {
   action: ApprovalAction;
   target: string;
   actor: string;
+  minimumApprovals?: number;
 }
 
 export class ApprovalStore {
@@ -77,6 +78,9 @@ export class ApprovalStore {
       }
       if (readApprovedCount(current) < readRequiredApprovals(current)) {
         throw new ApprovalError("审批单批准人数不足。");
+      }
+      if (input.minimumApprovals && readApprovedCount(current) < input.minimumApprovals) {
+        throw new ApprovalError(`资源策略要求至少 ${input.minimumApprovals} 人审批。`);
       }
       if (isExpired(current)) {
         throw new ApprovalError("审批单已过期。");

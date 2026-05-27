@@ -29,23 +29,24 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 19. 安全态势接口输出结构化检查项，前端直接展示检查状态和建议，避免把生产风险只写在文档里。
 20. API Token 在认证后会按路由映射校验作用域；Cookie 会话仍走原角色模型，自动化请求额外受 scope 约束。Token 列表会派生正常、即将到期和已过期状态，安全态势会提示到期风险。
 21. Webhook 通知服务在创建、更新和投递前校验出站主机白名单，列表接口只返回脱敏 URL，新渠道 URL 使用会话密钥派生密钥后加密保存，并提供旧明文迁移与旧密钥重加密能力。
-22. 审计日志支持结构化查询、分页读取、CSV/JSONL 导出、签名 manifest 包和按保留天数压缩写回。
+22. 审计日志支持结构化查询、分页读取、CSV/JSONL 导出、签名 manifest 包、tar 签名包下载和按保留天数压缩写回。
 23. 审批中心独立于具体业务模块保存审批单，高风险路由通过一次性消费审批单完成准入校验。
 24. 备份校验会读取快照文件并检查大小、SHA-256、备份包格式和状态字段，恢复解析会保留后续新增的状态域。
 25. 审批单支持多人批准阈值和逐条 review 记录，通知服务提供系统事件入口，让审批创建、批准进度和驳回复用现有 Webhook 渠道。
 26. 远程备份目标纳入状态存储，支持文件系统和 S3 兼容对象存储；对象存储密钥加密保存，同步备份文件时同步生成 `.sha256` 旁路校验对象。
 27. 数据库模块登记 PostgreSQL、MySQL、MariaDB 连接元数据和受控备份入口，连接 URL 可加密保存，备份通过参数化 dump 工具执行，恢复演练读取最近备份并写回演练状态；数据库连接可配置计划备份，调度器负责到期执行和审计。
-28. 应用部署记录保存版本号和 compose 修订，升级时重渲染当前模板变量，回滚时恢复上一份 compose 和变量快照；模板包含来源、签名和验证状态，部署可执行健康探测；平台治理保存私有模板仓库登记与同步状态。
+28. 应用部署记录保存版本号、工作空间和 compose 修订，升级时重渲染当前模板变量，回滚时恢复上一份 compose 和变量快照；模板包含来源、签名和验证状态，部署可执行健康探测；平台治理可拉取私有模板仓库 index、校验签名并导入模板。
 29. 安全加固计划与安全态势拆分：态势负责检查当前风险，加固计划输出防火墙、SSH 和 Docker socket 的可执行治理建议；平台治理模块可把建议转为 dry-run 修复记录。
-30. 主机组、批量命令、SSH 会话请求和 Web 终端代理复用连接器命令队列，面板只做资源选择、审计和命令排队，连接器继续承担本机执行。
-31. 平台治理模块集中管理资源访问策略、资源审批策略、许可证配额、安全修复记录、终端会话、模板仓库、状态归档、容量计划、升级向导、安装向导、SDK 示例、前端质量清单和 OpenAPI/Webhook 摘要。
+30. 主机组、批量命令、SSH 会话请求和 Web 终端代理复用连接器命令队列，面板只做资源选择、审计和命令排队；WebSocket 终端通道在 API 层提供会话快照、输入帧和输出广播，连接器继续承担本机执行。
+31. 平台治理模块集中管理工作空间、资源访问策略、资源审批策略、许可证验签与配额、安全修复记录、终端会话、模板仓库、状态归档、容量计划、升级向导、安装向导、SDK 示例、前端质量清单、OpenAPI 3.1 JSON 和 Webhook 摘要。
+32. 资源审批强制执行由公共守卫完成，数据库备份、主机批量命令和应用操作会按 `workspace:resourceType:resourceId:action` 目标消费 `resource.access` 审批单。
 
 ## 状态存储
 
 所有核心状态通过 `StateStore<PanelState>` 读写，认证、连接器、任务和备份模块只依赖接口，不直接关心底层介质。
 
 - `JsonStore`：写入 `LXPANEL_DATA_DIR/state.json`，使用临时文件和 rename 保持单文件写入原子性。
-- `SqliteStateStore`：写入 `LXPANEL_STATE_SQLITE_PATH`，启用 WAL，并在 `kv` 表中保存 `state` JSON 文档。这样先获得 SQLite 的文件锁、WAL 和后续迁移基础，同时保持备份恢复语义稳定。
+- `SqliteStateStore`：写入 `LXPANEL_STATE_SQLITE_PATH`，启用 WAL，并在 `kv` 表中保存 `state` JSON 文档；执行状态归档时可把裁剪出的监控样本、告警和通知投递写入独立 `state_archive` 表，降低主状态文档膨胀。
 - 迁移策略：当 `LXPANEL_STATE_STORE=sqlite` 且数据库尚无状态时，读取 legacy `state.json` 作为 seed，不删除原文件。
 - 显式迁移：`scripts/migrate-state.mjs` 可对旧 `state.json` 补齐新增顶层数组和审批/应用版本字段，写入前会为目标文件生成带时间戳的 `.bak-*` 备份。
 
@@ -63,7 +64,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 
 ## 应用商店
 
-`AppStore` 暴露模板列表、部署记录和部署动作。首批模板覆盖 Nginx、Redis、PostgreSQL，模板带来源、签名、验证状态和健康检查元数据。部署时只渲染内置模板变量，生成的 `docker-compose.yml` 落在数据目录下。启动、停止、重启统一调用 `docker compose -f <composePath> ...` 参数数组，并把执行结果写回部署记录和审计日志。升级会把当前 compose、变量和版本保存为 revision，再用新变量重渲染；回滚只恢复上一 revision，必要时再重启 compose。健康检查优先使用模板声明的 HTTP 探测，无法探测时返回 `unknown`，不阻塞部署记录读取。
+`AppStore` 暴露模板列表、部署记录和部署动作。首批模板覆盖 Nginx、Redis、PostgreSQL，模板带来源、签名、验证状态和健康检查元数据。私有模板仓库同步成功后会把导入模板合并到列表，仓库 index 可用内部信任或签名信任模式；签名模式使用仓库公钥校验 index 签名。部署时渲染模板变量，生成的 `docker-compose.yml` 落在数据目录下。启动、停止、重启统一调用 `docker compose -f <composePath> ...` 参数数组，并把执行结果写回部署记录和审计日志。升级会把当前 compose、变量和版本保存为 revision，再用新变量重渲染；回滚只恢复上一 revision，必要时再重启 compose。健康检查优先使用模板声明的 HTTP 探测，无法探测时返回 `unknown`，不阻塞部署记录读取。
 
 ## 自动化访问
 
@@ -71,10 +72,10 @@ API Token 由 `AuthStore` 生成并保存在 `PanelState.apiTokens` 中，状态
 
 ## 数据库与远程备份
 
-`DatabaseStore` 保存 PostgreSQL、MySQL、MariaDB 连接登记信息，状态中优先存放 `encryptedUrl`，无加密密钥时才保留兼容 `url` 字段。列表接口始终通过共享契约返回 `maskedUrl`，手动备份时在 `LXPANEL_DATA_DIR/database-backups` 下生成 dump 文件，并把最近备份路径、备份状态和保留天数写回连接记录。恢复演练读取最近备份，按数据库类型调用受控 runner 校验可恢复性，并记录最近演练时间、状态和输出尾部。计划备份字段保存在连接记录中，调度器到期调用同一备份路径，保证手动和自动行为一致。
+`DatabaseStore` 保存 PostgreSQL、MySQL、MariaDB 连接登记信息，状态中优先存放 `encryptedUrl`，无加密密钥时才保留兼容 `url` 字段。列表接口始终通过共享契约返回 `maskedUrl`，手动备份时在 `LXPANEL_DATA_DIR/database-backups` 下生成 dump 文件，并把最近备份路径、备份状态和保留天数写回连接记录。恢复演练读取最近备份，按数据库类型调用受控 runner 校验可恢复性，并记录最近演练时间、状态和输出尾部。计划备份字段保存在连接记录中，调度器到期调用同一备份路径，随后按连接保留天数清理过期 dump，保证手动和自动行为一致。
 
 `BackupStore` 除本地快照外还管理远程目标。文件系统目标适合挂载 NAS、对象存储网关或备份卷；S3 兼容目标适合 MinIO、COS、OSS 等对象存储。同步时复制指定快照并写入同名 `.sha256` 文件或对象，目标最近同步状态会随状态保存，方便前端快速判断外部备份是否健康。
 
 ## 平台治理
 
-`PlatformStore` 是商业化治理能力的聚合层，保存访问策略、资源审批策略、终端会话、模板仓库、许可证和安全修复记录，并从现有状态生成容量计划、升级向导、离线交付清单、安装向导、SDK 示例、前端质量报告和开放 API 摘要。访问策略按 workspace、resourceType、resourceId、role 和 permissions 评估，支持通配资源；资源审批策略按 resourceType、resourceId 和 action 登记，为后续强制执行提供统一入口。状态归档以 dry-run 优先，执行时裁剪监控样本、告警历史和通知投递，保持 JSON 与 SQLite 状态根兼容。自动化请求通过 `platform:read` 与 `platform:write` scope 进入同一权限模型。治理页同时读取审计完整性与合规接口，把安全、合规、容量和交付检查放到同一个操作面。
+`PlatformStore` 是商业化治理能力的聚合层，保存工作空间、访问策略、资源审批策略、终端会话、模板仓库、许可证和安全修复记录，并从现有状态生成容量计划、升级向导、离线交付清单、安装向导、SDK 示例、前端质量报告、OpenAPI JSON 和开放 API 摘要。访问策略按 workspace、resourceType、resourceId、role 和 permissions 评估，支持通配资源；资源审批策略按 workspace、resourceType、resourceId 和 action 匹配，命中后由业务路由统一消费审批单。许可证支持离线 `payload.signature` token、公钥验证和机器码绑定。状态归档以 dry-run 优先，执行时裁剪监控样本、告警历史和通知投递，SQLite 模式会额外落入 `state_archive` 表，JSON 模式保留轻量裁剪。自动化请求通过 `platform:read` 与 `platform:write` scope 进入同一权限模型。治理页同时读取审计完整性与合规接口，把安全、合规、容量和交付检查放到同一个操作面。

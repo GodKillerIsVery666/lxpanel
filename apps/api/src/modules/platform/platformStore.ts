@@ -1,4 +1,6 @@
-import type { AccessEvaluation, AccessEvaluationRequest, AccessPolicy, CapacityPlan, CreateAccessPolicy, CreateResourceApprovalPolicy, CreateTemplateRepository, CreateTerminalSession, DeliveryChecklist, FrontendQualityReport, InstallerGuide, LicenseInfo, LicenseStatus, OpenApiSummary, ResourceApprovalPolicy, SdkExample, SecurityRemediationRequest, SecurityRemediationRun, StateArchiveRequest, StateArchiveResult, TemplateRepository, TerminalInput, TerminalSession, UpdateLicense, UpgradePlan } from "@lxpanel/shared";
+import { createHash, verify as verifySignature } from "node:crypto";
+import { arch, hostname, platform } from "node:os";
+import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type CapacityPlan, type CreateAccessPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type FrontendQualityReport, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type ResourceApprovalCheck, type ResourceApprovalPolicy, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TerminalInput, type TerminalOutput, type TerminalSession, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import type { PanelState, SecurityRemediationRunRecord } from "../state/panelState.js";
@@ -40,12 +42,15 @@ export class PlatformStore {
         hostName,
         connectorId,
         commandId,
+        streamUrl: `/api/platform/terminal-sessions/ws?sessionId=${encodeURIComponent("pending")}`,
         ...(input.username ? { username: input.username } : {}),
         status: "opening",
         createdAt: now,
         createdBy: actor,
+        outputCursor: 0,
         transcriptTail: [{ time: now, direction: "system", line: `terminal.open rows=${input.rows} cols=${input.cols}` }]
       };
+      session.streamUrl = `/api/platform/terminal-sessions/ws?sessionId=${encodeURIComponent(session.id)}`;
       return { data: { ...state, terminalSessions: [...(state.terminalSessions ?? []), session].slice(-200) }, result: session };
     });
   }
@@ -67,6 +72,25 @@ export class PlatformStore {
     });
   }
 
+  async appendTerminalOutput(input: TerminalOutput): Promise<TerminalSession> {
+    return this.store.update((state) => {
+      const session = (state.terminalSessions ?? []).find((item) => item.id === input.sessionId);
+      if (!session) {
+        throw new Error("终端会话不存在。");
+      }
+      const now = new Date().toISOString();
+      const cursor = input.cursor ?? (session.outputCursor ?? 0) + 1;
+      const updated: TerminalSession = {
+        ...session,
+        status: input.status ?? (session.status === "opening" ? "connected" : session.status),
+        lastOutputAt: now,
+        outputCursor: cursor,
+        transcriptTail: [...(session.transcriptTail ?? []), { time: now, direction: "output" as const, line: input.output }].slice(-120)
+      };
+      return { data: { ...state, terminalSessions: (state.terminalSessions ?? []).map((item) => item.id === session.id ? updated : item) }, result: updated };
+    });
+  }
+
   async closeTerminalSession(sessionId: string): Promise<TerminalSession> {
     return this.store.update((state) => {
       const session = (state.terminalSessions ?? []).find((item) => item.id === sessionId);
@@ -74,7 +98,7 @@ export class PlatformStore {
         throw new Error("终端会话不存在。");
       }
       const now = new Date().toISOString();
-      const updated: TerminalSession = { ...session, status: "closed", transcriptTail: [...(session.transcriptTail ?? []), { time: now, direction: "system" as const, line: "terminal.closed" }].slice(-80) };
+      const updated: TerminalSession = { ...session, status: "closed", outputCursor: session.outputCursor ?? 0, transcriptTail: [...(session.transcriptTail ?? []), { time: now, direction: "system" as const, line: "terminal.closed" }].slice(-80) };
       return { data: { ...state, terminalSessions: (state.terminalSessions ?? []).map((item) => item.id === sessionId ? updated : item) }, result: updated };
     });
   }
@@ -87,19 +111,57 @@ export class PlatformStore {
   async createTemplateRepository(input: CreateTemplateRepository, actor: string): Promise<TemplateRepository> {
     return this.store.update((state) => {
       const now = new Date().toISOString();
-      const repository: TemplateRepository = { id: randomToken(12), name: input.name, url: input.url, trustMode: input.trustMode, ...(input.publicKey ? { publicKey: input.publicKey } : {}), enabled: input.enabled, templateCount: 0, lastStatus: "pending", createdAt: now, updatedAt: now, updatedBy: actor };
+      const repository: TemplateRepository = { id: randomToken(12), name: input.name, url: input.url, trustMode: input.trustMode, ...(input.publicKey ? { publicKey: input.publicKey } : {}), enabled: input.enabled, templateCount: 0, importedTemplateIds: [], lastStatus: "pending", createdAt: now, updatedAt: now, updatedBy: actor };
       return { data: { ...state, templateRepositories: [...(state.templateRepositories ?? []), repository].slice(-100) }, result: repository };
     });
   }
 
   async syncTemplateRepository(repositoryId: string, actor: string): Promise<TemplateRepository> {
+    const state = await this.store.read();
+    const repository = (state.templateRepositories ?? []).find((item) => item.id === repositoryId);
+    if (!repository) {
+      throw new Error("模板仓库不存在。");
+    }
+    if (!repository.enabled) {
+      return this.markTemplateRepositorySync(repository, actor, [], "", "仓库已停用。");
+    }
+    try {
+      const { importedTemplates, indexSha256 } = await fetchTemplateRepositoryIndex(repository);
+      return this.store.update((current) => {
+        const now = new Date().toISOString();
+        const importedTemplateIds = importedTemplates.map((template) => template.id);
+        const updated: TemplateRepository = { ...repository, lastSyncAt: now, lastStatus: "success", templateCount: importedTemplates.length, importedTemplateIds, indexSha256, updatedAt: now, updatedBy: actor };
+        delete updated.lastError;
+        const nextImported = [...(current.importedAppTemplates ?? []).filter((template) => template.repositoryId !== repository.id), ...importedTemplates].slice(-1000);
+        return {
+          data: {
+            ...current,
+            templateRepositories: (current.templateRepositories ?? []).map((item) => item.id === repositoryId ? updated : item),
+            importedAppTemplates: nextImported
+          },
+          result: updated
+        };
+      });
+    } catch (error) {
+      return this.markTemplateRepositorySync(repository, actor, [], "", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async markTemplateRepositorySync(repository: TemplateRepository, actor: string, importedTemplates: ImportedAppTemplate[], indexSha256: string, error?: string): Promise<TemplateRepository> {
     return this.store.update((state) => {
-      const repository = (state.templateRepositories ?? []).find((item) => item.id === repositoryId);
-      if (!repository) {
-        throw new Error("模板仓库不存在。");
-      }
-      const updated: TemplateRepository = { ...repository, lastSyncAt: new Date().toISOString(), lastStatus: repository.enabled ? "success" : "failed", templateCount: repository.enabled ? Math.max(repository.templateCount, 3) : repository.templateCount, updatedAt: new Date().toISOString(), updatedBy: actor };
-      return { data: { ...state, templateRepositories: (state.templateRepositories ?? []).map((item) => item.id === repositoryId ? updated : item) }, result: updated };
+      const now = new Date().toISOString();
+      const updated: TemplateRepository = {
+        ...repository,
+        lastSyncAt: now,
+        lastStatus: error ? "failed" : "success",
+        templateCount: importedTemplates.length,
+        importedTemplateIds: importedTemplates.map((template) => template.id),
+        ...(indexSha256 ? { indexSha256 } : {}),
+        ...(error ? { lastError: error } : {}),
+        updatedAt: now,
+        updatedBy: actor
+      };
+      return { data: { ...state, templateRepositories: (state.templateRepositories ?? []).map((item) => item.id === repository.id ? updated : item) }, result: updated };
     });
   }
 
@@ -111,17 +173,33 @@ export class PlatformStore {
       ...(usage.hosts > license.maxHosts ? [`主机数量 ${usage.hosts}/${license.maxHosts} 超出授权。`] : []),
       ...(usage.users > license.maxUsers ? [`用户数量 ${usage.users}/${license.maxUsers} 超出授权。`] : []),
       ...(usage.apps > license.maxApps ? [`应用数量 ${usage.apps}/${license.maxApps} 超出授权。`] : []),
-      ...(license.expiresAt && new Date(license.expiresAt).getTime() < Date.now() ? ["许可证已过期。"] : [])
+      ...(license.expiresAt && new Date(license.expiresAt).getTime() < Date.now() ? ["许可证已过期。"] : []),
+      ...(license.offlineToken && license.verificationStatus !== "verified" ? [`许可证验签状态异常：${license.verificationError ?? license.verificationStatus ?? "unverified"}`] : [])
     ];
     return { license, usage, violations };
   }
 
   async updateLicense(input: UpdateLicense, actor: string): Promise<LicenseStatus> {
+    const verification = verifyOfflineLicense(input);
     await this.store.update((state) => {
-      const license: LicenseInfo = { ...input, updatedAt: new Date().toISOString(), updatedBy: actor };
+      const signed = verification.ok ? verificationToLicensePatch(verification) : {};
+      const license: LicenseInfo = {
+        ...input,
+        ...signed,
+        machineCode: verification.machineCode,
+        verificationStatus: input.offlineToken ? verification.ok ? "verified" : "invalid" : "unverified",
+        verifiedAt: verification.checkedAt,
+        ...(verification.error ? { verificationError: verification.error } : {}),
+        updatedAt: new Date().toISOString(),
+        updatedBy: actor
+      };
       return { data: { ...state, license }, result: undefined };
     });
     return this.licenseStatus();
+  }
+
+  verifyLicense(input: UpdateLicense): LicenseVerificationResult {
+    return verifyOfflineLicense(input);
   }
 
   async listApprovalPolicies(): Promise<ResourceApprovalPolicy[]> {
@@ -135,6 +213,49 @@ export class PlatformStore {
       const policy: ResourceApprovalPolicy = { id: randomToken(12), ...input, createdAt: now, updatedAt: now, updatedBy: actor };
       return { data: { ...state, resourceApprovalPolicies: [...(state.resourceApprovalPolicies ?? []), policy].slice(-200) }, result: policy };
     });
+  }
+
+  async requiredApprovalPolicy(input: ResourceApprovalCheck): Promise<ResourceApprovalPolicy | null> {
+    const state = await this.store.read();
+    const workspace = input.workspace || "default";
+    return (state.resourceApprovalPolicies ?? []).find((policy) => policy.enabled
+      && (policy.workspace ?? "default") === workspace
+      && policy.resourceType === input.resourceType
+      && (policy.resourceId === input.resourceId || policy.resourceId === "*")
+      && (policy.action === input.action || policy.action === "*")) ?? null;
+  }
+
+  async listWorkspaces(): Promise<Workspace[]> {
+    const state = await this.store.read();
+    return ensureDefaultWorkspace(state.workspaces ?? []);
+  }
+
+  async createWorkspace(input: CreateWorkspace, actor: string): Promise<Workspace> {
+    return this.store.update((state) => {
+      const workspaces = ensureDefaultWorkspace(state.workspaces ?? []);
+      if (workspaces.some((workspace) => workspace.id === input.id)) {
+        throw new Error("工作空间已存在。");
+      }
+      const now = new Date().toISOString();
+      const workspace: Workspace = { id: input.id, name: input.name, ...(input.description ? { description: input.description } : {}), createdAt: now, updatedAt: now, updatedBy: actor };
+      return { data: { ...state, workspaces: [...workspaces, workspace].slice(-200) }, result: workspace };
+    });
+  }
+
+  async workspaceOverview(): Promise<WorkspaceOverview> {
+    const state = await this.store.read();
+    const workspaces = ensureDefaultWorkspace(state.workspaces ?? []);
+    return {
+      generatedAt: new Date().toISOString(),
+      workspaces,
+      counts: workspaces.map((workspace) => ({
+        workspace: workspace.id,
+        policies: (state.accessPolicies ?? []).filter((policy) => policy.workspace === workspace.id).length,
+        approvalPolicies: (state.resourceApprovalPolicies ?? []).filter((policy) => (policy.workspace ?? "default") === workspace.id).length,
+        apps: (state.appDeployments ?? []).filter((deployment) => (deployment.workspace ?? "default") === workspace.id).length,
+        databases: (state.databaseConnections ?? []).filter((connection) => (connection.workspace ?? "default") === workspace.id).length
+      }))
+    };
   }
 
   async evaluateAccess(input: AccessEvaluationRequest): Promise<AccessEvaluation> {
@@ -213,21 +334,58 @@ export class PlatformStore {
         { method: "GET", path: "/api/audit/integrity", scope: "audit:read" },
         { method: "GET", path: "/api/audit/page", scope: "audit:read" },
         { method: "GET", path: "/api/audit/export-package", scope: "audit:read" },
+        { method: "GET", path: "/api/audit/export-bundle", scope: "audit:read" },
         { method: "GET", path: "/api/platform/openapi-summary", scope: "platform:read" },
+        { method: "GET", path: "/api/platform/openapi.json", scope: "platform:read" },
+        { method: "GET", path: "/api/platform/workspaces", scope: "platform:read" },
         { method: "POST", path: "/api/platform/terminal-sessions", scope: "platform:write" },
+        { method: "GET", path: "/api/platform/terminal-sessions/ws", scope: "platform:read" },
         { method: "POST", path: "/api/platform/archive-state", scope: "platform:write" }
       ],
       webhookEvents: ["alert.warning", "alert.critical", "approval.requested", "approval.progress", "approval.rejected", "security.remediation"]
     };
   }
 
+  openApiDocument(): OpenApiDocument {
+    const paths: Record<string, unknown> = {};
+    for (const item of this.openApiSummary().paths) {
+      const method = item.method.toLowerCase();
+      const existingPath = paths[item.path];
+      const current: Record<string, unknown> = isRecord(existingPath) ? existingPath : {};
+      paths[item.path] = {
+        ...current,
+        [method]: {
+          summary: `${item.method} ${item.path}`,
+          security: item.scope ? [{ bearerAuth: [item.scope] }] : [],
+          responses: { "200": { description: "成功" }, "401": { description: "未登录" }, "403": { description: "权限不足" } }
+        }
+      };
+    }
+    return {
+      openapi: "3.1.0",
+      info: { title: "LXPanel API", version: currentVersion },
+      servers: [{ url: "/" }],
+      security: [{ bearerAuth: [] }],
+      components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } } },
+      paths
+    };
+  }
+
   async archiveState(input: StateArchiveRequest): Promise<StateArchiveResult> {
     const state = await this.store.read();
     const beforeBytes = Buffer.byteLength(JSON.stringify(state), "utf8");
+    const removedMetricSamples = (state.metricSamples ?? []).slice(0, Math.max(0, (state.metricSamples ?? []).length - input.keepMetricSamples));
+    const removedAlertEvents = (state.alertEvents ?? []).slice(0, Math.max(0, (state.alertEvents ?? []).length - input.keepAlertEvents));
+    const removedDeliveries = (state.notificationDeliveries ?? []).slice(0, Math.max(0, (state.notificationDeliveries ?? []).length - 300));
     const nextMetricSamples = (state.metricSamples ?? []).slice(-input.keepMetricSamples);
     const nextAlertEvents = (state.alertEvents ?? []).slice(-input.keepAlertEvents);
     const nextDeliveries = (state.notificationDeliveries ?? []).slice(-300);
     const nextState = { ...state, metricSamples: nextMetricSamples, alertEvents: nextAlertEvents, notificationDeliveries: nextDeliveries };
+    const archiveRecords = [
+      ...removedMetricSamples.map((sample) => ({ id: sample.id, time: sample.time, payload: sample })),
+      ...removedAlertEvents.map((event) => ({ id: event.id, time: event.time, payload: event })),
+      ...removedDeliveries.map((delivery) => ({ id: delivery.id, time: delivery.time, payload: delivery }))
+    ];
     const result: StateArchiveResult = {
       dryRun: input.dryRun,
       beforeBytes,
@@ -235,9 +393,14 @@ export class PlatformStore {
       removedMetricSamples: (state.metricSamples ?? []).length - nextMetricSamples.length,
       removedAlertEvents: (state.alertEvents ?? []).length - nextAlertEvents.length,
       removedNotificationDeliveries: (state.notificationDeliveries ?? []).length - nextDeliveries.length,
+      archivedRecords: input.dryRun || !this.store.archiveRecords ? 0 : archiveRecords.length,
+      archiveDriver: this.store.archiveRecords ? "sqlite-table" : "json-trim",
       generatedAt: new Date().toISOString()
     };
     if (!input.dryRun) {
+      if (this.store.archiveRecords && archiveRecords.length > 0) {
+        await this.store.archiveRecords("state-history", archiveRecords);
+      }
       await this.store.update(() => ({ data: nextState, result: undefined }));
     }
     return result;
@@ -275,14 +438,131 @@ export class PlatformStore {
       checks: [
         { id: "skip-link", title: "键盘跳转入口", ready: true, detail: "Shell 提供跳到主内容区域的隐藏链接。" },
         { id: "button-labels", title: "图标按钮标签", ready: true, detail: "关键图标按钮通过 title 或 aria-label 暴露语义。" },
-        { id: "zh-cn", title: "中文文案资源", ready: true, detail: "商业交付默认中文，开放后续英文资源化入口。" }
+        { id: "i18n-resources", title: "中英文资源文件", ready: true, detail: "平台治理页使用资源表切换 zh-CN 和 en-US 文案。" }
       ]
     };
   }
 }
 
 function defaultLicense(): LicenseInfo {
-  return { plan: "community", licensedTo: "local", maxHosts: 3, maxUsers: 2, maxApps: 5, features: ["core", "backup", "audit"], updatedAt: new Date(0).toISOString(), updatedBy: "system" };
+  return { plan: "community", licensedTo: "local", maxHosts: 3, maxUsers: 2, maxApps: 5, features: ["core", "backup", "audit"], verificationStatus: "unverified", updatedAt: new Date(0).toISOString(), updatedBy: "system" };
+}
+
+async function fetchTemplateRepositoryIndex(repository: TemplateRepository): Promise<{ importedTemplates: ImportedAppTemplate[]; indexSha256: string }> {
+  const response = await fetch(repository.url, { headers: { accept: "application/json" } });
+  if (!response.ok) {
+    throw new Error(`模板仓库拉取失败: ${response.status}`);
+  }
+  const raw = await response.text();
+  const parsed = TemplateRepositoryIndexSchema.parse(JSON.parse(raw));
+  const unsignedPayload = canonicalJson({ version: parsed.version, generatedAt: parsed.generatedAt, templates: parsed.templates, publicKeyId: parsed.publicKeyId });
+  if (repository.trustMode === "signed") {
+    if (!repository.publicKey) {
+      throw new Error("签名仓库缺少公钥。");
+    }
+    if (!parsed.signature) {
+      throw new Error("签名仓库缺少 index 签名。");
+    }
+    const verified = verifySignature("sha256", Buffer.from(unsignedPayload), repository.publicKey, Buffer.from(parsed.signature, "base64"));
+    if (!verified) {
+      throw new Error("模板仓库签名验证失败。");
+    }
+  }
+  const indexSha256 = sha256(unsignedPayload);
+  const importedAt = new Date().toISOString();
+  return {
+    indexSha256,
+    importedTemplates: parsed.templates.map((template) => ({
+      ...template,
+      id: `${repository.id}:${template.id}`,
+      source: repository.url,
+      verified: repository.trustMode === "internal" ? template.verified : true,
+      repositoryId: repository.id,
+      importedAt,
+      indexSha256
+    }))
+  };
+}
+
+function verifyOfflineLicense(input: UpdateLicense): LicenseVerificationResult {
+  const checkedAt = new Date().toISOString();
+  const machineCode = currentMachineCode();
+  if (!input.offlineToken) {
+    return { ok: false, checkedAt, machineCode, error: "未提供离线许可证。" };
+  }
+  if (!input.publicKey) {
+    return { ok: false, checkedAt, machineCode, error: "未配置许可证公钥。" };
+  }
+  const [payloadText, signatureText] = input.offlineToken.split(".");
+  if (!payloadText || !signatureText) {
+    return { ok: false, checkedAt, machineCode, error: "许可证格式必须为 payload.signature。" };
+  }
+  try {
+    const verified = verifySignature("sha256", Buffer.from(payloadText), input.publicKey, Buffer.from(signatureText, "base64url"));
+    if (!verified) {
+      return { ok: false, checkedAt, machineCode, error: "许可证签名验证失败。" };
+    }
+    const payload = JSON.parse(Buffer.from(payloadText, "base64url").toString("utf8")) as unknown;
+    if (!isRecord(payload)) {
+      return { ok: false, checkedAt, machineCode, error: "许可证载荷不是对象。" };
+    }
+    const payloadMachineCode = typeof payload.machineCode === "string" ? payload.machineCode : "";
+    if (payloadMachineCode && payloadMachineCode !== machineCode) {
+      return { ok: false, checkedAt, machineCode, error: "许可证机器码不匹配。" };
+    }
+    const expiresAt = typeof payload.expiresAt === "string" ? payload.expiresAt : undefined;
+    if (expiresAt && new Date(expiresAt).getTime() < Date.now()) {
+      return { ok: false, checkedAt, machineCode, expiresAt, error: "许可证已过期。" };
+    }
+    return {
+      ok: true,
+      checkedAt,
+      machineCode,
+      ...(isLicensePlan(payload.plan) ? { plan: payload.plan } : {}),
+      ...(typeof payload.licensedTo === "string" ? { licensedTo: payload.licensedTo } : {}),
+      ...(expiresAt ? { expiresAt } : {})
+    };
+  } catch (error) {
+    return { ok: false, checkedAt, machineCode, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function verificationToLicensePatch(result: LicenseVerificationResult): Partial<LicenseInfo> {
+  return {
+    ...(result.plan ? { plan: result.plan } : {}),
+    ...(result.licensedTo ? { licensedTo: result.licensedTo } : {}),
+    ...(result.expiresAt ? { expiresAt: result.expiresAt } : {})
+  };
+}
+
+function currentMachineCode(): string {
+  return sha256(`${hostname()}|${platform()}|${arch()}`).slice(0, 32);
+}
+
+function ensureDefaultWorkspace(workspaces: Workspace[]): Workspace[] {
+  return workspaces.some((workspace) => workspace.id === "default") ? workspaces : [{ id: "default", name: "默认工作空间", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), updatedBy: "system" }, ...workspaces];
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (isRecord(value)) {
+    return `{${Object.keys(value).filter((key) => value[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isLicensePlan(value: unknown): value is LicenseInfo["plan"] {
+  return value === "community" || value === "team" || value === "enterprise";
 }
 
 function remediationCommand(itemId: string): string | undefined {

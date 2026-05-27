@@ -1,4 +1,4 @@
-import type { AccessPolicy, AlertEvent, AlertSilence, AlertThreshold, ApiTokenScope, AppDeployment, Approval, DatabaseConnection, Host, HostGroup, LicenseInfo, MetricSample, NotificationChannel, NotificationDelivery, RemoteBackupTarget, ResourceApprovalPolicy, Role, SecurityRemediationRun, TemplateRepository, TerminalSession } from "@lxpanel/shared";
+import type { AccessPolicy, AlertEvent, AlertSilence, AlertThreshold, ApiTokenScope, AppDeployment, Approval, DatabaseConnection, Host, HostGroup, ImportedAppTemplate, LicenseInfo, MetricSample, NotificationChannel, NotificationDelivery, RemoteBackupTarget, ResourceApprovalPolicy, Role, SecurityRemediationRun, TemplateRepository, TerminalSession, Workspace } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -124,16 +124,18 @@ export interface AppDeploymentRevisionRecord {
   createdBy: string;
 }
 
-export type AppDeploymentRecord = AppDeployment & { revisions?: AppDeploymentRevisionRecord[] };
+export type AppDeploymentRecord = Omit<AppDeployment, "workspace"> & { workspace?: string; revisions?: AppDeploymentRevisionRecord[] };
 export type ApprovalRecord = Approval;
 export type RemoteBackupTargetRecord = RemoteBackupTarget & { encryptedSecretAccessKey?: string; secretAccessKey?: string };
-export type DatabaseConnectionRecord = Omit<DatabaseConnection, "maskedUrl"> & { encryptedUrl?: string; url?: string; lastBackupPath?: string };
+export type DatabaseConnectionRecord = Omit<DatabaseConnection, "maskedUrl" | "workspace"> & { workspace?: string; encryptedUrl?: string; url?: string; lastBackupPath?: string };
 export type AccessPolicyRecord = AccessPolicy;
 export type SecurityRemediationRunRecord = SecurityRemediationRun;
 export type TerminalSessionRecord = TerminalSession;
 export type TemplateRepositoryRecord = TemplateRepository;
+export type ImportedAppTemplateRecord = ImportedAppTemplate;
 export type LicenseInfoRecord = LicenseInfo;
 export type ResourceApprovalPolicyRecord = ResourceApprovalPolicy;
+export type WorkspaceRecord = Workspace;
 
 export interface PanelState {
   users: UserRecord[];
@@ -161,8 +163,10 @@ export interface PanelState {
   securityRemediationRuns?: SecurityRemediationRunRecord[];
   terminalSessions?: TerminalSessionRecord[];
   templateRepositories?: TemplateRepositoryRecord[];
+  importedAppTemplates?: ImportedAppTemplateRecord[];
   license?: LicenseInfoRecord;
   resourceApprovalPolicies?: ResourceApprovalPolicyRecord[];
+  workspaces?: WorkspaceRecord[];
 }
 
 export function createInitialPanelState(): PanelState {
@@ -192,7 +196,9 @@ export function createInitialPanelState(): PanelState {
     securityRemediationRuns: [],
     terminalSessions: [],
     templateRepositories: [],
-    resourceApprovalPolicies: []
+    importedAppTemplates: [],
+    resourceApprovalPolicies: [],
+    workspaces: [{ id: "default", name: "默认工作空间", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), updatedBy: "system" }]
   };
 }
 

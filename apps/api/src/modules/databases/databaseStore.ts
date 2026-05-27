@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import type { CreateDatabaseConnection, DatabaseBackupResult, DatabaseConnection, DatabaseRestoreDrillResult, DatabaseType, UpdateDatabaseConnection } from "@lxpanel/shared";
+import type { CreateDatabaseConnection, DatabaseBackupCleanupResult, DatabaseBackupResult, DatabaseConnection, DatabaseRestoreDrillResult, DatabaseType, UpdateDatabaseConnection } from "@lxpanel/shared";
 import { runCommand, type CommandResult } from "../../lib/command.js";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
@@ -58,6 +58,7 @@ export class DatabaseStore {
       const now = new Date().toISOString();
       const connection: DatabaseConnectionRecord = {
         id: randomToken(12),
+        workspace: input.workspace,
         name: input.name,
         type: input.type,
         enabled: input.enabled,
@@ -83,6 +84,7 @@ export class DatabaseStore {
       }
       let updated: DatabaseConnectionRecord = {
         ...existing,
+        ...(input.workspace ? { workspace: input.workspace } : {}),
         ...(input.name ? { name: input.name } : {}),
         ...(typeof input.enabled === "boolean" ? { enabled: input.enabled } : {}),
         ...(typeof input.backupRetentionDays === "number" ? { backupRetentionDays: input.backupRetentionDays } : {}),
@@ -180,6 +182,42 @@ export class DatabaseStore {
     return results;
   }
 
+  async cleanupExpiredBackups(now = new Date()): Promise<DatabaseBackupCleanupResult> {
+    const state = await this.store.read();
+    const backupDir = join(this.dataDir, "database-backups");
+    const issues: string[] = [];
+    let removed = 0;
+    let retained = 0;
+    let names: string[] = [];
+    try {
+      names = await readdir(backupDir);
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        return { checkedAt: now.toISOString(), removed, retained, issues };
+      }
+      throw error;
+    }
+    const retentionByPrefix = new Map((state.databaseConnections ?? []).map((connection) => [sanitizeName(connection.name), connection.backupRetentionDays ?? 30]));
+    for (const name of names.filter((item) => item.endsWith(".dump"))) {
+      const prefix = [...retentionByPrefix.keys()].find((item) => name.startsWith(`${item}-`));
+      const retentionDays = prefix ? retentionByPrefix.get(prefix) ?? 30 : 30;
+      const filePath = join(backupDir, name);
+      try {
+        const info = await stat(filePath);
+        const ageMs = now.getTime() - info.mtime.getTime();
+        if (ageMs > retentionDays * 24 * 60 * 60 * 1000) {
+          await unlink(filePath);
+          removed += 1;
+        } else {
+          retained += 1;
+        }
+      } catch (error) {
+        issues.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return { checkedAt: now.toISOString(), removed, retained, issues };
+  }
+
   private async markRestoreDrill(connectionId: string, result: DatabaseRestoreDrillResult, actor: string): Promise<DatabaseRestoreDrillResult> {
     await this.store.update((state) => ({
       data: {
@@ -245,6 +283,7 @@ function toUpdatedConnection(connection: DatabaseConnectionRecord, result: Datab
 function toPublicConnection(connection: DatabaseConnectionRecord, url: string): DatabaseConnection {
   return {
     id: connection.id,
+    workspace: connection.workspace ?? "default",
     name: connection.name,
     type: connection.type,
     maskedUrl: maskDatabaseUrl(url),
@@ -311,6 +350,10 @@ function maskDatabaseUrl(value: string): string {
   } catch {
     return "postgres://...";
   }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
 function sanitizeName(value: string): string {
