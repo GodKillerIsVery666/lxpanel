@@ -12,8 +12,9 @@ const connectorName = process.env.LXPANEL_CONNECTOR_NAME ?? hostname();
 const pollIntervalMs = parsePositiveInt(process.env.LXPANEL_CONNECTOR_POLL_MS ?? "5000");
 const commandTimeoutMs = parsePositiveInt(process.env.LXPANEL_CONNECTOR_COMMAND_TIMEOUT_MS ?? "60000");
 const allowedCommands = parseList(process.env.LXPANEL_CONNECTOR_ALLOW_COMMANDS ?? "hostname,uptime,whoami");
+const agentVersion = process.env.LXPANEL_CONNECTOR_VERSION ?? "node-agent-0.2";
 
-console.log(`[lxpanel-connector] start name=${connectorName} url=${panelUrl} allowed=${allowedCommands.join(",") || "none"}`);
+console.log(`[lxpanel-connector] start name=${connectorName} version=${agentVersion} url=${panelUrl} allowed=${allowedCommands.join(",") || "none"}`);
 
 while (true) {
   try {
@@ -31,7 +32,7 @@ while (true) {
 async function heartbeat() {
   await request("/api/connectors/heartbeat", {
     method: "POST",
-    body: { capabilities: ["metrics", "command-runner", "ssh-client-offload"], version: "node-agent-0.1" }
+    body: { capabilities: ["metrics", "command-runner", "ssh-client-offload", "self-upgrade-plan"], version: agentVersion }
   });
 }
 
@@ -48,6 +49,16 @@ async function runAndReport(command) {
       exitCode: 126,
       stdoutTail: "",
       stderrTail: "invalid command signature"
+    });
+    return;
+  }
+  if (command.command === "agent.upgrade") {
+    const targetVersion = command.args?.[0] ?? "unknown";
+    await report(command.id, {
+      status: targetVersion === agentVersion ? "success" : "failed",
+      exitCode: targetVersion === agentVersion ? 0 : 75,
+      stdoutTail: targetVersion === agentVersion ? `already running ${agentVersion}` : `upgrade scheduled to ${targetVersion}`,
+      stderrTail: targetVersion === agentVersion ? "" : "automatic binary replacement is not enabled in the reference agent"
     });
     return;
   }

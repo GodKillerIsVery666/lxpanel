@@ -1,6 +1,6 @@
 import { createHash, verify as verifySignature } from "node:crypto";
 import { arch, hostname, platform } from "node:os";
-import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type CapacityPlan, type CreateAccessPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type DiagnosticsBundle, type FrontendQualityReport, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type ResourceApprovalCheck, type ResourceApprovalPolicy, type ResourceApprovalPrecheck, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type StateArchivePage, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TemplateRepositoryRollback, type TerminalInput, type TerminalOutput, type TerminalReplay, type TerminalSession, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
+import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type AuditEvent, type CapacityPlan, type CreateAccessPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type DiagnosticsBundle, type FrontendQualityReport, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type ResourceApprovalCheck, type ResourceApprovalPolicy, type ResourceApprovalPrecheck, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type StateArchivePage, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TemplateRepositoryRollback, type TenantReport, type TerminalInput, type TerminalOutput, type TerminalReplay, type TerminalSession, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import type { PanelState, SecurityRemediationRunRecord, TemplateRepositorySnapshotRecord } from "../state/panelState.js";
@@ -312,6 +312,54 @@ export class PlatformStore {
     };
   }
 
+  async tenantReport(input: { workspace: string; from?: string; to?: string }, auditEvents: AuditEvent[]): Promise<TenantReport> {
+    const state = await this.store.read();
+    const workspace = input.workspace || "default";
+    const fromTime = input.from ? new Date(input.from).getTime() : null;
+    const toTime = input.to ? new Date(input.to).getTime() : null;
+    const events = auditEvents.filter((event) => isInRange(event.time, fromTime, toTime) && eventBelongsToWorkspace(event, workspace));
+    const approvals = (state.approvals ?? []).filter((approval) => approval.target.startsWith(`${workspace}:`) && isInRange(approval.requestedAt, fromTime, toTime));
+    const reviewedDurations = approvals.flatMap((approval) => {
+      const reviewedAt = approval.reviewedAt ?? approval.reviews.find((review) => review.decision === "approved")?.reviewedAt;
+      if (!reviewedAt) {
+        return [];
+      }
+      return [Math.max(0, new Date(reviewedAt).getTime() - new Date(approval.requestedAt).getTime()) / 60_000];
+    });
+    const actionCounts = new Map<string, number>();
+    for (const event of events) {
+      actionCounts.set(event.action, (actionCounts.get(event.action) ?? 0) + 1);
+    }
+    const unsigned = {
+      generatedAt: new Date().toISOString(),
+      workspace,
+      range: { ...(input.from ? { from: input.from } : {}), ...(input.to ? { to: input.to } : {}) },
+      counts: {
+        hosts: (state.hosts ?? []).filter((host) => (host.workspace ?? "default") === workspace).length,
+        apps: (state.appDeployments ?? []).filter((deployment) => (deployment.workspace ?? "default") === workspace).length,
+        databases: (state.databaseConnections ?? []).filter((connection) => (connection.workspace ?? "default") === workspace).length,
+        remoteBackupTargets: (state.remoteBackupTargets ?? []).filter((target) => (target.workspace ?? "default") === workspace).length,
+        approvals: approvals.length,
+        auditEvents: events.length,
+        errors: events.filter((event) => event.status === "error").length,
+        denied: events.filter((event) => event.status === "denied").length
+      },
+      resources: [
+        { type: "hosts", count: (state.hosts ?? []).filter((host) => (host.workspace ?? "default") === workspace).length },
+        { type: "apps", count: (state.appDeployments ?? []).filter((deployment) => (deployment.workspace ?? "default") === workspace).length },
+        { type: "databases", count: (state.databaseConnections ?? []).filter((connection) => (connection.workspace ?? "default") === workspace).length },
+        { type: "remoteBackupTargets", count: (state.remoteBackupTargets ?? []).filter((target) => (target.workspace ?? "default") === workspace).length }
+      ],
+      topActions: [...actionCounts.entries()].map(([action, count]) => ({ action, count })).sort((left, right) => right.count - left.count).slice(0, 10),
+      approvalSla: {
+        reviewed: reviewedDurations.length,
+        ...(reviewedDurations.length > 0 ? { averageMinutes: Number((reviewedDurations.reduce((sum, value) => sum + value, 0) / reviewedDurations.length).toFixed(2)) } : {}),
+        pending: approvals.filter((approval) => approval.status === "pending").length
+      }
+    };
+    return { ...unsigned, sha256: sha256(canonicalJson(unsigned)) };
+  }
+
   async evaluateAccess(input: AccessEvaluationRequest): Promise<AccessEvaluation> {
     const state = await this.store.read();
     const policy = (state.accessPolicies ?? []).find((item) => item.workspace === input.workspace && item.resourceType === input.resourceType && (item.resourceId === input.resourceId || item.resourceId === "*") && item.role === input.role && item.permissions.includes(input.permission));
@@ -392,6 +440,9 @@ export class PlatformStore {
         { method: "GET", path: "/api/platform/openapi-summary", scope: "platform:read" },
         { method: "GET", path: "/api/platform/openapi.json", scope: "platform:read" },
         { method: "GET", path: "/api/platform/workspaces", scope: "platform:read" },
+        { method: "GET", path: "/api/platform/tenant-report", scope: "platform:read" },
+        { method: "GET", path: "/api/platform/connectors/version-policy", scope: "platform:read" },
+        { method: "POST", path: "/api/platform/connectors/upgrade", scope: "platform:write" },
         { method: "POST", path: "/api/platform/terminal-sessions", scope: "platform:write" },
         { method: "GET", path: "/api/platform/terminal-sessions/replay", scope: "platform:read" },
         { method: "GET", path: "/api/platform/terminal-sessions/ws", scope: "platform:read" },
@@ -416,6 +467,8 @@ export class PlatformStore {
         [method]: {
           summary: `${item.method} ${item.path}`,
           security: item.scope ? [{ bearerAuth: [item.scope] }] : [],
+          ...(requestSchemaFor(item.method, item.path) ? { requestBody: { required: true, content: { "application/json": { schema: requestSchemaFor(item.method, item.path) } } } } : {}),
+          ...(queryParametersFor(item.path).length > 0 ? { parameters: queryParametersFor(item.path) } : {}),
           responses: { "200": { description: "成功", content: { "application/json": { schema: responseSchemaFor(item.path) } } }, "401": { description: "未登录" }, "403": { description: "权限不足" } }
         }
       };
@@ -484,6 +537,8 @@ export class PlatformStore {
       { id: "state-size", title: "状态体积", status: stateBytes > 5_000_000 ? "warn" as const : "ok" as const, detail: `${stateBytes} bytes` },
       { id: "audit-chain", title: "审计哈希链", status: "ok" as const, detail: "审计事件写入包含 hash/previousHash 字段。" },
       { id: "connector-signature", title: "连接器命令签名", status: "ok" as const, detail: "命令下发包含 signaturePayload 与 HMAC-SHA256 签名。" },
+      { id: "connector-version-policy", title: "连接器版本策略", status: "ok" as const, detail: "连接器心跳会上报版本，平台可生成灰度升级计划。" },
+      { id: "tenant-report", title: "租户报表", status: "ok" as const, detail: "工作空间可导出资源、审批 SLA 和审计动作摘要。" },
       { id: "archive-query", title: "归档查询", status: this.store.queryArchiveRecords ? "ok" as const : "warn" as const, detail: this.store.queryArchiveRecords ? "SQLite state_archive 可查询。" : "JSON 模式仅裁剪，不保留查询表。" }
     ];
     const unsigned = { generatedAt: new Date().toISOString(), version: currentVersion, hostname: hostname(), stateBytes, checks, openApiPaths: openApiPathCount, frontendChecks: frontendCheckCount };
@@ -497,7 +552,7 @@ export class PlatformStore {
         { id: "build", title: "生成发布包", command: "npm run build && npm run package:release", detail: "生成 release/lxpanel-<version>.tar.gz 与 SHA-256 校验文件。" },
         { id: "verify", title: "离线校验", command: "Get-FileHash release\\lxpanel-0.1.0.tar.gz -Algorithm SHA256", detail: "在客户现场核对交付包哈希。" },
         { id: "configure", title: "配置生产密钥", detail: "写入 LXPANEL_SESSION_SECRET、允许来源、IP 白名单、文件和日志根目录。" },
-        { id: "diagnose", title: "打包诊断信息", command: "npm run smoke && npm run e2e", detail: "安装后采集构建产物、核心接口和平台治理端点状态。" }
+        { id: "diagnose", title: "打包诊断信息", command: "npm run diagnose:release -- --output release\\diagnostics.json", detail: "安装后采集构建产物、核心接口和平台治理端点状态。" }
       ],
       diagnostics: [
         { id: "node", title: "Node.js 运行时", ready: true, detail: "发布包使用当前 Node 运行时验证构建产物。" },
@@ -526,10 +581,20 @@ export class PlatformStore {
         { id: "preference-storage", title: "用户偏好持久化", ready: true, detail: "页面记忆、最近访问和表格密度使用本地偏好模块保存。" },
         { id: "navigation-search", title: "导航搜索与最近访问", ready: true, detail: "Shell 支持分组菜单、功能搜索、最近访问和页面记忆。" },
         { id: "dashboard-workbench", title: "首页工作台", ready: true, detail: "概览页提供状态摘要、角色感知快捷入口和资源进度条。" },
-        { id: "i18n-resources", title: "中英文资源文件", ready: true, detail: "平台治理页使用资源表切换 zh-CN 和 en-US 文案。" }
+        { id: "i18n-resources", title: "中英文资源文件", ready: true, detail: "平台治理页使用资源表切换 zh-CN 和 en-US 文案。" },
+        { id: "tenant-report", title: "租户报表导出", ready: true, detail: "平台治理页可下载 workspace 级资源和审计摘要。" }
       ]
     };
   }
+}
+
+function isInRange(time: string, fromTime: number | null, toTime: number | null): boolean {
+  const eventTime = new Date(time).getTime();
+  return (fromTime === null || eventTime >= fromTime) && (toTime === null || eventTime <= toTime);
+}
+
+function eventBelongsToWorkspace(event: AuditEvent, workspace: string): boolean {
+  return workspace === "default" || event.target.startsWith(`${workspace}:`) || event.detail?.includes(`workspace=${workspace}`) === true;
 }
 
 function defaultLicense(): LicenseInfo {
@@ -560,6 +625,9 @@ function responseSchemaFor(path: string): unknown {
     "/api/platform/openapi-summary": { $ref: "#/components/schemas/OpenApiSummaryResponse" },
     "/api/platform/openapi.json": { type: "object" },
     "/api/platform/workspaces": { $ref: "#/components/schemas/WorkspaceOverviewResponse" },
+    "/api/platform/tenant-report": { $ref: "#/components/schemas/TenantReportResponse" },
+    "/api/platform/connectors/version-policy": { $ref: "#/components/schemas/ConnectorVersionPolicyResponse" },
+    "/api/platform/connectors/upgrade": { $ref: "#/components/schemas/ConnectorUpgradePlanResponse" },
     "/api/platform/terminal-sessions": { $ref: "#/components/schemas/TerminalSessionResponse" },
     "/api/platform/terminal-sessions/replay": { $ref: "#/components/schemas/TerminalReplayResponse" },
     "/api/platform/template-repositories/rollback": { $ref: "#/components/schemas/TemplateRepositoryRollbackResponse" },
@@ -571,11 +639,44 @@ function responseSchemaFor(path: string): unknown {
   return map[path] ?? { type: "object" };
 }
 
+function requestSchemaFor(method: string, path: string): Record<string, unknown> | null {
+  if (method !== "POST" && method !== "PUT" && method !== "PATCH") {
+    return null;
+  }
+  const map: Record<string, Record<string, unknown>> = {
+    "POST /api/backups/remote-sync": { type: "object", required: ["backupId"], properties: { backupId: { type: "string" }, targetId: { type: "string" } } },
+    "POST /api/databases/restore-drill": { type: "object", required: ["connectionId"], properties: { connectionId: { type: "string" } } },
+    "POST /api/hosts/batch-command": { type: "object", required: ["workspace", "hostIds", "command"], properties: { workspace: { type: "string" }, hostIds: { type: "array", items: { type: "string" } }, command: { type: "string" }, args: { type: "array", items: { type: "string" } }, approvalId: { type: "string" } } },
+    "POST /api/platform/connectors/upgrade": { $ref: "#/components/schemas/ConnectorUpgradeRequest" },
+    "POST /api/platform/terminal-sessions": { type: "object", required: ["hostId"], properties: { hostId: { type: "string" }, username: { type: "string" }, rows: { type: "integer" }, cols: { type: "integer" } } },
+    "POST /api/platform/template-repositories/rollback": { type: "object", required: ["repositoryId"], properties: { repositoryId: { type: "string" } } },
+    "POST /api/platform/approval-policies/check": { type: "object", required: ["workspace", "resourceType", "resourceId", "action"], properties: { workspace: { type: "string" }, resourceType: { type: "string" }, resourceId: { type: "string" }, action: { type: "string" }, approvalId: { type: "string" } } },
+    "POST /api/platform/archive-state": { type: "object", properties: { dryRun: { type: "boolean" }, keepMetricSamples: { type: "integer" }, keepAlertEvents: { type: "integer" } } }
+  };
+  return map[`${method} ${path}`] ?? null;
+}
+
+function queryParametersFor(path: string): unknown[] {
+  const map: Record<string, unknown[]> = {
+    "/api/audit/page": [{ name: "limit", in: "query", schema: { type: "integer" } }, { name: "cursor", in: "query", schema: { type: "string" } }],
+    "/api/audit/export-package": [{ name: "format", in: "query", schema: { type: "string", enum: ["jsonl", "csv"] } }],
+    "/api/audit/export-bundle": [{ name: "format", in: "query", schema: { type: "string", enum: ["jsonl", "csv"] } }],
+    "/api/platform/tenant-report": [{ name: "workspace", in: "query", schema: { type: "string" } }, { name: "from", in: "query", schema: { type: "string" } }, { name: "to", in: "query", schema: { type: "string" } }],
+    "/api/platform/terminal-sessions/replay": [{ name: "sessionId", in: "query", required: true, schema: { type: "string" } }],
+    "/api/platform/archive-records": [{ name: "bucket", in: "query", schema: { type: "string" } }, { name: "limit", in: "query", schema: { type: "integer" } }]
+  };
+  return map[path] ?? [];
+}
+
 function openApiSchemas(): Record<string, unknown> {
   return {
     ErrorResponse: { type: "object", required: ["message"], properties: { message: { type: "string" } } },
     OpenApiSummaryResponse: { type: "object", properties: { summary: { type: "object", properties: { generatedAt: { type: "string" }, paths: { type: "array", items: { type: "object" } }, webhookEvents: { type: "array", items: { type: "string" } } } } } },
     WorkspaceOverviewResponse: { type: "object", properties: { overview: { type: "object", properties: { generatedAt: { type: "string" }, workspaces: { type: "array", items: { type: "object" } }, counts: { type: "array", items: { type: "object" } } } } } },
+    TenantReportResponse: { type: "object", properties: { report: { type: "object", properties: { generatedAt: { type: "string" }, workspace: { type: "string" }, counts: { type: "object" }, sha256: { type: "string" } } } } },
+    ConnectorVersionPolicyResponse: { type: "object", properties: { policy: { type: "object", properties: { generatedAt: { type: "string" }, recommendedVersion: { type: "string" }, connectors: { type: "array", items: { type: "object" } } } } } },
+    ConnectorUpgradeRequest: { type: "object", properties: { connectorId: { type: "string" }, channel: { type: "string", enum: ["stable", "candidate"] }, targetVersion: { type: "string" }, rolloutPercent: { type: "integer", minimum: 1, maximum: 100 } } },
+    ConnectorUpgradePlanResponse: { type: "object", properties: { plan: { type: "object", properties: { generatedAt: { type: "string" }, targetVersion: { type: "string" }, selected: { type: "array", items: { type: "object" } }, commands: { type: "array", items: { type: "object" } } } } } },
     TerminalSessionResponse: { type: "object", properties: { session: { type: "object" }, command: { type: "object" } } },
     TerminalReplayResponse: { type: "object", properties: { replay: { type: "object", properties: { sessionId: { type: "string" }, lineCount: { type: "integer" }, lines: { type: "array", items: { type: "object" } } } } } },
     TemplateRepositoryRollbackResponse: { type: "object", properties: { rollback: { type: "object" } } },

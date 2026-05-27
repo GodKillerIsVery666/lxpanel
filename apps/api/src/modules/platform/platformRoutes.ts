@@ -3,7 +3,7 @@ import type { IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { AccessEvaluationRequestSchema, CreateAccessPolicySchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, ResourceApprovalCheckSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateLicenseSchema } from "@lxpanel/shared";
+import { AccessEvaluationRequestSchema, ConnectorUpgradeRequestSchema, CreateAccessPolicySchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, ResourceApprovalCheckSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateLicenseSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole, requireUser, sessionCookieName } from "../auth/authMiddleware.js";
@@ -190,6 +190,37 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     const workspace = await services.platformStore.createWorkspace(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "platform.workspace.create", target: workspace.id, ip: request.ip, status: "success" });
     return { workspace };
+  });
+
+  app.get<{ Querystring: { workspace?: string; from?: string; to?: string } }>("/api/platform/tenant-report", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const workspace = request.query.workspace || "default";
+    const auditEvents = await services.auditLog.list({ limit: 5000 });
+    const report = await services.platformStore.tenantReport({ workspace, ...(request.query.from ? { from: request.query.from } : {}), ...(request.query.to ? { to: request.query.to } : {}) }, auditEvents);
+    await services.auditLog.append({ actor: user.username, action: "platform.tenant_report.export", target: workspace, ip: request.ip, status: "success", detail: `events=${report.counts.auditEvents}` });
+    return { report };
+  });
+
+  app.get("/api/platform/connectors/version-policy", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    return { policy: await services.connectorStore.versionPolicy() };
+  });
+
+  app.post("/api/platform/connectors/upgrade", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = ConnectorUpgradeRequestSchema.parse(request.body);
+    const plan = await services.connectorStore.scheduleUpgrade(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "platform.connector.upgrade", target: input.connectorId ?? input.channel, ip: request.ip, status: "success", detail: `selected=${plan.selected.length};target=${plan.targetVersion}` });
+    return { plan };
   });
 
   app.get("/api/platform/license", async (request, reply) => {

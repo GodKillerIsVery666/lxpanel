@@ -34,6 +34,9 @@ import {
   CreateRemoteBackupTargetSchema,
   AuthSessionSchema,
   ConnectorCommandSchema,
+  ConnectorUpgradePlanSchema,
+  ConnectorUpgradeRequestSchema,
+  ConnectorVersionPolicySchema,
   AuthUserSchema,
   BackupSnapshotSchema,
   ChangeOwnPasswordSchema,
@@ -116,6 +119,7 @@ import {
   TaskRunSchema,
   TerminalOutputSchema,
   TerminalReplaySchema,
+  TenantReportSchema,
   TemplateRepositorySchema,
   TemplateRepositoryRollbackSchema,
   TerminalInputSchema,
@@ -157,6 +161,7 @@ import {
   type CreateAppDeployment,
   type CreateConnector,
   type CreateConnectorCommand,
+  type ConnectorUpgradeRequest,
   type CreateDatabaseConnection,
   type CreateHostGroup,
   type CreateHost,
@@ -237,6 +242,8 @@ const ConnectorCommandsResponseSchema = z.object({ commands: z.array(ConnectorCo
 const CreatedConnectorResponseSchema = z.object({ connector: ConnectorSchema, token: z.string() });
 const ConnectorCommandResponseSchema = z.object({ command: ConnectorCommandSchema });
 const ConnectorCommandsOnlyResponseSchema = z.object({ commands: z.array(ConnectorCommandSchema) });
+const ConnectorVersionPolicyResponseSchema = z.object({ policy: ConnectorVersionPolicySchema });
+const ConnectorUpgradePlanResponseSchema = z.object({ plan: ConnectorUpgradePlanSchema });
 const DockerStatusResponseSchema = z.object({ status: DockerStatusSchema });
 const DockerContainersResponseSchema = z.object({ containers: z.array(DockerContainerSchema) });
 const DockerImagesResponseSchema = z.object({ images: z.array(DockerImageSchema) });
@@ -274,6 +281,7 @@ const ResourceApprovalPolicyResponseSchema = z.object({ policy: ResourceApproval
 const ResourceApprovalPrecheckResponseSchema = z.object({ precheck: ResourceApprovalPrecheckSchema });
 const WorkspaceOverviewResponseSchema = z.object({ overview: WorkspaceOverviewSchema });
 const WorkspaceResponseSchema = z.object({ workspace: WorkspaceSchema });
+const TenantReportResponseSchema = z.object({ report: TenantReportSchema });
 const StateArchiveResponseSchema = z.object({ result: StateArchiveResultSchema });
 const StateArchivePageResponseSchema = z.object({ page: StateArchivePageSchema });
 const InstallerGuideResponseSchema = z.object({ guide: InstallerGuideSchema });
@@ -411,6 +419,9 @@ export const api = {
   rollbackTemplateRepository: (repositoryId: string) => request("/api/platform/template-repositories/rollback", TemplateRepositoryRollbackResponseSchema, "POST", { repositoryId }),
   workspaces: () => request("/api/platform/workspaces", WorkspaceOverviewResponseSchema),
   createWorkspace: (input: CreateWorkspace) => request("/api/platform/workspaces", WorkspaceResponseSchema, "POST", CreateWorkspaceSchema.parse(input)),
+  tenantReport: (workspace = "default") => request(`/api/platform/tenant-report?workspace=${encodeURIComponent(workspace)}`, TenantReportResponseSchema),
+  connectorVersionPolicy: () => request("/api/platform/connectors/version-policy", ConnectorVersionPolicyResponseSchema),
+  scheduleConnectorUpgrade: (input: ConnectorUpgradeRequest) => request("/api/platform/connectors/upgrade", ConnectorUpgradePlanResponseSchema, "POST", ConnectorUpgradeRequestSchema.parse(input)),
   licenseStatus: () => request("/api/platform/license", LicenseStatusResponseSchema),
   updateLicense: (input: UpdateLicense) => request("/api/platform/license", LicenseStatusResponseSchema, "PUT", UpdateLicenseSchema.parse(input)),
   verifyLicense: (input: UpdateLicense) => request("/api/platform/license/verify", LicenseVerificationResponseSchema, "POST", UpdateLicenseSchema.parse(input)),

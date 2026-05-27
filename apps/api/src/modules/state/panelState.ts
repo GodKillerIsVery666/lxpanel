@@ -37,6 +37,12 @@ export interface ConnectorRecord {
   description?: string;
   capabilities: string[];
   tokenHash: string;
+  version?: string;
+  upgradeStatus?: "current" | "upgrade-available" | "scheduled" | "unsupported" | "unknown";
+  upgradeTargetVersion?: string;
+  upgradeChannel?: string;
+  lastUpgradeCheckAt?: string;
+  upgradeNotes?: string;
   createdAt: string;
   lastSeenAt?: string;
 }

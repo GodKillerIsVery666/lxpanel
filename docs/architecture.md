@@ -15,6 +15,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 5. Docker 管理只通过 `execFile` 调用参数化 CLI，不拼接 shell 命令；未安装或 daemon 不可用时返回状态而不是阻塞面板。
 6. 日志查看与文件管理分离，日志根目录由 `LXPANEL_LOG_ROOTS` 独立收敛。
 7. 连接器命令队列由面板写入、连接器领取并回传结果，避免面板主进程直接承担远程连接执行负载；命令下发和结果回传均使用连接器令牌派生的 HMAC-SHA256 签名。
+8. 连接器版本治理由 heartbeat 上报版本，服务端按最低支持版本、推荐版本和灰度通道生成兼容性策略，并通过签名命令排队 `agent.upgrade`。
 8. 任务运行器只使用 `execFile` 参数数组，并把工作目录限制在 `LXPANEL_FILE_ROOTS` 内。
 9. 备份模块生成本地状态快照，备份文件保存在 `LXPANEL_DATA_DIR/backups`，默认保留最近 100 份并清理旧文件；恢复接口必须携带确认短语和审批单，恢复前会自动生成当前状态快照，恢复后清空会话。
 10. 调度器随 API 进程启动，按状态中的计划触发受控任务和自动备份，执行结果写入运行历史与审计日志。
@@ -38,7 +39,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 28. 应用部署记录保存版本号、工作空间和 compose 修订，升级时重渲染当前模板变量，回滚时恢复上一份 compose 和变量快照；模板包含来源、签名和验证状态，部署可执行健康探测；平台治理可拉取私有模板仓库 index、校验签名并导入模板。
 29. 安全加固计划与安全态势拆分：态势负责检查当前风险，加固计划输出防火墙、SSH 和 Docker socket 的可执行治理建议；平台治理模块可把建议转为 dry-run 修复记录。
 30. 主机组、批量命令、SSH 会话请求和 Web 终端代理复用连接器命令队列，面板只做资源选择、审计和命令排队；WebSocket 终端通道在 API 层提供会话快照、输入帧和输出广播，连接器继续承担本机执行。
-31. 平台治理模块集中管理工作空间、资源访问策略、资源审批策略、许可证验签与配额、安全修复记录、终端会话、模板仓库、状态归档、容量计划、升级向导、安装向导、诊断包、SDK 示例、前端质量清单、OpenAPI 3.1 JSON 和 Webhook 摘要。
+31. 平台治理模块集中管理工作空间、租户报表、连接器版本策略、资源访问策略、资源审批策略、许可证验签与配额、安全修复记录、终端会话、模板仓库、状态归档、容量计划、升级向导、安装向导、诊断包、SDK 示例、前端质量清单、OpenAPI 3.1 JSON 和 Webhook 摘要。
 32. 资源审批强制执行由公共守卫完成，数据库备份、主机批量命令和应用操作会按 `workspace:resourceType:resourceId:action` 目标消费 `resource.access` 审批单。
 33. 工作空间过滤从统计扩展到查询入口，主机、应用部署、数据库连接和远程备份目标列表都可通过 `workspace` 查询参数收敛结果。
 34. 终端会话保留输入、输出和系统帧尾部，平台治理接口提供脱敏审计回放，用于交付验收和安全复盘。
@@ -55,7 +56,7 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 
 ## 连接器方向
 
-连接器使用一次性可见令牌登记，后续通过 Bearer Token 心跳、领取命令和回传结果。服务端只保存令牌哈希，命令下发时用该哈希签名规范化 payload；内置 agent 用本地令牌计算同一哈希进行验签，结果回传时再对 `commandId/status/exitCode/stdoutTail/stderrTail` 签名。心跳可携带 `metrics`，面板会把远端 `hostId` 指标写入统一监控样本。`scripts/lxpanel-connector.mjs` 是内置轻量 agent 参考实现，会心跳、轮询命令、验签、使用 `execFile` 参数数组执行 allowlist 内命令并签名回传输出。远程连接、SSH 会话、Web 终端代理和批量任务可以由本地连接器执行，面板只负责授权、编排和展示结果。
+连接器使用一次性可见令牌登记，后续通过 Bearer Token 心跳、领取命令和回传结果。服务端只保存令牌哈希，命令下发时用该哈希签名规范化 payload；内置 agent 用本地令牌计算同一哈希进行验签，结果回传时再对 `commandId/status/exitCode/stdoutTail/stderrTail` 签名。心跳可携带 `version` 与 `metrics`，面板会把远端 `hostId` 指标写入统一监控样本，并根据 agent 版本计算 `current`、`upgrade-available`、`scheduled`、`unsupported` 或 `unknown` 兼容性。灰度升级不会直接替换二进制，而是通过签名 `agent.upgrade` 控制命令把目标版本和通道传递给 agent；参考 agent 会安全响应该控制命令，生产发行可在此基础上接入企业内部软件源。`scripts/lxpanel-connector.mjs` 是内置轻量 agent 参考实现，会心跳、轮询命令、验签、使用 `execFile` 参数数组执行 allowlist 内命令并签名回传输出。远程连接、SSH 会话、Web 终端代理和批量任务可以由本地连接器执行，面板只负责授权、编排和展示结果。
 
 ## 前端体验
 
@@ -85,4 +86,6 @@ API Token 由 `AuthStore` 生成并保存在 `PanelState.apiTokens` 中，状态
 
 ## 平台治理
 
-`PlatformStore` 是商业化治理能力的聚合层，保存工作空间、访问策略、资源审批策略、终端会话、模板仓库、许可证和安全修复记录，并从现有状态生成容量计划、升级向导、离线交付清单、安装向导、诊断包、SDK 示例、前端质量报告、OpenAPI JSON 和开放 API 摘要。访问策略按 workspace、resourceType、resourceId、role 和 permissions 评估，支持通配资源；资源审批策略按 workspace、resourceType、resourceId 和 action 匹配，命中后由业务路由统一消费审批单，预检接口可在发起操作前返回目标格式和需要的批准人数。许可证支持离线 `payload.signature` token、公钥验证和机器码绑定，`scripts/license-issue.mjs` 可在离线环境生成签名 token。状态归档以 dry-run 优先，执行时裁剪监控样本、告警历史和通知投递，SQLite 模式会额外落入 `state_archive` 表并支持查询，JSON 模式保留轻量裁剪。模板仓库同步保存上一版快照，回滚接口恢复上一次导入模板集合。自动化请求通过 `platform:read` 与 `platform:write` scope 进入同一权限模型。治理页同时读取审计完整性与合规接口，把安全、合规、容量和交付检查放到同一个操作面。
+`PlatformStore` 是商业化治理能力的聚合层，保存工作空间、访问策略、资源审批策略、终端会话、模板仓库、许可证和安全修复记录，并从现有状态生成租户报表、容量计划、升级向导、离线交付清单、安装向导、诊断包、SDK 示例、前端质量报告、OpenAPI JSON 和开放 API 摘要。访问策略按 workspace、resourceType、resourceId、role 和 permissions 评估，支持通配资源；资源审批策略按 workspace、resourceType、resourceId 和 action 匹配，命中后由业务路由统一消费审批单，预检接口可在发起操作前返回目标格式和需要的批准人数。租户报表按 workspace 汇总资源数量、审计动作、错误/拒绝事件和审批 SLA，并生成 SHA-256 便于交付留档。许可证支持离线 `payload.signature` token、公钥验证和机器码绑定，`scripts/license-issue.mjs` 可在离线环境生成签名 token。状态归档以 dry-run 优先，执行时裁剪监控样本、告警历史和通知投递，SQLite 模式会额外落入 `state_archive` 表并支持查询，JSON 模式保留轻量裁剪。模板仓库同步保存上一版快照，回滚接口恢复上一次导入模板集合。自动化请求通过 `platform:read` 与 `platform:write` scope 进入同一权限模型。治理页同时读取审计完整性与合规接口，把安全、合规、容量和交付检查放到同一个操作面。
+
+`scripts/diagnose-release.mjs` 是发布包自诊断 CLI，会检查 package scripts、API/Web 构建产物、迁移脚本、连接器 agent、路线图和 release tar.gz，输出包含关键产物 SHA-256 的 JSON 报告。离线安装向导引用 `npm run diagnose:release -- --output release\diagnostics.json`，用于客户现场验收和故障定位。

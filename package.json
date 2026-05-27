@@ -19,6 +19,7 @@
     "e2e": "node scripts/e2e-smoke.mjs",
     "smoke": "node scripts/smoke.mjs",
     "package:release": "node scripts/package-release.mjs",
+    "diagnose:release": "node scripts/diagnose-release.mjs",
     "license:issue": "node scripts/license-issue.mjs"
   },
   "devDependencies": {

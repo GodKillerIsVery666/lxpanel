@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Accessibility, Archive, ClipboardList, Code2, Database, Download, GitBranch, Globe2, KeyRound, Play, Plus, Send, ShieldCheck, Terminal } from "lucide-react";
-import type { AccessPolicy, CapacityPlan, ComplianceReport, DatabaseBackupCleanupResult, DeliveryChecklist, DiagnosticsBundle, FrontendQualityReport, InstallerGuide, LicenseStatus, OpenApiSummary, ResourceApprovalPolicy, ResourceApprovalPrecheck, SdkExample, SecurityHardeningPlan, SecurityRemediationRun, StateArchivePage, StateArchiveResult, TemplateRepository, TerminalReplay, TerminalSession, UpgradePlan, WorkspaceOverview } from "@lxpanel/shared";
+import type { AccessPolicy, CapacityPlan, ComplianceReport, ConnectorUpgradePlan, ConnectorVersionPolicy, DatabaseBackupCleanupResult, DeliveryChecklist, DiagnosticsBundle, FrontendQualityReport, InstallerGuide, LicenseStatus, OpenApiSummary, ResourceApprovalPolicy, ResourceApprovalPrecheck, SdkExample, SecurityHardeningPlan, SecurityRemediationRun, StateArchivePage, StateArchiveResult, TemplateRepository, TenantReport, TerminalReplay, TerminalSession, UpgradePlan, WorkspaceOverview } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { platformText, type Locale } from "../i18n/resources.js";
@@ -27,6 +27,9 @@ export function PlatformPage(): JSX.Element {
   const [sdkExamples, setSdkExamples] = useState<SdkExample[]>([]);
   const [quality, setQuality] = useState<FrontendQualityReport | null>(null);
   const [workspaceOverview, setWorkspaceOverview] = useState<WorkspaceOverview | null>(null);
+  const [connectorPolicy, setConnectorPolicy] = useState<ConnectorVersionPolicy | null>(null);
+  const [upgradePlan, setUpgradePlan] = useState<ConnectorUpgradePlan | null>(null);
+  const [tenantReport, setTenantReport] = useState<TenantReport | null>(null);
   const [terminalReplay, setTerminalReplay] = useState<TerminalReplay | null>(null);
   const [approvalPrecheck, setApprovalPrecheck] = useState<ResourceApprovalPrecheck | null>(null);
   const [archivePage, setArchivePage] = useState<StateArchivePage | null>(null);
@@ -54,8 +57,8 @@ export function PlatformPage(): JSX.Element {
 
   async function load(): Promise<void> {
     try {
-      const [policyResponse, approvalPolicyResponse, terminalResponse, repositoryResponse, licenseResponse, workspaceResponse, remediationResponse, hardeningResponse, capacityResponse, upgradeResponse, deliveryResponse, openApiResponse, openApiDocumentResponse, complianceResponse, installerResponse, sdkResponse, qualityResponse] = await Promise.all([
-        api.accessPolicies(), api.approvalPolicies(), api.terminalSessions(), api.templateRepositories(), api.licenseStatus(), api.workspaces(), api.remediationRuns(), api.securityHardeningPlan(), api.capacityPlan(), api.upgradePlan(), api.deliveryChecklist(), api.openApiSummary(), api.openApiDocument(), api.complianceReport(), api.installerGuide(), api.sdkExamples(), api.frontendQuality()
+      const [policyResponse, approvalPolicyResponse, terminalResponse, repositoryResponse, licenseResponse, workspaceResponse, connectorPolicyResponse, remediationResponse, hardeningResponse, capacityResponse, upgradeResponse, deliveryResponse, openApiResponse, openApiDocumentResponse, complianceResponse, installerResponse, sdkResponse, qualityResponse] = await Promise.all([
+        api.accessPolicies(), api.approvalPolicies(), api.terminalSessions(), api.templateRepositories(), api.licenseStatus(), api.workspaces(), api.connectorVersionPolicy(), api.remediationRuns(), api.securityHardeningPlan(), api.capacityPlan(), api.upgradePlan(), api.deliveryChecklist(), api.openApiSummary(), api.openApiDocument(), api.complianceReport(), api.installerGuide(), api.sdkExamples(), api.frontendQuality()
       ]);
       setPolicies(policyResponse.policies);
       setApprovalPolicies(approvalPolicyResponse.policies);
@@ -63,6 +66,7 @@ export function PlatformPage(): JSX.Element {
       setRepositories(repositoryResponse.repositories);
       setLicenseStatus(licenseResponse.status);
       setWorkspaceOverview(workspaceResponse.overview);
+      setConnectorPolicy(connectorPolicyResponse.policy);
       setRuns(remediationResponse.runs);
       setHardening(hardeningResponse.plan);
       setCapacity(capacityResponse.plan);
@@ -107,6 +111,28 @@ export function PlatformPage(): JSX.Element {
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "创建工作空间失败。");
+    }
+  }
+
+  async function scheduleConnectorUpgrade(): Promise<void> {
+    try {
+      const response = await api.scheduleConnectorUpgrade({ channel: "stable", rolloutPercent: 25 });
+      setUpgradePlan(response.plan);
+      setNotice(`已排队 ${response.plan.selected.length} 个连接器升级。`);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "生成连接器升级计划失败。");
+    }
+  }
+
+  async function downloadTenantReport(): Promise<void> {
+    try {
+      const response = await api.tenantReport(workspace);
+      setTenantReport(response.report);
+      downloadJson(`lxpanel-tenant-report-${workspace}.json`, response.report);
+      setNotice(`租户报表已生成：${response.report.sha256.slice(0, 12)}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "生成租户报表失败。");
     }
   }
 
@@ -295,6 +321,12 @@ export function PlatformPage(): JSX.Element {
         <div className="panel-title">{text.workspace}</div>
         <div className="inline-form wrap"><input value={workspace} onChange={(event) => changeWorkspace(event.target.value)} placeholder="工作空间 ID" /><input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="工作空间名称" /><button type="button" onClick={() => void createWorkspace()}><Globe2 size={16} /> 创建</button></div>
         <table><thead><tr><th>工作空间</th><th>策略</th><th>审批</th><th>主机</th><th>应用</th><th>数据库</th><th>备份目标</th></tr></thead><tbody>{workspaceOverview?.counts.map((item) => <tr key={item.workspace}><td>{item.workspace}</td><td>{item.policies}</td><td>{item.approvalPolicies}</td><td>{item.hosts}</td><td>{item.apps}</td><td>{item.databases}</td><td>{item.remoteBackupTargets}</td></tr>)}</tbody></table>
+        <div className="inline-form wrap"><button type="button" onClick={() => void downloadTenantReport()}><Download size={16} /> 租户报表</button>{tenantReport ? <span className="muted-text">事件 {tenantReport.counts.auditEvents} / 审批 {tenantReport.counts.approvals} / SHA {tenantReport.sha256.slice(0, 12)}</span> : null}</div>
+      </section>
+      <section className="table-panel">
+        <div className="panel-title">连接器版本策略</div>
+        <div className="inline-form wrap"><StatusPill status={(connectorPolicy?.connectors.some((item) => item.compatibility === "unsupported") ?? false) ? "warn" : "secure"} label={`${connectorPolicy?.recommendedVersion ?? "-"} 推荐`} /><button type="button" onClick={() => void scheduleConnectorUpgrade()}><Download size={16} /> 25% 灰度升级</button>{upgradePlan ? <span className="muted-text">已选择 {upgradePlan.selected.length}，跳过 {upgradePlan.skipped.length}，目标 {upgradePlan.targetVersion}</span> : null}</div>
+        <table><thead><tr><th>连接器</th><th>状态</th><th>版本</th><th>兼容性</th><th>目标</th></tr></thead><tbody>{connectorPolicy?.connectors.map((connector) => <tr key={connector.connectorId}><td>{connector.name}</td><td><StatusPill status={connector.status === "online" ? "active" : connector.status === "stale" ? "warn" : "inactive"} label={connector.status} /></td><td>{connector.version ?? "unknown"}</td><td>{connector.compatibility}</td><td>{connector.upgradeTargetVersion}</td></tr>)}</tbody></table>
       </section>
       <section className="table-panel">
         <div className="panel-title">{text.approval}</div>

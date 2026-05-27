@@ -44,11 +44,28 @@ describe("连接器命令队列", () => {
     const connectorStore = new ConnectorStore(store);
     const created = await connectorStore.create({ name: "agent", capabilities: ["metrics"] });
 
-    const connector = await connectorStore.heartbeat(created.token, { capabilities: ["metrics"], metrics: { hostId: "node-a", hostName: "node-a", cpuPercent: 12, memoryPercent: 34, diskUsedPercent: 56 } });
+    const connector = await connectorStore.heartbeat(created.token, { capabilities: ["metrics"], version: "node-agent-0.1", metrics: { hostId: "node-a", hostName: "node-a", cpuPercent: 12, memoryPercent: 34, diskUsedPercent: 56 } });
     const state = await store.read();
 
     expect(connector?.status).toBe("online");
+    expect(connector?.upgradeStatus).toBe("upgrade-available");
     expect(state.metricSamples?.[0]).toMatchObject({ hostId: "node-a", cpuPercent: 12, memoryPercent: 34, diskUsedPercent: 56 });
+  });
+
+  it("生成连接器版本策略并排队灰度升级命令", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxpanel-connector-upgrade-"));
+    const connectorStore = new ConnectorStore(new JsonStore<PanelState>(join(root, "state.json"), createInitialPanelState));
+    const created = await connectorStore.create({ name: "agent", capabilities: ["command"] });
+    await connectorStore.heartbeat(created.token, { capabilities: ["command", "self-upgrade-plan"], version: "node-agent-0.1" });
+
+    const policy = await connectorStore.versionPolicy();
+    const plan = await connectorStore.scheduleUpgrade({ connectorId: created.connector.id, channel: "stable", rolloutPercent: 100 }, "admin");
+    const commands = await connectorStore.claimCommands(created.token);
+
+    expect(policy.connectors[0]?.compatibility).toBe("upgrade-available");
+    expect(plan.selected).toHaveLength(1);
+    expect(plan.commands[0]).toMatchObject({ command: "agent.upgrade", args: ["node-agent-0.2", "stable"], status: "queued" });
+    expect(commands?.[0]?.signature).toBeTruthy();
   });
 });
 

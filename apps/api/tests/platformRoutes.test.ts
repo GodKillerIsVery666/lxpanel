@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { AccessEvaluationSchema, CapacityPlanSchema, DiagnosticsBundleSchema, FrontendQualityReportSchema, InstallerGuideSchema, LicenseStatusSchema, OpenApiSummarySchema, ResourceApprovalPolicySchema, ResourceApprovalPrecheckSchema, SecurityRemediationRunSchema, StateArchivePageSchema, StateArchiveResultSchema, TemplateRepositoryRollbackSchema, TemplateRepositorySchema, TerminalReplaySchema, TerminalSessionSchema, WorkspaceOverviewSchema } from "@lxpanel/shared";
+import { AccessEvaluationSchema, CapacityPlanSchema, ConnectorUpgradePlanSchema, ConnectorVersionPolicySchema, DiagnosticsBundleSchema, FrontendQualityReportSchema, InstallerGuideSchema, LicenseStatusSchema, OpenApiSummarySchema, ResourceApprovalPolicySchema, ResourceApprovalPrecheckSchema, SecurityRemediationRunSchema, StateArchivePageSchema, StateArchiveResultSchema, TemplateRepositoryRollbackSchema, TemplateRepositorySchema, TenantReportSchema, TerminalReplaySchema, TerminalSessionSchema, WorkspaceOverviewSchema } from "@lxpanel/shared";
 import { loadConfig } from "../src/config/env.js";
 import { buildApp } from "../src/server.js";
 
@@ -30,7 +30,9 @@ describe("平台治理路由", () => {
     const evaluationResponse = await app.inject({ method: "POST", url: "/api/platform/access-evaluate", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ workspace: "default", resourceType: "host", resourceId: "node-1", role: "operator", permission: "write" }) });
     const remediationResponse = await app.inject({ method: "POST", url: "/api/platform/remediations", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ itemId: "ssh-disable-password", dryRun: true }) });
     const connectorResponse = await app.inject({ method: "POST", url: "/api/connectors", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ name: "edge-a", capabilities: ["terminal"] }) });
-    const connectorId = z.object({ connector: z.object({ id: z.string() }) }).parse(JSON.parse(connectorResponse.body) as unknown).connector.id;
+    const connectorBody = z.object({ connector: z.object({ id: z.string() }), token: z.string() }).parse(JSON.parse(connectorResponse.body) as unknown);
+    const connectorId = connectorBody.connector.id;
+    await app.inject({ method: "POST", url: "/api/connectors/heartbeat", headers: { "content-type": "application/json", authorization: `Bearer ${connectorBody.token}` }, payload: JSON.stringify({ capabilities: ["terminal", "self-upgrade-plan"], version: "node-agent-0.1" }) });
     const hostResponse = await app.inject({ method: "POST", url: "/api/hosts", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ name: "node-a", address: "10.0.0.2", tags: ["prod"], connectorId }) });
     const hostId = z.object({ host: z.object({ id: z.string() }) }).parse(JSON.parse(hostResponse.body) as unknown).host.id;
     const terminalResponse = await app.inject({ method: "POST", url: "/api/platform/terminal-sessions", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ hostId, username: "root" }) });
@@ -46,6 +48,9 @@ describe("平台治理路由", () => {
     const rollbackResponse = await app.inject({ method: "POST", url: "/api/platform/template-repositories/rollback", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ repositoryId }) });
     const workspaceCreateResponse = await app.inject({ method: "POST", url: "/api/platform/workspaces", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ id: "tenant-a", name: "Tenant A" }) });
     const workspaceResponse = await app.inject({ method: "GET", url: "/api/platform/workspaces", headers: { cookie } });
+    const connectorPolicyResponse = await app.inject({ method: "GET", url: "/api/platform/connectors/version-policy", headers: { cookie } });
+    const connectorUpgradeResponse = await app.inject({ method: "POST", url: "/api/platform/connectors/upgrade", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ connectorId, channel: "stable", rolloutPercent: 100 }) });
+    const tenantReportResponse = await app.inject({ method: "GET", url: "/api/platform/tenant-report?workspace=default", headers: { cookie } });
     const licenseResponse = await app.inject({ method: "PUT", url: "/api/platform/license", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ plan: "team", licensedTo: "Acme", maxHosts: 20, maxUsers: 10, maxApps: 30, features: ["terminal"] }) });
     const licenseVerifyResponse = await app.inject({ method: "POST", url: "/api/platform/license/verify", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ plan: "team", licensedTo: "Acme", maxHosts: 20, maxUsers: 10, maxApps: 30, features: ["terminal"], offlineToken: "bad.token", publicKey: "bad-key" }) });
     const approvalPolicyResponse = await app.inject({ method: "POST", url: "/api/platform/approval-policies", headers: { "content-type": "application/json", cookie }, payload: JSON.stringify({ workspace: "default", resourceType: "host", resourceId: hostId, action: "host.batch_command", requiredApprovals: 1, enabled: true }) });
@@ -77,6 +82,9 @@ describe("平台治理路由", () => {
     const rollbackBody = z.object({ rollback: TemplateRepositoryRollbackSchema }).parse(JSON.parse(rollbackResponse.body) as unknown);
     const licenseBody = z.object({ status: LicenseStatusSchema }).parse(JSON.parse(licenseResponse.body) as unknown);
     const workspaceBody = z.object({ overview: WorkspaceOverviewSchema }).parse(JSON.parse(workspaceResponse.body) as unknown);
+    const connectorPolicyBody = z.object({ policy: ConnectorVersionPolicySchema }).parse(JSON.parse(connectorPolicyResponse.body) as unknown);
+    const connectorUpgradeBody = z.object({ plan: ConnectorUpgradePlanSchema }).parse(JSON.parse(connectorUpgradeResponse.body) as unknown);
+    const tenantReportBody = z.object({ report: TenantReportSchema }).parse(JSON.parse(tenantReportResponse.body) as unknown);
     const approvalPolicyBody = z.object({ policy: ResourceApprovalPolicySchema }).parse(JSON.parse(approvalPolicyResponse.body) as unknown);
     const approvalPrecheckBody = z.object({ precheck: ResourceApprovalPrecheckSchema }).parse(JSON.parse(approvalPrecheckResponse.body) as unknown);
     const archiveBody = z.object({ result: StateArchiveResultSchema }).parse(JSON.parse(archiveResponse.body) as unknown);
@@ -100,6 +108,10 @@ describe("平台治理路由", () => {
     expect(rollbackBody.rollback.restoredTemplateIds).toHaveLength(0);
     expect(workspaceCreateResponse.statusCode).toBe(200);
     expect(workspaceBody.overview.workspaces.some((workspace) => workspace.id === "tenant-a")).toBe(true);
+    expect(connectorPolicyBody.policy.connectors.some((connector) => connector.compatibility === "upgrade-available")).toBe(true);
+    expect(connectorUpgradeBody.plan.commands[0]?.command).toBe("agent.upgrade");
+    expect(tenantReportBody.report.workspace).toBe("default");
+    expect(tenantReportBody.report.sha256).toHaveLength(64);
     expect(licenseBody.status.license.licensedTo).toBe("Acme");
     expect(licenseVerifyResponse.statusCode).toBe(200);
     expect(approvalPolicyBody.policy.requiredApprovals).toBe(1);

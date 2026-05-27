@@ -559,11 +559,49 @@ export const ConnectorSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   capabilities: z.array(z.string()),
+  version: z.string().optional(),
+  upgradeStatus: z.enum(["current", "upgrade-available", "scheduled", "unsupported", "unknown"]).optional(),
+  upgradeTargetVersion: z.string().optional(),
+  upgradeChannel: z.string().optional(),
+  lastUpgradeCheckAt: z.string().optional(),
+  upgradeNotes: z.string().optional(),
   status: z.enum(["online", "stale", "offline"]),
   createdAt: z.string(),
   lastSeenAt: z.string().optional()
 });
 export type Connector = z.infer<typeof ConnectorSchema>;
+
+export const ConnectorCompatibilitySchema = z.object({
+  connectorId: z.string(),
+  name: z.string(),
+  version: z.string().optional(),
+  status: z.enum(["online", "stale", "offline"]),
+  compatibility: z.enum(["current", "upgrade-available", "scheduled", "unsupported", "unknown"]),
+  upgradeTargetVersion: z.string(),
+  rolloutEligible: z.boolean(),
+  detail: z.string(),
+  lastSeenAt: z.string().optional()
+});
+export type ConnectorCompatibility = z.infer<typeof ConnectorCompatibilitySchema>;
+
+export const ConnectorVersionPolicySchema = z.object({
+  generatedAt: z.string(),
+  currentVersion: z.string(),
+  minimumSupportedVersion: z.string(),
+  recommendedVersion: z.string(),
+  latestVersion: z.string(),
+  channels: z.array(z.object({ name: z.string(), version: z.string(), rolloutPercent: z.number().int().min(0).max(100), notes: z.string().optional() })),
+  connectors: z.array(ConnectorCompatibilitySchema)
+});
+export type ConnectorVersionPolicy = z.infer<typeof ConnectorVersionPolicySchema>;
+
+export const ConnectorUpgradeRequestSchema = z.object({
+  connectorId: z.string().min(1).optional(),
+  channel: z.enum(["stable", "candidate"]).default("stable"),
+  targetVersion: z.string().min(1).max(64).optional(),
+  rolloutPercent: z.number().int().min(1).max(100).default(100)
+});
+export type ConnectorUpgradeRequest = z.infer<typeof ConnectorUpgradeRequestSchema>;
 
 export const HostStatusSchema = z.enum(["online", "stale", "offline", "unknown"]);
 export type HostStatus = z.infer<typeof HostStatusSchema>;
@@ -1452,6 +1490,29 @@ export const WorkspaceOverviewSchema = z.object({
   counts: z.array(z.object({ workspace: z.string(), policies: z.number().int().nonnegative(), approvalPolicies: z.number().int().nonnegative(), hosts: z.number().int().nonnegative().default(0), apps: z.number().int().nonnegative(), databases: z.number().int().nonnegative(), remoteBackupTargets: z.number().int().nonnegative().default(0) }))
 });
 export type WorkspaceOverview = z.infer<typeof WorkspaceOverviewSchema>;
+
+export const TenantReportSchema = z.object({
+  generatedAt: z.string(),
+  workspace: z.string(),
+  range: z.object({ from: z.string().optional(), to: z.string().optional() }),
+  counts: z.object({ hosts: z.number().int().nonnegative(), apps: z.number().int().nonnegative(), databases: z.number().int().nonnegative(), remoteBackupTargets: z.number().int().nonnegative(), approvals: z.number().int().nonnegative(), auditEvents: z.number().int().nonnegative(), errors: z.number().int().nonnegative(), denied: z.number().int().nonnegative() }),
+  resources: z.array(z.object({ type: z.string(), count: z.number().int().nonnegative() })),
+  topActions: z.array(z.object({ action: z.string(), count: z.number().int().nonnegative() })),
+  approvalSla: z.object({ reviewed: z.number().int().nonnegative(), averageMinutes: z.number().nonnegative().optional(), pending: z.number().int().nonnegative() }),
+  sha256: z.string()
+});
+export type TenantReport = z.infer<typeof TenantReportSchema>;
+
+export const ConnectorUpgradePlanSchema = z.object({
+  generatedAt: z.string(),
+  channel: z.string(),
+  targetVersion: z.string(),
+  rolloutPercent: z.number().int().min(1).max(100),
+  selected: z.array(ConnectorCompatibilitySchema),
+  skipped: z.array(ConnectorCompatibilitySchema),
+  commands: z.array(ConnectorCommandSchema)
+});
+export type ConnectorUpgradePlan = z.infer<typeof ConnectorUpgradePlanSchema>;
 
 export const StateArchiveRequestSchema = z.object({
   dryRun: z.boolean().default(true),
