@@ -4,13 +4,16 @@ import type { Connector, Host, HostGroup } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { EmptyState } from "../components/EmptyState.js";
 import { StatusPill } from "../components/StatusPill.js";
+import { VirtualTable, type VirtualColumn } from "../components/VirtualTable.js";
+import { pageText } from "../i18n/resources.js";
 import { formatDate } from "../utils/format.js";
-import { readDefaultWorkspacePreference } from "../utils/preferences.js";
+import { readDefaultWorkspacePreference, readLocalePreference } from "../utils/preferences.js";
 
 export function HostsPage(): JSX.Element {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [groups, setGroups] = useState<HostGroup[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [locale] = useState(() => readLocalePreference());
   const [workspace] = useState(() => readDefaultWorkspacePreference());
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -28,6 +31,16 @@ export function HostsPage(): JSX.Element {
     const query = hostSearch.trim().toLowerCase();
     return query ? hosts.filter((host) => [host.name, host.address ?? "", host.connectorName ?? "", host.status, ...host.tags].some((value) => value.toLowerCase().includes(query))) : hosts;
   }, [hostSearch, hosts]);
+  const text = pageText[locale].hosts;
+  const hostColumns: Array<VirtualColumn<Host>> = [
+    { id: "name", header: text.columns.name, cell: (host) => host.name, sortValue: (host) => host.name },
+    { id: "status", header: text.columns.status, cell: (host) => <StatusPill status={host.status} />, sortValue: (host) => host.status },
+    { id: "address", header: text.columns.address, cell: (host) => host.address ?? "-", sortValue: (host) => host.address },
+    { id: "tags", header: text.columns.tags, cell: (host) => host.tags.length ? host.tags.join(", ") : "-", sortValue: (host) => host.tags.join(",") },
+    { id: "connector", header: text.columns.connector, cell: (host) => host.connectorName ?? "-", sortValue: (host) => host.connectorName },
+    { id: "lastSeen", header: text.columns.lastSeen, cell: (host) => host.lastSeenAt ? formatDate(host.lastSeenAt) : "-", sortValue: (host) => host.lastSeenAt },
+    { id: "actions", header: text.columns.actions, className: "row-actions", cell: (host) => <><button className="mini-button" onClick={() => void openSsh(host)}><Terminal size={14} /> SSH</button>{host.id.startsWith("connector:") ? null : <button className="mini-button" onClick={() => void remove(host.id)}><Trash2 size={14} /> {text.delete}</button>}</> }
+  ];
 
   async function load(): Promise<void> {
     try {
@@ -114,46 +127,33 @@ export function HostsPage(): JSX.Element {
 
   return (
     <main className="page-stack">
-      <div className="page-heading"><div><h1>主机资产</h1><p>本地与连接器发现的受管主机</p></div></div>
+      <div className="page-heading"><div><h1>{text.title}</h1><p>{text.subtitle}</p></div></div>
       {error ? <div className="form-error">{error}</div> : null}
       {notice ? <p className="notice">{notice}</p> : null}
       <section className="table-panel">
-        <div className="panel-title">新增主机</div>
+        <div className="panel-title">{text.add}</div>
         <div className="inline-form wrap">
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="主机名称" />
-          <input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="地址或备注入口" />
-          <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="标签，逗号分隔" />
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder={text.name} />
+          <input value={address} onChange={(event) => setAddress(event.target.value)} placeholder={text.address} />
+          <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder={text.tags} />
           <select value={connectorId} onChange={(event) => setConnectorId(event.target.value)}>
-            <option value="">不绑定连接器</option>
+            <option value="">{text.noConnector}</option>
             {connectors.map((connector) => <option value={connector.id} key={connector.id}>{connector.name}</option>)}
           </select>
-          <button type="button" onClick={() => void create()}><Plus size={16} /> 新增</button>
+          <button type="button" onClick={() => void create()}><Plus size={16} /> {text.create}</button>
         </div>
       </section>
       <section className="table-panel">
-        <div className="panel-title">主机组和批量任务</div>
-        <div className="inline-form wrap"><input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="主机组名称" /><input value={groupHostIds} onChange={(event) => setGroupHostIds(event.target.value)} placeholder="主机 ID，逗号分隔" /><button type="button" onClick={() => void createGroup()}><Plus size={16} /> 建组</button></div>
-        <div className="inline-form wrap"><input value={batchHostIds} onChange={(event) => setBatchHostIds(event.target.value)} placeholder="主机 ID，逗号分隔" /><input value={batchCommand} onChange={(event) => setBatchCommand(event.target.value)} placeholder="命令" /><button type="button" onClick={() => void runBatch()}><Send size={16} /> 下发</button></div>
-        {groups.length === 0 ? <EmptyState title="还没有主机组" description="主机组用于按业务或环境批量下发命令。" /> : <table><thead><tr><th>组名</th><th>主机数</th><th>更新时间</th></tr></thead><tbody>{groups.map((group) => <tr key={group.id}><td>{group.name}</td><td>{group.hostIds.length}</td><td>{formatDate(group.updatedAt)}</td></tr>)}</tbody></table>}
+        <div className="panel-title">{text.groups}</div>
+        <div className="inline-form wrap"><input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder={text.groupName} /><input value={groupHostIds} onChange={(event) => setGroupHostIds(event.target.value)} placeholder={text.hostIds} /><button type="button" onClick={() => void createGroup()}><Plus size={16} /> {text.createGroup}</button></div>
+        <div className="inline-form wrap"><input value={batchHostIds} onChange={(event) => setBatchHostIds(event.target.value)} placeholder={text.hostIds} /><input value={batchCommand} onChange={(event) => setBatchCommand(event.target.value)} placeholder={text.command} /><button type="button" onClick={() => void runBatch()}><Send size={16} /> {text.dispatch}</button></div>
+        {groups.length === 0 ? <EmptyState title={text.emptyGroupsTitle} description={text.emptyGroupsDescription} /> : <table><thead><tr><th>{locale === "en-US" ? "Group" : "组名"}</th><th>{locale === "en-US" ? "Hosts" : "主机数"}</th><th>{locale === "en-US" ? "Updated" : "更新时间"}</th></tr></thead><tbody>{groups.map((group) => <tr key={group.id}><td>{group.name}</td><td>{group.hostIds.length}</td><td>{formatDate(group.updatedAt)}</td></tr>)}</tbody></table>}
       </section>
       <section className="table-panel">
-        <div className="panel-title">主机列表</div>
-        <div className="list-toolbar"><input value={hostSearch} onChange={(event) => setHostSearch(event.target.value)} placeholder="搜索主机、标签、连接器或状态" /><p className="muted-text">{filteredHosts.length} / {hosts.length}</p></div>
-        <div className="inline-form wrap"><input value={sshUser} onChange={(event) => setSshUser(event.target.value)} placeholder="SSH 用户，可选" /></div>
-        {filteredHosts.length === 0 ? <EmptyState title="没有匹配的主机" description="新增主机或连接器心跳上报后会出现在这里。" /> : <table>
-          <thead><tr><th>名称</th><th>状态</th><th>地址</th><th>标签</th><th>连接器</th><th>最近在线</th><th>操作</th></tr></thead>
-          <tbody>{filteredHosts.map((host) => (
-            <tr key={host.id}>
-              <td>{host.name}</td>
-              <td><StatusPill status={host.status} /></td>
-              <td>{host.address ?? "-"}</td>
-              <td>{host.tags.length ? host.tags.join(", ") : "-"}</td>
-              <td>{host.connectorName ?? "-"}</td>
-              <td>{host.lastSeenAt ? formatDate(host.lastSeenAt) : "-"}</td>
-              <td className="row-actions"><button className="mini-button" onClick={() => void openSsh(host)}><Terminal size={14} /> SSH</button>{host.id.startsWith("connector:") ? null : <button className="mini-button" onClick={() => void remove(host.id)}><Trash2 size={14} /> 删除</button>}</td>
-            </tr>
-          ))}</tbody>
-        </table>}
+        <div className="panel-title">{text.list}</div>
+        <div className="list-toolbar"><input value={hostSearch} onChange={(event) => setHostSearch(event.target.value)} placeholder={text.search} /><p className="muted-text">{filteredHosts.length} / {hosts.length}</p></div>
+        <div className="inline-form wrap"><input value={sshUser} onChange={(event) => setSshUser(event.target.value)} placeholder={text.sshUser} /></div>
+        <VirtualTable tableId="hosts" rows={filteredHosts} columns={hostColumns} getRowKey={(host) => host.id} empty={<EmptyState title={text.emptyHostsTitle} description={text.emptyHostsDescription} />} />
       </section>
     </main>
   );

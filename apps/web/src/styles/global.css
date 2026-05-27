@@ -115,6 +115,13 @@ input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px s
 .panel-title { font-weight: 800; margin-bottom: 12px; }
 .list-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: center; gap: 10px; margin-bottom: 12px; }
 .list-toolbar .muted-text { margin: 0; }
+.virtual-table-wrap { display: grid; gap: 10px; }
+.column-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.column-toolbar label { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 6px 9px; border: 1px solid var(--line); border-radius: 999px; background: #f7faf8; color: var(--ink); font-size: 12px; }
+.virtual-table-scroll { overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.virtual-table { min-width: 760px; }
+.virtual-table thead { position: sticky; top: 0; z-index: 1; background: #fff; }
+.sort-header { width: 100%; justify-content: space-between; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
 table { width: 100%; border-collapse: collapse; min-width: 680px; }
 th, td { text-align: left; border-bottom: 1px solid #ebe5d8; padding: 11px 10px; vertical-align: middle; }
 th { color: var(--muted); font-weight: 700; font-size: 13px; }

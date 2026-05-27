@@ -9,6 +9,7 @@ const tableDensityKey = "lxpanel.tableDensity";
 const localeKey = "lxpanel.locale";
 const defaultWorkspaceKey = "lxpanel.defaultWorkspace";
 const favoriteViewsKey = "lxpanel.favoriteViews";
+const tableColumnsKeyPrefix = "lxpanel.tableColumns.";
 
 export function readActiveViewPreference(): ViewId {
   const storedView = readString(activeViewKey);
@@ -75,6 +76,19 @@ export function toggleFavoriteViewPreference(view: ViewId, current: ViewId[]): V
   const nextViews = current.includes(view) ? current.filter((item) => item !== view) : [view, ...current].slice(0, 8);
   writeJson(favoriteViewsKey, nextViews);
   return nextViews;
+}
+
+export function readTableColumnPreference(tableId: string, fallback: string[]): string[] {
+  const parsed = readJson(`${tableColumnsKeyPrefix}${tableId}`);
+  if (!Array.isArray(parsed)) {
+    return fallback;
+  }
+  const values = parsed.filter((value): value is string => typeof value === "string" && fallback.includes(value));
+  return values.length > 0 ? values : fallback;
+}
+
+export function saveTableColumnPreference(tableId: string, columns: string[]): void {
+  writeJson(`${tableColumnsKeyPrefix}${tableId}`, columns);
 }
 
 export function isTableDensity(value: unknown): value is TableDensity {

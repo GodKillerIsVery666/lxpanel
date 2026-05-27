@@ -2,10 +2,17 @@ import { useEffect, useState } from "react";
 import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type AuthSession, type SecurityHardeningPlan, type SecurityPosture } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
+import { VirtualTable, type VirtualColumn } from "../components/VirtualTable.js";
+import { pageText } from "../i18n/resources.js";
 import { formatDate } from "../utils/format.js";
+import { readLocalePreference } from "../utils/preferences.js";
+
+type SecurityCheck = SecurityPosture["checks"][number];
+type HardeningItem = SecurityHardeningPlan["items"][number];
 
 export function SecurityPage(): JSX.Element {
   const [posture, setPosture] = useState<SecurityPosture | null>(null);
+  const [locale] = useState(() => readLocalePreference());
   const [hardeningPlan, setHardeningPlan] = useState<SecurityHardeningPlan | null>(null);
   const [sessions, setSessions] = useState<AuthSession[]>([]);
   const [apiTokens, setApiTokens] = useState<ApiToken[]>([]);
@@ -111,72 +118,102 @@ export function SecurityPage(): JSX.Element {
   }, []);
 
   const attentionTokens = apiTokens.filter((token) => token.status === "expired" || token.status === "expiring");
+  const text = pageText[locale].security;
+  const checkColumns: Array<VirtualColumn<SecurityCheck>> = [
+    { id: "item", header: text.columns.item, cell: (check) => check.label, sortValue: (check) => check.label },
+    { id: "status", header: text.columns.status, cell: (check) => <StatusPill status={check.status} />, sortValue: (check) => check.status },
+    { id: "detail", header: text.columns.detail, cell: (check) => check.detail }
+  ];
+  const hardeningColumns: Array<VirtualColumn<HardeningItem>> = [
+    { id: "item", header: text.columns.item, cell: (item) => item.title, sortValue: (item) => item.title },
+    { id: "risk", header: text.columns.risk, cell: (item) => item.risk, sortValue: (item) => item.risk },
+    { id: "status", header: text.columns.status, cell: (item) => <StatusPill status={item.status} />, sortValue: (item) => item.status },
+    { id: "recommendation", header: text.columns.recommendation, cell: (item) => item.recommendation },
+    { id: "command", header: text.columns.command, cell: (item) => item.command ? <code className="inline-code">{item.command}</code> : "-" }
+  ];
+  const sessionColumns: Array<VirtualColumn<AuthSession>> = [
+    { id: "user", header: text.columns.user, cell: (session) => session.username, sortValue: (session) => session.username },
+    { id: "createdAt", header: text.columns.createdAt, cell: (session) => formatDate(session.createdAt), sortValue: (session) => session.createdAt },
+    { id: "expiresAt", header: text.columns.expiresAt, cell: (session) => formatDate(session.expiresAt), sortValue: (session) => session.expiresAt },
+    { id: "current", header: text.columns.current, cell: (session) => session.current ? text.yes : text.no, sortValue: (session) => session.current },
+    { id: "actions", header: text.columns.actions, className: "row-actions", cell: (session) => <button className="mini-button" onClick={() => void revoke(session.id)}>{text.revoke}</button> }
+  ];
+  const tokenColumns: Array<VirtualColumn<ApiToken>> = [
+    { id: "name", header: text.columns.name, cell: (token) => token.name, sortValue: (token) => token.name },
+    { id: "role", header: text.columns.role, cell: (token) => token.role, sortValue: (token) => token.role },
+    { id: "status", header: text.columns.status, cell: (token) => <StatusPill status={token.status} label={apiTokenStatusLabel(token, text)} />, sortValue: (token) => token.status },
+    { id: "scopes", header: text.columns.scopes, cell: (token) => token.scopes.join(", ") },
+    { id: "createdAt", header: text.columns.createdAt, cell: (token) => formatDate(token.createdAt), sortValue: (token) => token.createdAt },
+    { id: "expiresAt", header: text.columns.expiresAt, cell: (token) => formatApiTokenExpiry(token, text), sortValue: (token) => token.expiresAt },
+    { id: "lastUsed", header: text.columns.lastUsed, cell: (token) => token.lastUsedAt ? formatDate(token.lastUsedAt) : "-", sortValue: (token) => token.lastUsedAt },
+    { id: "actions", header: text.columns.actions, className: "row-actions", cell: (token) => <button className="mini-button" onClick={() => void revokeToken(token.id)}>{text.revoke}</button> }
+  ];
 
   return (
     <main className="page-stack">
-      <div className="page-heading"><div><h1>安全</h1><p>会话、文件根目录与部署状态</p></div></div>
+      <div className="page-heading"><div><h1>{text.title}</h1><p>{text.subtitle}</p></div></div>
       {error ? <div className="form-error">{error}</div> : null}
       <div className="security-grid">
-        <section className="table-panel"><div className="panel-title">会话 Cookie</div><StatusPill status={posture?.cookieSecure ? "secure" : "warn"} /></section>
-        <section className="table-panel"><div className="panel-title">IP 白名单</div><StatusPill status={posture?.ipAllowlistEnabled ? "secure" : "warn"} /></section>
-        <section className="table-panel"><div className="panel-title">连接器</div><strong>{posture?.connectorCount ?? 0}</strong></section>
-        <section className="table-panel"><div className="panel-title">用户</div><strong>{posture?.userCount ?? 0}</strong></section>
-        <section className="table-panel"><div className="panel-title">任务</div><strong>{posture?.taskCount ?? 0}</strong></section>
+        <section className="table-panel"><div className="panel-title">{text.cookie}</div><StatusPill status={posture?.cookieSecure ? "secure" : "warn"} /></section>
+        <section className="table-panel"><div className="panel-title">{text.ipAllowlist}</div><StatusPill status={posture?.ipAllowlistEnabled ? "secure" : "warn"} /></section>
+        <section className="table-panel"><div className="panel-title">{text.connectors}</div><strong>{posture?.connectorCount ?? 0}</strong></section>
+        <section className="table-panel"><div className="panel-title">{text.users}</div><strong>{posture?.userCount ?? 0}</strong></section>
+        <section className="table-panel"><div className="panel-title">{text.tasks}</div><strong>{posture?.taskCount ?? 0}</strong></section>
       </div>
-      <section className="table-panel"><div className="panel-title">受控目录</div>{posture?.managedRoots.map((item) => <code className="path-code" key={item}>{item}</code>)}</section>
-      <section className="table-panel"><div className="panel-title">日志目录</div>{posture?.logRoots.map((item) => <code className="path-code" key={item}>{item}</code>)}</section>
-      <section className="table-panel"><div className="panel-title">IP 白名单</div>{posture?.ipAllowlist.length ? posture.ipAllowlist.map((item) => <code className="path-code" key={item}>{item}</code>) : <p className="muted-text">未启用。</p>}</section>
-      <section className="table-panel"><div className="panel-title">备份快照</div><strong>{posture?.backupCount ?? 0}</strong></section>
+      <section className="table-panel"><div className="panel-title">{text.managedRoots}</div>{posture?.managedRoots.map((item) => <code className="path-code" key={item}>{item}</code>)}</section>
+      <section className="table-panel"><div className="panel-title">{text.logRoots}</div>{posture?.logRoots.map((item) => <code className="path-code" key={item}>{item}</code>)}</section>
+      <section className="table-panel"><div className="panel-title">{text.ipAllowlist}</div>{posture?.ipAllowlist.length ? posture.ipAllowlist.map((item) => <code className="path-code" key={item}>{item}</code>) : <p className="muted-text">{text.notEnabled}</p>}</section>
+      <section className="table-panel"><div className="panel-title">{text.snapshots}</div><strong>{posture?.backupCount ?? 0}</strong></section>
       <section className="table-panel">
-        <div className="panel-title">安全巡检</div>
-        <table><thead><tr><th>项目</th><th>状态</th><th>详情</th></tr></thead><tbody>{posture?.checks.map((check) => <tr key={check.id}><td>{check.label}</td><td><StatusPill status={check.status} /></td><td>{check.detail}</td></tr>)}</tbody></table>
+        <div className="panel-title">{text.checks}</div>
+        <VirtualTable tableId="security-checks" rows={posture?.checks ?? []} columns={checkColumns} getRowKey={(check) => check.id} height={320} />
       </section>
       <section className="table-panel">
-        <div className="panel-title">加固计划</div>
-        <table><thead><tr><th>项目</th><th>风险</th><th>状态</th><th>建议</th><th>命令</th></tr></thead><tbody>{hardeningPlan?.items.map((item) => <tr key={item.id}><td>{item.title}</td><td>{item.risk}</td><td><StatusPill status={item.status} /></td><td>{item.recommendation}</td><td>{item.command ? <code className="inline-code">{item.command}</code> : "-"}</td></tr>)}</tbody></table>
+        <div className="panel-title">{text.hardening}</div>
+        <VirtualTable tableId="security-hardening" rows={hardeningPlan?.items ?? []} columns={hardeningColumns} getRowKey={(item) => item.id} height={360} />
       </section>
       <section className="table-panel">
-        <div className="panel-title">双因素认证</div>
-        <div className="inline-form wrap"><button type="button" onClick={() => void beginTotp()}>生成密钥</button><input value={totpCode} onChange={(event) => setTotpCode(event.target.value)} inputMode="numeric" maxLength={6} placeholder="验证码" /><button type="button" onClick={() => void confirmTotp()}>确认启用</button><button type="button" onClick={() => void disableTotp()}>关闭</button></div>
+        <div className="panel-title">{text.mfa}</div>
+        <div className="inline-form wrap"><button type="button" onClick={() => void beginTotp()}>{text.generateSecret}</button><input value={totpCode} onChange={(event) => setTotpCode(event.target.value)} inputMode="numeric" maxLength={6} placeholder={text.code} /><button type="button" onClick={() => void confirmTotp()}>{text.confirmEnable}</button><button type="button" onClick={() => void disableTotp()}>{text.disable}</button></div>
         {totpSecret ? <code className="path-code">{totpSecret}</code> : null}
         {totpUri ? <code className="path-code">{totpUri}</code> : null}
       </section>
       <section className="table-panel">
-        <div className="panel-title">活动会话</div>
-        <table><thead><tr><th>用户</th><th>创建时间</th><th>过期时间</th><th>当前</th><th>操作</th></tr></thead><tbody>{sessions.map((session) => <tr key={session.id}><td>{session.username}</td><td>{formatDate(session.createdAt)}</td><td>{formatDate(session.expiresAt)}</td><td>{session.current ? "是" : "否"}</td><td><button className="mini-button" onClick={() => void revoke(session.id)}>撤销</button></td></tr>)}</tbody></table>
+        <div className="panel-title">{text.sessions}</div>
+        <VirtualTable tableId="security-sessions" rows={sessions} columns={sessionColumns} getRowKey={(session) => session.id} height={320} />
       </section>
       <section className="table-panel">
-        <div className="panel-title">API Token</div>
-        <div className="inline-form wrap"><input value={tokenName} onChange={(event) => setTokenName(event.target.value)} placeholder="Token 名称" /><input value={tokenDays} onChange={(event) => setTokenDays(event.target.value)} inputMode="numeric" placeholder="有效天数" /><button type="button" onClick={() => void createToken()}>创建</button></div>
+        <div className="panel-title">{text.apiToken}</div>
+        <div className="inline-form wrap"><input value={tokenName} onChange={(event) => setTokenName(event.target.value)} placeholder={text.tokenName} /><input value={tokenDays} onChange={(event) => setTokenDays(event.target.value)} inputMode="numeric" placeholder={text.tokenDays} /><button type="button" onClick={() => void createToken()}>{text.create}</button></div>
         <div className="scope-grid">{ApiTokenScopes.map((scope) => <label className="compact-check" key={scope}><input type="checkbox" checked={tokenScopes.includes(scope)} onChange={() => toggleScope(scope)} />{scope}</label>)}</div>
         {newTokenSecret ? <code className="path-code">{newTokenSecret}</code> : null}
-        {attentionTokens.length ? <p className="notice">{attentionTokens.length} 个 API Token 已过期或将在 7 天内到期，请提前轮换。</p> : null}
-        <table><thead><tr><th>名称</th><th>角色</th><th>状态</th><th>作用域</th><th>创建时间</th><th>过期时间</th><th>最近使用</th><th>操作</th></tr></thead><tbody>{apiTokens.map((token) => <tr key={token.id}><td>{token.name}</td><td>{token.role}</td><td><StatusPill status={token.status} label={apiTokenStatusLabel(token)} /></td><td>{token.scopes.join(", ")}</td><td>{formatDate(token.createdAt)}</td><td>{formatApiTokenExpiry(token)}</td><td>{token.lastUsedAt ? formatDate(token.lastUsedAt) : "-"}</td><td><button className="mini-button" onClick={() => void revokeToken(token.id)}>撤销</button></td></tr>)}</tbody></table>
+        {attentionTokens.length ? <p className="notice">{text.attention(attentionTokens.length)}</p> : null}
+        <VirtualTable tableId="security-api-tokens" rows={apiTokens} columns={tokenColumns} getRowKey={(token) => token.id} />
       </section>
-      <section className="table-panel"><div className="panel-title">建议</div>{posture?.recommendations.length ? posture.recommendations.map((item) => <p className="notice" key={item}>{item}</p>) : <p className="muted-text">无。</p>}</section>
+      <section className="table-panel"><div className="panel-title">{text.recommendations}</div>{posture?.recommendations.length ? posture.recommendations.map((item) => <p className="notice" key={item}>{item}</p>) : <p className="muted-text">{text.none}</p>}</section>
     </main>
   );
 }
 
-function apiTokenStatusLabel(token: ApiToken): string {
+function apiTokenStatusLabel(token: ApiToken, text: typeof pageText["zh-CN"]["security"]): string {
   if (token.status === "expired") {
-    return "已过期";
+    return text.tokenExpired;
   }
   if (token.status === "expiring") {
-    return "即将到期";
+    return text.tokenExpiring;
   }
-  return "正常";
+  return text.tokenNormal;
 }
 
-function formatApiTokenExpiry(token: ApiToken): string {
+function formatApiTokenExpiry(token: ApiToken, text: typeof pageText["zh-CN"]["security"]): string {
   if (!token.expiresAt) {
-    return "永不过期";
+    return text.neverExpires;
   }
   if (token.status === "expired") {
-    return `${formatDate(token.expiresAt)}（已过期）`;
+    return `${formatDate(token.expiresAt)} (${text.expiredSuffix})`;
   }
   if (typeof token.daysUntilExpiry === "number" && token.daysUntilExpiry <= 7) {
-    return `${formatDate(token.expiresAt)}（剩余 ${Math.max(token.daysUntilExpiry, 0)} 天）`;
+    return `${formatDate(token.expiresAt)} (${text.daysLeft(Math.max(token.daysUntilExpiry, 0))})`;
   }
   return formatDate(token.expiresAt);
 }

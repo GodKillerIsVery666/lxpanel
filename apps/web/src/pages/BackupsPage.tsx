@@ -4,13 +4,16 @@ import type { BackupSchedule, BackupSnapshot, BackupVerification, RemoteBackupTa
 import { api } from "../api/client.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { EmptyState } from "../components/EmptyState.js";
+import { VirtualTable, type VirtualColumn } from "../components/VirtualTable.js";
+import { pageText } from "../i18n/resources.js";
 import { formatBytes, formatDate } from "../utils/format.js";
-import { readDefaultWorkspacePreference } from "../utils/preferences.js";
+import { readDefaultWorkspacePreference, readLocalePreference } from "../utils/preferences.js";
 
 export function BackupsPage(): JSX.Element {
   const [backups, setBackups] = useState<BackupSnapshot[]>([]);
   const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
   const [workspace] = useState(() => readDefaultWorkspacePreference());
+  const [locale] = useState(() => readLocalePreference());
   const [everyHours, setEveryHours] = useState("24");
   const [restoreApprovalId, setRestoreApprovalId] = useState("");
   const [remoteTargets, setRemoteTargets] = useState<RemoteBackupTarget[]>([]);
@@ -32,6 +35,23 @@ export function BackupsPage(): JSX.Element {
     const query = backupSearch.trim().toLowerCase();
     return query ? backups.filter((backup) => [backup.fileName, backup.path, backup.createdBy, backup.sha256 ?? ""].some((value) => value.toLowerCase().includes(query))) : backups;
   }, [backupSearch, backups]);
+  const text = pageText[locale].backups;
+  const remoteColumns: Array<VirtualColumn<RemoteBackupTarget>> = [
+    { id: "name", header: text.columns.name, cell: (target) => target.name, sortValue: (target) => target.name },
+    { id: "type", header: text.columns.type, cell: (target) => target.type, sortValue: (target) => target.type },
+    { id: "path", header: text.columns.path, cell: (target) => <code className="inline-code">{target.type === "s3" ? `${target.bucket ?? "-"}/${target.prefix ?? ""}` : target.path}</code> },
+    { id: "secret", header: text.columns.secret, cell: (target) => target.secretConfigured ? (locale === "en-US" ? "Configured" : "已配置") : "-" },
+    { id: "status", header: text.columns.status, cell: (target) => target.lastStatus ?? (target.enabled ? "enabled" : "disabled"), sortValue: (target) => target.lastStatus ?? (target.enabled ? "enabled" : "disabled") },
+    { id: "syncedAt", header: text.columns.syncedAt, cell: (target) => target.lastSyncedAt ? formatDate(target.lastSyncedAt) : "-", sortValue: (target) => target.lastSyncedAt }
+  ];
+  const backupColumns: Array<VirtualColumn<BackupSnapshot>> = [
+    { id: "file", header: text.columns.file, cell: (backup) => <>{backup.fileName}<div className="muted-text"><code>{backup.path}</code></div></>, sortValue: (backup) => backup.fileName },
+    { id: "size", header: text.columns.size, cell: (backup) => formatBytes(backup.sizeBytes), sortValue: (backup) => backup.sizeBytes },
+    { id: "creator", header: text.columns.creator, cell: (backup) => backup.createdBy, sortValue: (backup) => backup.createdBy },
+    { id: "time", header: text.columns.time, cell: (backup) => formatDate(backup.createdAt), sortValue: (backup) => backup.createdAt },
+    { id: "checksum", header: text.columns.checksum, cell: (backup) => <code>{backup.sha256?.slice(0, 16) ?? "-"}</code> },
+    { id: "actions", header: text.columns.actions, className: "row-actions", cell: (backup) => <><button title="verify" onClick={() => void verifyBackup(backup)}><ShieldCheck size={15} /></button><button title="download" onClick={() => void downloadBackup(backup)}><Download size={15} /></button><button title="sync" onClick={() => void syncRemote(backup)}><UploadCloud size={15} /></button><button title="restore" onClick={() => void restoreBackup(backup)}><Undo2 size={15} /></button></> }
+  ];
 
   async function load(): Promise<void> {
     try {
@@ -152,26 +172,26 @@ export function BackupsPage(): JSX.Element {
 
   return (
     <main className="page-stack">
-      <ConfirmDialog open={Boolean(pendingRestore)} title="恢复状态快照" description={pendingRestore ? `将恢复 ${pendingRestore.fileName}，当前会话会被清空并回到快照状态。` : ""} confirmText="恢复" onConfirm={() => void confirmRestore()} onCancel={() => setPendingRestore(null)} />
-      <div className="page-heading"><div><h1>备份</h1><p>本地状态快照</p></div><div className="row-actions"><button className="ghost-button" onClick={() => void create()}><Archive size={16} /> 创建</button><button className="icon-button" onClick={() => void load()} title="刷新"><RotateCw size={18} /></button></div></div>
+      <ConfirmDialog open={Boolean(pendingRestore)} title={text.confirmTitle} description={pendingRestore ? text.confirmDescription(pendingRestore.fileName) : ""} confirmText={text.confirmText} onConfirm={() => void confirmRestore()} onCancel={() => setPendingRestore(null)} />
+      <div className="page-heading"><div><h1>{text.title}</h1><p>{text.subtitle}</p></div><div className="row-actions"><button className="ghost-button" onClick={() => void create()}><Archive size={16} /> {text.create}</button><button className="icon-button" onClick={() => void load()} title={text.refresh}><RotateCw size={18} /></button></div></div>
       {error ? <div className="form-error">{error}</div> : null}
       <section className="table-panel">
-        <div className="panel-title">自动备份</div>
-        <div className="inline-form wrap"><input value={everyHours} onChange={(event) => setEveryHours(event.target.value)} type="number" min={1} max={720} placeholder="间隔小时" /><button type="button" onClick={() => void updateSchedule(true)}><Clock size={16} /> 启用</button><button type="button" onClick={() => void updateSchedule(false)}><PauseCircle size={16} /> 暂停</button></div>
-        <p className="muted-text">当前：{schedule?.enabled ? `每 ${schedule.everyHours} 小时，下一次 ${schedule.nextRunAt ? formatDate(schedule.nextRunAt) : "待计算"}` : "未启用"}</p>
+        <div className="panel-title">{text.auto}</div>
+        <div className="inline-form wrap"><input value={everyHours} onChange={(event) => setEveryHours(event.target.value)} type="number" min={1} max={720} placeholder={text.intervalHours} /><button type="button" onClick={() => void updateSchedule(true)}><Clock size={16} /> {text.enable}</button><button type="button" onClick={() => void updateSchedule(false)}><PauseCircle size={16} /> {text.pause}</button></div>
+        <p className="muted-text">{text.current}: {schedule?.enabled ? `${schedule.everyHours}h, ${schedule.nextRunAt ? formatDate(schedule.nextRunAt) : text.nextPending}` : text.disabled}</p>
       </section>
       <section className="table-panel">
-        <div className="panel-title">恢复审批</div>
-        <div className="inline-form wrap"><input value={restoreApprovalId} onChange={(event) => setRestoreApprovalId(event.target.value)} placeholder="审批单 ID" /></div>
+        <div className="panel-title">{text.restoreApproval}</div>
+        <div className="inline-form wrap"><input value={restoreApprovalId} onChange={(event) => setRestoreApprovalId(event.target.value)} placeholder={text.approvalId} /></div>
       </section>
       <section className="table-panel">
-        <div className="panel-title">远程备份目标</div>
-        <div className="inline-form wrap"><input value={remoteName} onChange={(event) => setRemoteName(event.target.value)} placeholder="目标名称" /><select value={remoteType} onChange={(event) => setRemoteType(event.target.value as RemoteBackupTarget["type"])}><option value="filesystem">文件系统</option><option value="s3">S3 兼容</option></select>{remoteType === "filesystem" ? <input value={remotePath} onChange={(event) => setRemotePath(event.target.value)} placeholder="挂载目录或共享目录路径" /> : <><input value={remoteEndpoint} onChange={(event) => setRemoteEndpoint(event.target.value)} placeholder="https://s3.example.com" /><input value={remoteBucket} onChange={(event) => setRemoteBucket(event.target.value)} placeholder="bucket" /><input value={remotePrefix} onChange={(event) => setRemotePrefix(event.target.value)} placeholder="prefix" /><input value={remoteRegion} onChange={(event) => setRemoteRegion(event.target.value)} placeholder="region" /><input value={remoteAccessKey} onChange={(event) => setRemoteAccessKey(event.target.value)} placeholder="access key" /><input value={remoteSecretKey} onChange={(event) => setRemoteSecretKey(event.target.value)} placeholder="secret key" type="password" /></>}<button type="button" onClick={() => void createRemoteTarget()}><UploadCloud size={16} /> 添加</button></div>
+        <div className="panel-title">{text.remoteTargets}</div>
+        <div className="inline-form wrap"><input value={remoteName} onChange={(event) => setRemoteName(event.target.value)} placeholder={text.targetName} /><select value={remoteType} onChange={(event) => setRemoteType(event.target.value as RemoteBackupTarget["type"])}><option value="filesystem">{text.filesystem}</option><option value="s3">{text.s3}</option></select>{remoteType === "filesystem" ? <input value={remotePath} onChange={(event) => setRemotePath(event.target.value)} placeholder={text.remotePath} /> : <><input value={remoteEndpoint} onChange={(event) => setRemoteEndpoint(event.target.value)} placeholder="https://s3.example.com" /><input value={remoteBucket} onChange={(event) => setRemoteBucket(event.target.value)} placeholder="bucket" /><input value={remotePrefix} onChange={(event) => setRemotePrefix(event.target.value)} placeholder="prefix" /><input value={remoteRegion} onChange={(event) => setRemoteRegion(event.target.value)} placeholder="region" /><input value={remoteAccessKey} onChange={(event) => setRemoteAccessKey(event.target.value)} placeholder="access key" /><input value={remoteSecretKey} onChange={(event) => setRemoteSecretKey(event.target.value)} placeholder="secret key" type="password" /></>}<button type="button" onClick={() => void createRemoteTarget()}><UploadCloud size={16} /> {text.add}</button></div>
         {remoteResult ? <p className="notice">{remoteResult}</p> : null}
-        {remoteTargets.length === 0 ? <EmptyState title="还没有远程备份目标" description="添加文件系统或 S3 兼容目标后，可将快照同步到异地。" /> : <table><thead><tr><th>名称</th><th>类型</th><th>路径/桶</th><th>密钥</th><th>状态</th><th>最近同步</th></tr></thead><tbody>{remoteTargets.map((target) => <tr key={target.id}><td>{target.name}</td><td>{target.type}</td><td><code className="inline-code">{target.type === "s3" ? `${target.bucket ?? "-"}/${target.prefix ?? ""}` : target.path}</code></td><td>{target.secretConfigured ? "已配置" : "-"}</td><td>{target.lastStatus ?? (target.enabled ? "enabled" : "disabled")}</td><td>{target.lastSyncedAt ? formatDate(target.lastSyncedAt) : "-"}</td></tr>)}</tbody></table>}
+        <VirtualTable tableId="backup-remote-targets" rows={remoteTargets} columns={remoteColumns} getRowKey={(target) => target.id} empty={<EmptyState title={text.emptyRemoteTitle} description={text.emptyRemoteDescription} />} height={320} />
       </section>
-      {verification ? <section className="table-panel"><div className="panel-title">校验结果</div><p className={verification.ok ? "status-line good" : "status-line bad"}>{verification.ok ? "通过" : "失败"}：{verification.fileName}</p><p className="muted-text">SHA-256：<code>{verification.sha256 || "-"}</code></p><p className="muted-text">状态字段：{verification.stateKeys.join(", ") || "-"}</p>{verification.issues.length ? <ul>{verification.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : null}</section> : null}
-      <section className="table-panel"><div className="list-toolbar"><input value={backupSearch} onChange={(event) => setBackupSearch(event.target.value)} placeholder="搜索文件名、路径、创建者或哈希" /><p className="muted-text">{filteredBackups.length} / {backups.length}</p></div>{filteredBackups.length === 0 ? <EmptyState title="没有匹配的快照" description="创建备份后会出现在这里；也可以调整搜索条件。" action={<button className="ghost-button" type="button" onClick={() => void create()}><Archive size={16} /> 创建</button>} /> : <table><thead><tr><th>文件</th><th>大小</th><th>创建者</th><th>时间</th><th>校验</th><th>操作</th></tr></thead><tbody>{filteredBackups.map((backup) => <tr key={backup.id}><td>{backup.fileName}<div className="muted-text"><code>{backup.path}</code></div></td><td>{formatBytes(backup.sizeBytes)}</td><td>{backup.createdBy}</td><td>{formatDate(backup.createdAt)}</td><td><code>{backup.sha256?.slice(0, 16) ?? "-"}</code></td><td className="row-actions"><button title="校验" onClick={() => void verifyBackup(backup)}><ShieldCheck size={15} /></button><button title="下载" onClick={() => void downloadBackup(backup)}><Download size={15} /></button><button title="同步远程" onClick={() => void syncRemote(backup)}><UploadCloud size={15} /></button><button title="恢复" onClick={() => void restoreBackup(backup)}><Undo2 size={15} /></button></td></tr>)}</tbody></table>}</section>
+      {verification ? <section className="table-panel"><div className="panel-title">{text.verification}</div><p className={verification.ok ? "status-line good" : "status-line bad"}>{verification.ok ? text.passed : text.failed}: {verification.fileName}</p><p className="muted-text">SHA-256: <code>{verification.sha256 || "-"}</code></p><p className="muted-text">{text.stateKeys}: {verification.stateKeys.join(", ") || "-"}</p>{verification.issues.length ? <ul>{verification.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : null}</section> : null}
+      <section className="table-panel"><div className="list-toolbar"><input value={backupSearch} onChange={(event) => setBackupSearch(event.target.value)} placeholder={text.search} /><p className="muted-text">{filteredBackups.length} / {backups.length}</p></div><VirtualTable tableId="backups" rows={filteredBackups} columns={backupColumns} getRowKey={(backup) => backup.id} empty={<EmptyState title={text.emptyTitle} description={text.emptyDescription} action={<button className="ghost-button" type="button" onClick={() => void create()}><Archive size={16} /> {text.create}</button>} />} /></section>
     </main>
   );
 }

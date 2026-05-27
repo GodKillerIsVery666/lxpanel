@@ -14,12 +14,14 @@ export interface NavItem {
 }
 
 export interface NavSection {
+  id: "overview" | "operations" | "automation" | "security";
   title: string;
   items: NavItem[];
 }
 
 export const navSections: NavSection[] = [
   {
+    id: "overview",
     title: "总览",
     items: [
       { id: "dashboard", label: "概览", description: "健康、告警和常用入口", icon: Gauge, keywords: ["首页", "工作台", "状态"] },
@@ -28,6 +30,7 @@ export const navSections: NavSection[] = [
     ]
   },
   {
+    id: "operations",
     title: "运维",
     items: [
       { id: "hosts", label: "主机", description: "资产、分组和批量命令", icon: Server, keywords: ["服务器", "ssh", "批量"] },
@@ -39,6 +42,7 @@ export const navSections: NavSection[] = [
     ]
   },
   {
+    id: "automation",
     title: "文件与自动化",
     items: [
       { id: "files", label: "文件", description: "受控目录读写", icon: Files, keywords: ["目录", "编辑", "配置"] },
@@ -49,6 +53,7 @@ export const navSections: NavSection[] = [
     ]
   },
   {
+    id: "security",
     title: "安全与交付",
     items: [
       { id: "approvals", label: "审批", description: "高风险操作准入", icon: ClipboardCheck, minRole: "owner", keywords: ["批准", "恢复", "权限"] },

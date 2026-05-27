@@ -4,12 +4,15 @@ import type { AppDeployment, AppDeploymentAction, AppTemplate } from "@lxpanel/s
 import { api } from "../api/client.js";
 import { EmptyState } from "../components/EmptyState.js";
 import { StatusPill } from "../components/StatusPill.js";
+import { VirtualTable, type VirtualColumn } from "../components/VirtualTable.js";
+import { pageText } from "../i18n/resources.js";
 import { formatDate } from "../utils/format.js";
-import { readDefaultWorkspacePreference } from "../utils/preferences.js";
+import { readDefaultWorkspacePreference, readLocalePreference } from "../utils/preferences.js";
 
 export function AppsPage(): JSX.Element {
   const [templates, setTemplates] = useState<AppTemplate[]>([]);
   const [deployments, setDeployments] = useState<AppDeployment[]>([]);
+  const [locale] = useState(() => readLocalePreference());
   const [workspace] = useState(() => readDefaultWorkspacePreference());
   const [templateId, setTemplateId] = useState("");
   const [name, setName] = useState("");
@@ -23,6 +26,18 @@ export function AppsPage(): JSX.Element {
     const query = deploymentSearch.trim().toLowerCase();
     return query ? deployments.filter((deployment) => [deployment.name, deployment.templateName, deployment.status, deployment.workspace].some((value) => value.toLowerCase().includes(query))) : deployments;
   }, [deploymentSearch, deployments]);
+  const text = pageText[locale].apps;
+  const deploymentColumns: Array<VirtualColumn<AppDeployment>> = [
+    { id: "name", header: text.columns.name, cell: (deployment) => deployment.name, sortValue: (deployment) => deployment.name },
+    { id: "template", header: text.columns.template, cell: (deployment) => deployment.templateName, sortValue: (deployment) => deployment.templateName },
+    { id: "version", header: text.columns.version, cell: (deployment) => `v${deployment.version} / ${deployment.revisionCount}`, sortValue: (deployment) => deployment.version },
+    { id: "status", header: text.columns.status, cell: (deployment) => <StatusPill status={deployment.status} />, sortValue: (deployment) => deployment.status },
+    { id: "compose", header: text.columns.compose, cell: (deployment) => <code className="inline-code">{deployment.composePath}</code> },
+    { id: "creator", header: text.columns.creator, cell: (deployment) => deployment.createdBy, sortValue: (deployment) => deployment.createdBy },
+    { id: "lastAction", header: text.columns.lastAction, cell: (deployment) => deployment.lastActionAt ? formatDate(deployment.lastActionAt) : "-", sortValue: (deployment) => deployment.lastActionAt },
+    { id: "output", header: text.columns.output, cell: (deployment) => <pre className="inline-log">{deployment.lastOutputTail ?? "-"}</pre> },
+    { id: "actions", header: text.columns.actions, className: "row-actions", cell: (deployment) => <><button onClick={() => void checkHealth(deployment)} title="health"><HeartPulse size={14} /></button><button onClick={() => void action(deployment.id, "up")} title="up"><Play size={14} /></button><button onClick={() => void action(deployment.id, "restart")} title="restart"><RotateCw size={14} /></button><button onClick={() => void action(deployment.id, "down")} title="down"><Square size={14} /></button><button onClick={() => void upgrade(deployment)} title="upgrade"><UploadCloud size={14} /></button><button onClick={() => void rollback(deployment)} title="rollback" disabled={deployment.revisionCount === 0}><History size={14} /></button></> }
+  ];
 
   async function load(): Promise<void> {
     try {
@@ -98,43 +113,28 @@ export function AppsPage(): JSX.Element {
 
   return (
     <main className="page-stack">
-      <div className="page-heading"><div><h1>应用商店</h1><p>基于受控 Docker Compose 模板部署应用</p></div></div>
+      <div className="page-heading"><div><h1>{text.title}</h1><p>{text.subtitle}</p></div></div>
       {error ? <div className="form-error">{error}</div> : null}
       {healthText ? <p className="notice">{healthText}</p> : null}
       <section className="table-panel">
-        <div className="panel-title">一键部署</div>
-        {templates.length === 0 ? <EmptyState title="没有可用模板" description="内置模板或可信模板仓库同步后会出现在这里。" /> : <div className="inline-form wrap">
+        <div className="panel-title">{text.deploy}</div>
+        {templates.length === 0 ? <EmptyState title={text.noTemplatesTitle} description={text.noTemplatesDescription} /> : <div className="inline-form wrap">
           <select value={templateId} onChange={(event) => selectTemplate(event.target.value)}>
             {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
           </select>
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="部署名称，例如 redis-prod" />
-          <label className="compact-check"><input type="checkbox" checked={autoStart} onChange={(event) => setAutoStart(event.target.checked)} /> 自动启动</label>
-          <button type="button" onClick={() => void deploy()}><UploadCloud size={16} /> 部署</button>
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder={text.deployName} />
+          <label className="compact-check"><input type="checkbox" checked={autoStart} onChange={(event) => setAutoStart(event.target.checked)} /> {text.autoStart}</label>
+          <button type="button" onClick={() => void deploy()}><UploadCloud size={16} /> {text.deployAction}</button>
         </div>}
-        {selectedTemplate ? <p className="muted-text">{selectedTemplate.description}；来源：{selectedTemplate.source ?? "builtin"}；签名：{selectedTemplate.signature ?? "-"}；{selectedTemplate.verified ? "已验证" : "未验证"}</p> : null}
+        {selectedTemplate ? <p className="muted-text">{selectedTemplate.description}; {text.source}: {selectedTemplate.source ?? "builtin"}; {text.signature}: {selectedTemplate.signature ?? "-"}; {selectedTemplate.verified ? text.verified : text.unverified}</p> : null}
         {selectedTemplate ? <div className="variable-grid">{selectedTemplate.variables.map((variable) => (
           <label key={variable.key}>{variable.label}<input value={variables[variable.key] ?? variable.defaultValue} onChange={(event) => setVariables((current) => ({ ...current, [variable.key]: event.target.value }))} /></label>
         ))}</div> : null}
       </section>
       <section className="table-panel">
-        <div className="panel-title">部署记录</div>
-        <div className="list-toolbar"><input value={deploymentSearch} onChange={(event) => setDeploymentSearch(event.target.value)} placeholder="搜索名称、模板、状态或工作空间" /><p className="muted-text">{filteredDeployments.length} / {deployments.length}</p></div>
-        {filteredDeployments.length === 0 ? <EmptyState title="没有匹配的部署" description="调整筛选条件，或从上方选择模板创建一个新部署。" /> : <table>
-          <thead><tr><th>名称</th><th>模板</th><th>版本</th><th>状态</th><th>Compose</th><th>创建人</th><th>最近操作</th><th>输出</th><th>操作</th></tr></thead>
-          <tbody>{filteredDeployments.map((deployment) => (
-            <tr key={deployment.id}>
-              <td>{deployment.name}</td>
-              <td>{deployment.templateName}</td>
-              <td>v{deployment.version} / {deployment.revisionCount}</td>
-              <td><StatusPill status={deployment.status} /></td>
-              <td><code className="inline-code">{deployment.composePath}</code></td>
-              <td>{deployment.createdBy}</td>
-              <td>{deployment.lastActionAt ? formatDate(deployment.lastActionAt) : "-"}</td>
-              <td><pre className="inline-log">{deployment.lastOutputTail ?? "-"}</pre></td>
-              <td className="row-actions"><button onClick={() => void checkHealth(deployment)} title="健康检查"><HeartPulse size={14} /></button><button onClick={() => void action(deployment.id, "up")} title="启动"><Play size={14} /></button><button onClick={() => void action(deployment.id, "restart")} title="重启"><RotateCw size={14} /></button><button onClick={() => void action(deployment.id, "down")} title="停止"><Square size={14} /></button><button onClick={() => void upgrade(deployment)} title="升级"><UploadCloud size={14} /></button><button onClick={() => void rollback(deployment)} title="回滚" disabled={deployment.revisionCount === 0}><History size={14} /></button></td>
-            </tr>
-          ))}</tbody>
-        </table>}
+        <div className="panel-title">{text.records}</div>
+        <div className="list-toolbar"><input value={deploymentSearch} onChange={(event) => setDeploymentSearch(event.target.value)} placeholder={text.search} /><p className="muted-text">{filteredDeployments.length} / {deployments.length}</p></div>
+        <VirtualTable tableId="app-deployments" rows={filteredDeployments} columns={deploymentColumns} getRowKey={(deployment) => deployment.id} empty={<EmptyState title={text.emptyTitle} description={text.emptyDescription} />} />
       </section>
     </main>
   );

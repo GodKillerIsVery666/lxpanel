@@ -75,6 +75,7 @@ describe("平台治理路由", () => {
     const remediationBody = z.object({ run: SecurityRemediationRunSchema }).parse(JSON.parse(remediationResponse.body) as unknown);
     const capacityBody = z.object({ plan: CapacityPlanSchema }).parse(JSON.parse(capacityResponse.body) as unknown);
     const openApiBody = z.object({ summary: OpenApiSummarySchema }).parse(JSON.parse(openApiResponse.body) as unknown);
+    const openApiDocument = z.object({ paths: z.record(z.string(), z.record(z.string(), z.object({ requestBody: z.unknown().optional(), parameters: z.unknown().optional(), responses: z.record(z.string(), z.unknown()) }))) }).parse(JSON.parse(openApiJsonResponse.body) as unknown);
     const terminalBody = z.object({ session: TerminalSessionSchema }).parse(JSON.parse(terminalInputResponse.body) as unknown);
     const terminalOutputBody = z.object({ session: TerminalSessionSchema }).parse(JSON.parse(terminalOutputResponse.body) as unknown);
     const terminalReplayBody = z.object({ replay: TerminalReplaySchema }).parse(JSON.parse(terminalReplayResponse.body) as unknown);
@@ -99,6 +100,10 @@ describe("平台治理路由", () => {
     expect(remediationBody.run.status).toBe("planned");
     expect(capacityBody.plan.recommendations.length).toBeGreaterThan(0);
     expect(openApiBody.summary.webhookEvents).toContain("approval.requested");
+    expect(openApiBody.summary.paths.length).toBeGreaterThan(100);
+    expect(openApiBody.summary.paths).toEqual(expect.arrayContaining([expect.objectContaining({ method: "POST", path: "/api/auth/login" }), expect.objectContaining({ method: "POST", path: "/api/apps/deployments", scope: "apps:write" }), expect.objectContaining({ method: "POST", path: "/api/connectors/commands/result" })]));
+    expect(openApiDocument.paths["/api/apps/deployments"]?.post?.requestBody).toBeTruthy();
+    expect(openApiDocument.paths["/api/files/content"]?.get?.parameters).toBeTruthy();
     expect(openApiJsonResponse.statusCode).toBe(200);
     expect(terminalBody.session.transcriptTail.some((line) => line.line === "uptime")).toBe(true);
     expect(terminalOutputBody.session.transcriptTail.some((line) => line.line.includes("load average"))).toBe(true);

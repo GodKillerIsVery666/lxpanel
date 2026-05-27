@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLocalePreference, isTableDensity, isViewId, mergeRecentViews, toggleFavoriteViewPreference } from "../utils/preferences.js";
+import { isLocalePreference, isTableDensity, isViewId, mergeRecentViews, readTableColumnPreference, toggleFavoriteViewPreference } from "../utils/preferences.js";
 
 describe("偏好工具", () => {
   it("合并最近访问并去重", () => {
@@ -22,5 +22,9 @@ describe("偏好工具", () => {
   it("切换收藏入口", () => {
     expect(toggleFavoriteViewPreference("hosts", ["apps"])).toEqual(["hosts", "apps"]);
     expect(toggleFavoriteViewPreference("apps", ["hosts", "apps"])).toEqual(["hosts"]);
+  });
+
+  it("列配置缺省时返回安全 fallback", () => {
+    expect(readTableColumnPreference("hosts", ["name", "status"])).toEqual(["name", "status"]);
   });
 });

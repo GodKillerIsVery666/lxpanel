@@ -5,10 +5,14 @@ import { api } from "../api/client.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { EmptyState } from "../components/EmptyState.js";
 import { StatusPill } from "../components/StatusPill.js";
+import { VirtualTable, type VirtualColumn } from "../components/VirtualTable.js";
+import { pageText } from "../i18n/resources.js";
 import { formatDate } from "../utils/format.js";
+import { readLocalePreference } from "../utils/preferences.js";
 
 export function AuditPage(): JSX.Element {
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [locale] = useState(() => readLocalePreference());
   const [actor, setActor] = useState("");
   const [action, setAction] = useState("");
   const [status, setStatus] = useState("");
@@ -20,6 +24,14 @@ export function AuditPage(): JSX.Element {
   const [packageHash, setPackageHash] = useState<string | null>(null);
   const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const text = pageText[locale].audit;
+  const columns: Array<VirtualColumn<AuditEvent>> = [
+    { id: "time", header: text.columns.time, cell: (item) => formatDate(item.time), sortValue: (item) => item.time },
+    { id: "actor", header: text.columns.actor, cell: (item) => item.actor, sortValue: (item) => item.actor },
+    { id: "action", header: text.columns.action, cell: (item) => item.action, sortValue: (item) => item.action },
+    { id: "target", header: text.columns.target, cell: (item) => item.target, sortValue: (item) => item.target },
+    { id: "status", header: text.columns.status, cell: (item) => <StatusPill status={item.status} />, sortValue: (item) => item.status }
+  ];
 
   async function load(cursor?: string): Promise<void> {
     try {
@@ -81,20 +93,17 @@ export function AuditPage(): JSX.Element {
 
   return (
     <main className="page-stack">
-      <ConfirmDialog open={pruneConfirmOpen} title="清理审计日志" description={`仅保留最近 ${retainDays} 天审计日志，已归档或导出的证据请先确认。`} confirmText="清理" onConfirm={() => void confirmPruneAudit()} onCancel={() => setPruneConfirmOpen(false)} />
-      <div className="page-heading"><div><h1>审计</h1><p>安全事件、导出与保留</p></div><button className="icon-button" onClick={() => void load()} title="刷新"><RotateCw size={18} /></button></div>
+      <ConfirmDialog open={pruneConfirmOpen} title={text.confirmTitle} description={locale === "en-US" ? `Only retain audit logs from the last ${retainDays} days. Confirm exported evidence first.` : `仅保留最近 ${retainDays} 天审计日志，已归档或导出的证据请先确认。`} confirmText={text.confirmText} onConfirm={() => void confirmPruneAudit()} onCancel={() => setPruneConfirmOpen(false)} />
+      <div className="page-heading"><div><h1>{text.title}</h1><p>{text.subtitle}</p></div><button className="icon-button" onClick={() => void load()} title="refresh"><RotateCw size={18} /></button></div>
       {error ? <div className="form-error">{error}</div> : null}
       <section className="table-panel">
-        <div className="panel-title">筛选</div>
-        <div className="inline-form wrap"><input value={actor} onChange={(event) => setActor(event.target.value)} placeholder="操作者" /><input value={action} onChange={(event) => setAction(event.target.value)} placeholder="动作" /><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="success">success</option><option value="denied">denied</option><option value="error">error</option></select><input value={limit} onChange={(event) => setLimit(event.target.value)} inputMode="numeric" placeholder="每页条数" /><button type="button" onClick={() => void load()}><RotateCw size={16} /> 查询</button>{nextCursor ? <button type="button" onClick={() => void load(nextCursor)}>下一页</button> : null}</div>
-        <div className="inline-form wrap"><button type="button" onClick={() => void exportAudit("csv")}><Download size={16} /> CSV</button><button type="button" onClick={() => void exportAudit("jsonl")}><Download size={16} /> JSONL</button><button type="button" onClick={() => void exportPackage("jsonl")}><Download size={16} /> 签名包</button><input value={retainDays} onChange={(event) => setRetainDays(event.target.value)} inputMode="numeric" placeholder="保留天数" /><input value={approvalId} onChange={(event) => setApprovalId(event.target.value)} placeholder="审批单 ID" /><button type="button" onClick={() => void pruneAudit()}><Trash2 size={16} /> 清理</button></div>
-        <p className="muted-text">匹配事件 {total} 条{packageHash ? `，签名包 manifest: ${packageHash}` : ""}</p>
+        <div className="panel-title">{text.filter}</div>
+        <div className="inline-form wrap"><input value={actor} onChange={(event) => setActor(event.target.value)} placeholder={text.actor} /><input value={action} onChange={(event) => setAction(event.target.value)} placeholder={text.action} /><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">{text.allStatus}</option><option value="success">success</option><option value="denied">denied</option><option value="error">error</option></select><input value={limit} onChange={(event) => setLimit(event.target.value)} inputMode="numeric" placeholder={text.limit} /><button type="button" onClick={() => void load()}><RotateCw size={16} /> {text.query}</button>{nextCursor ? <button type="button" onClick={() => void load(nextCursor)}>{text.next}</button> : null}</div>
+        <div className="inline-form wrap"><button type="button" onClick={() => void exportAudit("csv")}><Download size={16} /> CSV</button><button type="button" onClick={() => void exportAudit("jsonl")}><Download size={16} /> JSONL</button><button type="button" onClick={() => void exportPackage("jsonl")}><Download size={16} /> {locale === "en-US" ? "Signed package" : "签名包"}</button><input value={retainDays} onChange={(event) => setRetainDays(event.target.value)} inputMode="numeric" placeholder={text.retainDays} /><input value={approvalId} onChange={(event) => setApprovalId(event.target.value)} placeholder={text.approvalId} /><button type="button" onClick={() => void pruneAudit()}><Trash2 size={16} /> {text.prune}</button></div>
+        <p className="muted-text">{text.matched} {total}{packageHash ? `, manifest: ${packageHash}` : ""}</p>
       </section>
       <section className="table-panel">
-        {events.length === 0 ? <EmptyState title="没有匹配的审计事件" description="调整筛选条件，或等待系统产生新的审计事件。" /> : <table>
-          <thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>对象</th><th>状态</th></tr></thead>
-          <tbody>{events.map((item) => <tr key={item.id}><td>{formatDate(item.time)}</td><td>{item.actor}</td><td>{item.action}</td><td>{item.target}</td><td><StatusPill status={item.status} /></td></tr>)}</tbody>
-        </table>}
+        <VirtualTable tableId="audit-events" rows={events} columns={columns} getRowKey={(item) => item.id} empty={<EmptyState title={text.emptyTitle} description={text.emptyDescription} />} />
       </section>
     </main>
   );
