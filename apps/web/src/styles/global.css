@@ -173,7 +173,7 @@ table + .inline-form { margin-top: 14px; }
 .scope-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 14px; margin: 12px 0; }
 .variable-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
 .task-form { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.2fr 110px 140px auto; gap: 10px; }
-.task-form button, .mini-button { border: 1px solid transparent; border-radius: 6px; background: var(--ink); color: white; padding: 9px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; line-height: 1; min-height: 34px; }
+.task-form button, .mini-button { border: 1px solid transparent; border-radius: 6px; background: var(--ink); color: white; padding: 9px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; line-height: 1; min-height: 38px; }
 .mini-button { margin-left: 12px; }
 .mini-button:hover { background: #2d2925; }
 td input + .mini-button { margin: 8px 0 0 0; }
