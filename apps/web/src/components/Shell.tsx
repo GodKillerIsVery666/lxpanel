@@ -46,7 +46,7 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
         ...section,
         items: section.items
           .filter((item) => !item.minRole || roleRank(user.role) >= roleRank(item.minRole))
-          .filter((item) => term.length === 0 || matchesNavItem(item, term))
+          .filter((item) => term.length === 0 || matchesNavItem(item, term, text))
       }))
       .filter((section) => section.items.length > 0);
   }, [filter, user.role]);
@@ -139,7 +139,7 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
     const views: CommandEntry[] = navSections
       .flatMap((section) => section.items.map((item) => ({ section: text.sections[section.id], item })))
       .filter((result) => !result.item.minRole || roleRank(user.role) >= roleRank(result.item.minRole))
-      .filter((result) => term.length === 0 || matchesNavItem(result.item, term))
+      .filter((result) => term.length === 0 || matchesNavItem(result.item, term, text))
       .map((result) => ({ type: "view", section: result.section, item: result.item }));
     const actions: CommandEntry[] = commandActions
       .filter((action) => !action.minRole || roleRank(user.role) >= roleRank(action.minRole))
@@ -230,7 +230,7 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
           <span className="sidebar-subtitle">{text.brandSubtitle}</span>
         </div>
         <div className="nav-search">
-          <input ref={searchRef} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={text.navSearch} aria-label={text.navSearch} />
+          <input ref={searchRef} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={text.navSearch} aria-label={text.navSearch} autoComplete="off" />
         </div>
         <nav>
           {visibleSections.map((section) => (
@@ -239,7 +239,7 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
               {section.items.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <button key={item.id} className={`nav-button${activeView === item.id ? " active" : ""}`} onClick={() => onNavigate(item.id)} aria-current={activeView === item.id ? "page" : undefined}>
+                  <button key={item.id} className={`nav-button${activeView === item.id ? " active" : ""}`} onClick={() => { setFilter(""); onNavigate(item.id); }} aria-current={activeView === item.id ? "page" : undefined}>
                     <Icon size={18} />
                     <span className="nav-label"><strong>{viewLabel(item, text)}</strong><small>{viewDescription(item, text)}</small></span>
                   </button>
@@ -257,7 +257,7 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
             <strong>{text.views[activeView]?.description ?? ""}</strong>
           </div>
           <div className="topbar-actions">
-            {favoriteItems.length ? <div className="recent-views">{favoriteItems.slice(0, 3).map((item) => <button type="button" key={item.id} onClick={() => onNavigate(item.id)}>★ {viewLabel(item, text)}</button>)}</div> : recentItems.length ? <div className="recent-views">{recentItems.slice(0, 3).map((item) => <button type="button" key={item.id} onClick={() => onNavigate(item.id)}>{viewLabel(item, text)}</button>)}</div> : null}
+            {favoriteItems.length ? <div className="recent-views">{favoriteItems.slice(0, 3).map((item) => <button type="button" key={item.id} onClick={() => { setFilter(""); onNavigate(item.id); }}>★ {viewLabel(item, text)}</button>)}</div> : recentItems.length ? <div className="recent-views">{recentItems.slice(0, 3).map((item) => <button type="button" key={item.id} onClick={() => { setFilter(""); onNavigate(item.id); }}>{viewLabel(item, text)}</button>)}</div> : null}
             <button className="command-trigger" type="button" onClick={() => setCommandOpen(true)} title={text.commandTrigger} aria-label={text.commandTrigger}><Search size={16} /><kbd>Ctrl K</kbd></button>
             <button className="icon-button" type="button" onClick={toggleFavorite} title={favoriteViews.includes(activeView) ? text.unfavorite : text.favorite} aria-label={favoriteViews.includes(activeView) ? text.unfavorite : text.favorite}><Star size={17} fill={favoriteViews.includes(activeView) ? "currentColor" : "none"} /></button>
             <select className="locale-select" value={locale} onChange={(event) => changeLocale(event.target.value as LocalePreference)} aria-label={text.language}><option value="zh-CN">中文</option><option value="en-US">EN</option></select>
@@ -300,8 +300,9 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
   );
 }
 
-function matchesNavItem(item: NavItem, term: string): boolean {
-  return [item.label, item.description, ...item.keywords].some((value) => value.toLowerCase().includes(term));
+function matchesNavItem(item: NavItem, term: string, text?: typeof shellText[LocalePreference]): boolean {
+  const viewText = text?.views[item.id];
+  return [item.label, item.description, ...item.keywords, viewText?.label ?? "", viewText?.description ?? ""].some((value) => value.toLowerCase().includes(term));
 }
 
 function viewLabel(item: NavItem, text: typeof shellText[LocalePreference]): string {
