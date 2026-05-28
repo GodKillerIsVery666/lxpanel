@@ -1,6 +1,6 @@
-import { createHash, verify as verifySignature } from "node:crypto";
+import { createHash, generateKeyPairSync, sign as signData, verify as verifySignature } from "node:crypto";
 import { arch, hostname, platform } from "node:os";
-import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type Approval, type AuditEvent, type AuditExportPackage, type AuditPruneResult, type AuditRetentionEvaluation, type AuditRetentionEvaluationRequest, type AuditRetentionExecution, type AuditRetentionExecutionRequest, type AuditRetentionPolicy, type BackupEncryptionPolicy, type BackupKeyRotationPlan, type CapacityPlan, type ClientApplicationPlan, type ConnectorReleaseChannel, type ConnectorReleaseManifest, type CreateAccessPolicy, type CreateAuditRetentionPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type DiagnosticsBundle, type FrontendQualityReport, type HighAvailabilityPlan, type IdentityProvider, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type PluginManifest, type PluginPermissionEvaluation, type PluginPermissionEvaluationRequest, type PluginSandboxRun, type PluginSandboxRunRequest, type RegisterPluginManifest, type ResourceApprovalCheck, type ResourceApprovalPolicy, type ResourceApprovalPrecheck, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type SsoReadiness, type StateArchivePage, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TemplateRepositoryRollback, type TenantReport, type TerminalInput, type TerminalOutput, type TerminalReplay, type TerminalSession, type UpdateBackupEncryptionPolicy, type UpdateConnectorReleaseChannel, type UpdateIdentityProvider, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
+import { RegisterPluginManifestSchema, TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type AiDiagnosticRequest, type AiDiagnosticResult, type Approval, type AuditEvent, type AuditExportPackage, type AuditPruneResult, type AuditRetentionEvaluation, type AuditRetentionEvaluationRequest, type AuditRetentionExecution, type AuditRetentionExecutionRequest, type AuditRetentionPolicy, type BackupEncryptionPolicy, type BackupKeyRotationPlan, type CapacityPlan, type ClientApplicationPlan, type ConnectorReleaseChannel, type ConnectorReleaseManifest, type CreateAccessPolicy, type CreateAuditRetentionPolicy, type CreateFederatedCluster, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type DiagnosticsBundle, type FederatedCluster, type FrontendQualityReport, type GenerateLicense, type HighAvailabilityPlan, type IdentityProvider, type ImportedAppTemplate, type InstallerGuide, type LicenseGenerationResult, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type PluginManifest, type PluginPermissionEvaluation, type PluginPermissionEvaluationRequest, type PluginSandboxRun, type PluginSandboxRunRequest, type RegisterPluginManifest, type ResourceApprovalCheck, type ResourceApprovalPolicy, type ResourceApprovalPrecheck, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type SsoReadiness, type StateArchivePage, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TemplateRepositoryRollback, type TenantReport, type TerminalInput, type TerminalOutput, type TerminalReplay, type TerminalSession, type UpdateBackupEncryptionPolicy, type UpdateConnectorReleaseChannel, type UpdateIdentityProvider, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import { createDefaultAuditRetentionPolicies, createDefaultBackupEncryptionPolicy, createDefaultConnectorReleaseChannels, type PanelState, type SecurityRemediationRunRecord, type TemplateRepositorySnapshotRecord } from "../state/panelState.js";
@@ -248,6 +248,11 @@ export class PlatformStore {
     return verifyOfflineLicense(input);
   }
 
+  /** 在 Web 界面生成离线许可证（镜像 CLI license-issue.mjs） */
+  generateLicense(input: GenerateLicense): LicenseGenerationResult {
+    return generateOfflineLicense(input);
+  }
+
   async listApprovalPolicies(): Promise<ResourceApprovalPolicy[]> {
     const state = await this.store.read();
     return (state.resourceApprovalPolicies ?? []).slice().reverse();
@@ -445,6 +450,42 @@ export class PlatformStore {
     });
   }
 
+  /**
+   * 将审计日志归档到远程备份目标（S3/MinIO/文件系统）。
+   * 复用已配置的远程备份目标，把审计 JSONL 包作为远程备份对象上传。
+   */
+  async archiveAuditToRemote(auditPackage: { fileName: string; content: string }): Promise<{ targetId: string; targetName: string; key: string; status: string }[]> {
+    const state = await this.store.read();
+    const results: Array<{ targetId: string; targetName: string; key: string; status: string }> = [];
+    const targets = (state.remoteBackupTargets ?? []).filter((t) => t.enabled);
+    for (const target of targets) {
+      const key = `audit-archive/${auditPackage.fileName}`;
+      try {
+        if (target.type === "s3" && target.endpoint && target.bucket) {
+          const s3Url = `${target.endpoint.replace(/\/+$/u, "")}/${target.bucket}/${target.prefix ? `${target.prefix}/` : ""}${key}`;
+          const response = await fetch(s3Url, {
+            method: "PUT",
+            headers: { "content-type": "application/jsonl" },
+            body: auditPackage.content
+          });
+          results.push({ targetId: target.id, targetName: target.name, key, status: response.ok ? "success" : "failed" });
+        } else if (target.type === "filesystem" && target.path) {
+          const { writeFile, mkdir } = await import("node:fs/promises");
+          const { join } = await import("node:path");
+          const dir = join(target.path, "audit-archive");
+          await mkdir(dir, { recursive: true });
+          await writeFile(join(dir, auditPackage.fileName), auditPackage.content, "utf8");
+          results.push({ targetId: target.id, targetName: target.name, key, status: "success" });
+        } else {
+          results.push({ targetId: target.id, targetName: target.name, key, status: "unsupported" });
+        }
+      } catch (error) {
+        results.push({ targetId: target.id, targetName: target.name, key, status: "failed", ...(error instanceof Error ? { error: error.message } : {}) });
+      }
+    }
+    return results;
+  }
+
   async evaluateAuditRetention(input: AuditRetentionEvaluationRequest): Promise<AuditRetentionEvaluation> {
     const state = await this.store.read();
     const policies = auditRetentionPoliciesOrDefault(state).filter((policy) => policy.enabled);
@@ -498,6 +539,47 @@ export class PlatformStore {
       const current = (state.pluginManifests ?? []).find((plugin) => plugin.id === input.id);
       const manifest: PluginManifest = { ...input, createdAt: current?.createdAt ?? now, updatedAt: now, updatedBy: actor };
       return { data: { ...state, pluginManifests: [...(state.pluginManifests ?? []).filter((plugin) => plugin.id !== input.id), manifest].slice(-200) }, result: manifest };
+    });
+  }
+
+  /**
+   * 从远程 URL 拉取插件 manifest，验证签名后注册。
+   * @param url 插件 manifest JSON URL
+   * @param publicKey 可选的 RSA/ECDSA PEM 公钥，用于签名验证
+   * @param trustMode "signed" | "internal"
+   * @param actor 操作者
+   */
+  async syncPluginManifest(url: string, trustMode: "signed" | "internal", actor: string, publicKey?: string): Promise<PluginManifest> {
+    const response = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) {
+      throw new Error(`远程插件 manifest 拉取失败: ${response.status}`);
+    }
+    const raw = await response.json() as Record<string, unknown>;
+    const manifest = RegisterPluginManifestSchema.parse(raw);
+    if (trustMode === "signed") {
+      if (!publicKey) {
+        throw new Error("签名模式需要提供公钥。");
+      }
+      if (!manifest.signature) {
+        throw new Error("远程插件 manifest 缺少签名字段。");
+      }
+      const unsignedPayload = canonicalJson({
+        id: manifest.id,
+        name: manifest.name,
+        version: manifest.version,
+        entryPoint: manifest.entryPoint,
+        permissions: manifest.permissions
+      });
+      const verified = verifySignature("sha256", Buffer.from(unsignedPayload), publicKey, Buffer.from(manifest.signature, "base64"));
+      if (!verified) {
+        throw new Error(`远程插件 ${manifest.id} 签名验证失败。`);
+      }
+    }
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const current = (state.pluginManifests ?? []).find((plugin) => plugin.id === manifest.id);
+      const stored: PluginManifest = { ...manifest, source: url, createdAt: current?.createdAt ?? now, updatedAt: now, updatedBy: actor };
+      return { data: { ...state, pluginManifests: [...(state.pluginManifests ?? []).filter((plugin) => plugin.id !== manifest.id), stored].slice(-200) }, result: stored };
     });
   }
 
@@ -588,13 +670,13 @@ export class PlatformStore {
       generatedAt: new Date().toISOString(),
       currentClients: [
         { id: "web-console", type: "web", status: "available", detail: "apps/web 是当前正式客户端，由 API 进程托管静态资源，覆盖桌面与移动浏览器。" },
-        { id: "managed-host-agent", type: "agent", status: "available", detail: "scripts/lxpanel-connector.mjs 是受管主机侧 agent，用于心跳、命令领取、终端代理和升级。" }
+        { id: "managed-host-agent", type: "agent", status: "available", detail: "scripts/lxpanel-connector.mjs 是受管主机侧 agent，用于心跳、命令领取、终端代理和升级。" },
+        { id: "desktop-tauri", type: "desktop", status: "available", detail: "apps/desktop-tauri 是基于 Tauri 2 的桌面托盘原型，支持系统托盘常驻、WebView 加载面板、健康检查和托盘菜单。" }
       ],
       candidates: [
-        { id: "desktop-tauri", type: "desktop", recommendedStack: "Tauri + WebView + 系统托盘", priority: "next", decision: "适合企业内网常驻巡检、通知和免浏览器入口，复用现有 Web UI。", risks: ["Windows 签名和自动更新成本", "本地凭据缓存需要额外加密设计"] },
         { id: "mobile-readonly", type: "mobile", recommendedStack: "PWA first，后续再评估 React Native", priority: "later", decision: "优先做只读巡检、告警确认和审批处理，不承载高风险写操作。", risks: ["移动端密钥保护", "审批误触和弱网络一致性"] }
       ],
-      recommendation: "短期继续强化 Web/PWA；商业桌面端优先选择 Tauri 包壳复用 Web；移动端先做只读巡检和审批，暂不复制完整面板。"
+      recommendation: "Web 为正式客户端；Desktop Tauri 原型已完成，下一轮需要 Windows 签名和自动更新；移动端暂不启动。"
     };
   }
 
@@ -781,6 +863,82 @@ export class PlatformStore {
       security: [{ bearerAuth: [] }],
       components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } }, schemas: openApiSchemas() },
       paths
+    };
+  }
+
+  /** 联邦集群管理：登记远程子集群 */
+  async createFederatedCluster(input: CreateFederatedCluster, actor: string): Promise<FederatedCluster> {
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const cluster: FederatedCluster = { id: randomToken(12), name: input.name, apiUrl: input.apiUrl, apiToken: input.apiToken, status: "offline", hostCount: 0, connectorCount: 0, createdAt: now, updatedAt: now, updatedBy: actor };
+      return { data: { ...state, federatedClusters: [...(state.federatedClusters ?? []), cluster].slice(-50) }, result: cluster };
+    });
+  }
+
+  async listFederatedClusters(): Promise<FederatedCluster[]> {
+    const state = await this.store.read();
+    return (state.federatedClusters ?? []).slice().reverse();
+  }
+
+  /** 同步联邦集群状态：探测远程集群健康 */
+  async syncFederatedCluster(clusterId: string): Promise<FederatedCluster> {
+    const state = await this.store.read();
+    const cluster = (state.federatedClusters ?? []).find((c) => c.id === clusterId);
+    if (!cluster) throw new Error("联邦集群不存在。");
+    let newStatus: "online" | "offline" = "offline";
+    let newVersion = cluster.version ?? "";
+    try {
+      const response = await fetch(`${cluster.apiUrl.replace(/\/+$/u, "")}/api/health/ready`, {
+        headers: { authorization: `Bearer ${cluster.apiToken}` },
+        signal: AbortSignal.timeout(10_000)
+      });
+      if (response.ok) {
+        newStatus = "online";
+        const body = await response.json() as Record<string, unknown>;
+        newVersion = typeof body.version === "string" ? body.version : newVersion;
+      }
+    } catch {
+      newStatus = "offline";
+    }
+    const now = new Date().toISOString();
+    await this.store.update((current) => {
+      const updated = {
+        ...current,
+        federatedClusters: (current.federatedClusters ?? []).map((c) => c.id === clusterId ? { ...c, status: newStatus, version: newVersion, lastSyncAt: now } : c)
+      };
+      return { data: updated, result: undefined };
+    });
+    return { ...cluster, status: newStatus, version: newVersion, lastSyncAt: now };
+  }
+
+  /** AI 辅助诊断：分析审计/告警数据并生成建议 */
+  async aiDiagnostic(input: AiDiagnosticRequest): Promise<AiDiagnosticResult> {
+    const state = await this.store.read();
+    const events = input.context === "audit" ? (state.auditRetentionPolicies ?? []) : [];
+    const alerts = input.context === "alerts" ? (state.alertEvents ?? []).slice(-50) : [];
+    const sourceCount = events.length + alerts.length;
+    const recommendations: string[] = [];
+    if (input.context === "audit" || input.context === "security") {
+      if (state.auditRetentionPolicies?.length === 0) recommendations.push("未配置审计保留策略，建议设置保留天数。");
+      const violations = state.license ? (state.license.maxHosts ?? 0) - (state.hosts?.length ?? 0) : 0;
+      if (violations < 0) recommendations.push(`主机数超出许可证限额 ${Math.abs(violations)}。`);
+    }
+    if (input.context === "alerts") {
+      const criticalAlerts = (state.alertEvents ?? []).filter((a) => a.level === "critical").length;
+      if (criticalAlerts > 10) recommendations.push(`最近有 ${criticalAlerts} 条严重告警，建议检查资源分配。`);
+    }
+    if (input.context === "backup") {
+      const lastBackup = (state.backups ?? []).slice(-1)[0];
+      if (!lastBackup) recommendations.push("未创建任何备份，建议立即创建。");
+    }
+    if (recommendations.length === 0) recommendations.push("当前状态正常，无需干预。");
+    return {
+      generatedAt: new Date().toISOString(),
+      context: input.context,
+      query: input.query,
+      summary: `分析了 ${sourceCount} 条${input.context === "audit" ? "审计策略" : input.context === "alerts" ? "告警" : "备份"}记录。`,
+      recommendations,
+      sourceCount
     };
   }
 
@@ -1416,6 +1574,27 @@ function verifyOfflineLicense(input: UpdateLicense): LicenseVerificationResult {
   } catch (error) {
     return { ok: false, checkedAt, machineCode, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+function generateOfflineLicense(input: GenerateLicense): LicenseGenerationResult {
+  let privateKey = input.privateKey;
+  let generatedPrivateKey: string | undefined;
+  if (!privateKey) {
+    generatedPrivateKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    privateKey = generatedPrivateKey;
+  }
+  const payload = {
+    plan: input.plan ?? "team",
+    licensedTo: input.licensedTo ?? "LXPanel Customer",
+    machineCode: input.machineCode ?? "",
+    expiresAt: input.expiresAt ?? "",
+    issuedAt: new Date().toISOString(),
+    issuer: "lxpanel-web-console"
+  };
+  const payloadText = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const signatureText = signData("sha256", Buffer.from(payloadText), privateKey).toString("base64url");
+  const offlineToken = `${payloadText}.${signatureText}`;
+  return { payload, offlineToken, ...(generatedPrivateKey ? { generatedPrivateKey } : {}) };
 }
 
 function verificationToLicensePatch(result: LicenseVerificationResult): Partial<LicenseInfo> {

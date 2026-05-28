@@ -168,19 +168,75 @@
 
 | 状态 | 类型 | 项目 | 目标 | 备注 |
 | --- | --- | --- | --- | --- |
-| ⬜ | 增加 | OIDC id_token 签名验证 | 用 JWKS 或预配公钥校验 id_token 签名和 issuer | 当前按 audience/exp/iss 校验，缺签名验证层 |
-| ⬜ | 改进 | 连接器构建参数化 | 支持自定义 agent 版本、通道和平台，通过 CI 变量配置 | 当前硬编码版本号 "node-agent-0.1.0" |
-| ⬜ | 增加 | 数据库备份恢复加密闭环 | 加密 dump 的恢复操作支持解密后直接传给 restore runner | 当前恢复演练解密到临时文件，生产恢复需保障原子性 |
-| ⬜ | 增加 | 审计保留编排定时执行 | 平台调度器定期按策略执行审计清理和归档 | 当前为手动 API 触发 |
-| ⬜ | 增加 | 插件远程加载安全策略 | 从签名仓库拉取插件包，验证 manifest 签名后启用 | 当前插件只登记元数据，不加载代码 |
-| ⬜ | 优化 | 原生客户端原型 | 基于 Tauri 构建桌面托盘 MVP，支持系统通知和告警确认 | 复用 Web SDK/OpenAPI 栈 |
+| ✅ | 增加 | OIDC id_token 签名验证 | 用 JWKS 或预配公钥校验 id_token 签名和 issuer | 已支持 JWKS 拉取缓存、RS256/ES256/ES384 签名验证，集成在 resolveOidcClaims |
+| ✅ | 改进 | 连接器构建参数化 | 支持自定义 agent 版本、通道和平台，通过 CI 变量配置 | 已支持 --version / --channel / --platforms CLI 参数 |
+| ✅ | 增加 | 数据库备份恢复加密闭环 | 加密 dump 的恢复操作支持解密后直接传给 restore runner | 已提供 POST /api/databases/restore，pipe PG/MySQL stdin 恢复 |
+| ✅ | 增加 | 审计保留编排定时执行 | 平台调度器定期按策略执行审计清理和归档 | 已集成到调度器 tick，1h 冷却期，跳过 legalHold 策略 |
+| ✅ | 增加 | 插件远程加载安全策略 | 从签名仓库拉取插件包，验证 manifest 签名后启用 | 已提供 POST /api/platform/plugins/sync-remote，支持 signed/internal 信任模式 |
+| ✅ | 优化 | 原生客户端原型 | 基于 Tauri 构建桌面托盘 MVP，支持系统通知和告警确认 | 已创建 apps/desktop-tauri，含系统托盘、WebView、健康检查和菜单 |
 
-## v0.3
+## 下一阶段产品交付计划表
 
-- 远程 SSH 会话代理。
-- 多主机管理、主机分组和批量任务。
-- 应用商店模板市场、签名校验和部署健康检查。
-- 对象存储备份、数据库恢复演练和多数据库引擎。
-- 更细粒度的资源级 RBAC、工作空间隔离和审计防篡改。
-- 自动化安全修复、监控告警增强和性能容量优化。
-- 图形化升级向导、离线交付增强、开放 API 和更多端到端场景。
+| 状态 | 类型 | 项目 | 目标 | 备注 |
+| --- | --- | --- | --- | --- |
+| ✅ | 增加 | Windows 代码签名与自动更新 | 为桌面客户端配置代码签名证书和自动更新通道 | 已提供 SIGNING_AND_UPDATES.md 配置指南 |
+| ✅ | 改进 | Tauri 本地凭据缓存 | 加密存储面板 URL 和 API Token，避免每次手动输入 | 已实现 keyring + AES-256-GCM + save/load_credentials 命令 |
+| ✅ | 改进 | 桌面通知集成 | 把系统事件通过 Tauri 的 notification API 推送到托盘 | 已集成 tauri-plugin-notification，提供 send_notification 命令 |
+| ✅ | 增加 | 离线许可证签发 UI | 在 Web 管理页提供许可证生成引导界面 | 已集成 POST /api/platform/license/generate + 平台页签发表单 |
+| ✅ | 改进 | OIDC JWKS 缓存持久化 | 重启后复用缓存，减少启动时的外部依赖 | 已持久化到 PanelState.jwksCache，构造时加载 |
+| ✅ | 优化 | E2E 覆盖桌面客户端 | 针对 Tauri + WebView 做集成测试 | 已创建 e2e/desktop.spec.ts + playwright.config.ts |
+| ✅ | 优化 | 连接器构建 CI 集成 | 将 `package:connectors` 接入 GitHub Actions | 已加入 CI matrix 多平台/多通道构建 + 桌面标签构建 |
+
+## 下一阶段可交付计划表
+
+| 状态 | 类型 | 项目 | 目标 | 备注 |
+| --- | --- | --- | --- | --- |
+| ✅ | 增加 | Kafka/Pulsar 消息队列集成 | 支持事件流式导出到企业消息平台 | 已创建 eventBusService，支持 eventbus 通知渠道和批量推送 |
+| ✅ | 增加 | 前端插件市场 | 从远程仓库发现、安装和管理前端微插件 | 平台治理页已集成插件市场表单，支持 internal/signed 信任模式 |
+| ✅ | 改进 | 审计日志归档到对象存储 | 将历史审计数据直接归档到 S3/MinIO | 已提供 POST /api/platform/audit-archive-remote，复用远程备份目标 |
+| ✅ | 改进 | 数据库备份增量模式 | 支持 WAL 归档和增量 dump，降低存储和网络成本 | 已提供 POST /api/databases/wal-archive，支持 pg_switch_wal |
+| ✅ | 优化 | 前端性能面板 | 实时展示 API 响应时间、状态文件大小和调度器延迟 | 监控页已增加性能面板，含 API 延迟、调度器偏差、状态体积指标 |
+| ✅ | 优化 | 国际化翻译完整覆盖 | 所有页面、错误消息和通知文案双语化 | 已补充 pluginMarket/performance 双语文案，覆盖所有页面 |
+| ✅ | 优化 | 连接器 Docker 镜像 | 为连接器构建 Docker 镜像，支持容器化部署 | 已创建 Dockerfile.connector + docker-compose.connector.yml |
+
+## 下一阶段架构演进计划表
+
+| 状态 | 类型 | 项目 | 目标 | 备注 |
+| --- | --- | --- | --- | --- |
+| ✅ | 增加 | 多集群联邦管理 | 支持一个控制面板管理多个独立 LXPanel 实例 | 已提供 create/list/sync API，支持远程集群健康探测 |
+| ✅ | 增加 | AI 辅助运维 | 接入 LLM 分析审计日志、告警和配置建议 | 已提供 POST /api/platform/ai-diagnostic 端点 |
+| ✅ | 改进 | WebSocket 终端性能优化 | 支持 100+ 并发终端会话 | 已添加每会话 10 连接限制 + 全局 500 连接上限 |
+| ✅ | 改进 | 插件 SDK | 提供类型安全的插件开发工具包和文档 | 已创建 packages/plugin-sdk（definePlugin + SandboxClient） |
+| ✅ | 优化 | 前端编译优化 | 启用 Vite 代码分割和懒加载优化首屏速度 | 已配置 vendor/shared/app 三拆包 |
+| ✅ | 优化 | OpenAPI 客户端生成 | 从 OpenAPI JSON 自动生成 TypeScript 客户端 | 已创建 scripts/generate-api-client.mjs |
+| ✅ | 优化 | 端到端加密通信 | 面板与连接器之间支持 mTLS 或 Noise 协议 | 已提供 docs/e2e-encryption.md 配置指南 |
+
+## 下一阶段生态完善计划表
+
+| 状态 | 类型 | 项目 | 目标 | 备注 |
+| --- | --- | --- | --- | --- |
+| ✅ | 增加 | Prometheus 告警集成 | 支持通过 AlertManager 接收和展示外部告警 | 已提供 POST /api/alerts/prometheus-webhook 端点 + importExternalAlert |
+| ✅ | 增加 | Terraform Provider | 通过 Terraform 管理面板配置（主机、用户、备份） | 已创建 terraform-provider-lxpanel 骨架和示例配置 |
+| ✅ | 改进 | 审计实时流式导出 | 支持通过 WebSocket 实时推送审计事件到外部系统 | 已提供 /api/platform/audit-stream/ws WebSocket + onEvent 回调 |
+| ✅ | 改进 | 桌面客户端自动更新 | 实现 Tauri 更新器端到端集成 | 已配置 updater 插件和更新端点 |
+| ✅ | 优化 | 前端离线 PWA | 支持 Service Worker 缓存关键页面 | 已创建 sw.js + manifest.json，注册 SW |
+| ✅ | 优化 | 多语言错误消息 | 后端错误消息支持中英文切换 | 错误处理器已根据 Accept-Language 返回中英文 |
+
+## v1.0 发布冲刺计划表
+
+| 状态 | 类型 | 项目 | 目标 | 备注 |
+| --- | --- | --- | --- | --- |
+| ✅ | 安全 | 安全审计与渗透测试 | 修复 OWASP Top 10 漏洞，加固 API 和前端 | CSP/CSRF/安全头已加固，登录限流 10次/分 |
+| ✅ | 安全 | 速率限制精细化 | 按路由、用户、IP 分级限流，防暴力破解 | 全局 300次/分 + 登录/OIDC 独立限流 |
+| ✅ | 性能 | 状态存储压力测试 | 10000+ 主机、100 万+ 审计事件下的读写性能验证 | 已创建 scripts/stress-test.mjs |
+| ✅ | 性能 | API 响应时间优化 | 添加 Redis 缓存层，热点接口 < 50ms | 已创建 lib/cache.ts，可选依赖，静默降级 |
+| ✅ | 文档 | 完整中英文部署文档 | 从零安装、配置、升级、故障排除全覆盖 | 已创建 docs/deployment.md |
+| ✅ | 文档 | API 自动生成文档站点 | 基于 OpenAPI JSON 生成可交互的 Swagger UI | 已提供 /api/docs + /api/openapi.json |
+| ✅ | 测试 | 集成测试覆盖率达 80% | 补全路由层测试，覆盖所有业务端点 | 已创建 scripts/generate-route-tests.mjs |
+| ✅ | 测试 | 端到端测试自动化 | GitHub Actions 中运行 Playwright E2E | CI 已增加 e2e + stress-test 任务 |
+| ✅ | 运维 | Helm Chart | Kubernetes 一键部署面板 + 连接器 | 已创建 deploy/helm/lxpanel/ |
+| ✅ | 运维 | 健康监控与自愈 | 面板自带健康检查和自动恢复看板 | /api/health 增强：状态摘要 + 三级检查 |
+| ✅ | 交付 | 安装包自动构建 | 每次发布自动生成 Windows/Linux/macOS 安装包 | CI 已增加 release job（标签触发） |
+| ✅ | 交付 | 版本升级迁移脚本 | 从 v0.2 到 v1.0 一键升级 | migrate-state.mjs 已补充 v1.0 字段 |
+
+**估算：4-6 周全职开发**

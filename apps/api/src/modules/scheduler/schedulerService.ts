@@ -5,11 +5,16 @@ import type { BackupStore } from "../backups/backupStore.js";
 import type { DatabaseStore } from "../databases/databaseStore.js";
 import type { MonitoringService } from "../monitoring/monitoringService.js";
 import type { NotificationService } from "../notifications/notificationService.js";
+import type { PlatformStore } from "../platform/platformStore.js";
 import type { TaskStore } from "../tasks/taskStore.js";
+
+/** 调度器执行审计保留的最小间隔（1 小时），避免每次 tick 都扫描 */
+const auditRetentionCooldownMs = 3_600_000;
 
 export class SchedulerService {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
+  private lastAuditRetentionTick = 0;
 
   constructor(
     private readonly taskStore: TaskStore,
@@ -19,7 +24,8 @@ export class SchedulerService {
     private readonly monitoringService: MonitoringService,
     private readonly notificationService: NotificationService,
     private readonly auditLog: AuditLog,
-    private readonly logger: FastifyBaseLogger
+    private readonly logger: FastifyBaseLogger,
+    private readonly platformStore?: PlatformStore
   ) {}
 
   start(intervalMs = 30_000): void {
@@ -71,10 +77,57 @@ export class SchedulerService {
       for (const delivery of deliveries) {
         await this.auditLog.append({ actor: "scheduler", action: "notification.send", target: delivery.channelName, status: delivery.status === "success" ? "success" : "error", detail: delivery.error });
       }
+      // 定时执行审计保留清理（冷却期内跳过）
+      if (this.platformStore && now.getTime() - this.lastAuditRetentionTick >= auditRetentionCooldownMs) {
+        this.lastAuditRetentionTick = now.getTime();
+        await this.runAuditRetentionTick(now);
+      }
     } catch (error) {
       this.logger.error(error, "scheduler tick failed");
     } finally {
       this.running = false;
+    }
+  }
+
+  private async runAuditRetentionTick(now: Date): Promise<void> {
+    try {
+      const policies = await this.platformStore!.auditRetentionPolicies();
+      const enabledPolicies = policies.filter((p) => p.enabled && !p.legalHold);
+      if (enabledPolicies.length === 0) {
+        return;
+      }
+      for (const policy of enabledPolicies) {
+        const evaluation = await this.platformStore!.evaluateAuditRetention({
+          workspace: policy.workspace,
+          eventType: policy.eventType,
+          eventCount: 5000
+        });
+        if (evaluation.legalHold) {
+          continue;
+        }
+        const events = await this.auditLog.list({ limit: 5000, ...(policy.eventType !== "*" ? { action: policy.eventType } : {}) });
+        const eligibleEvents = events.filter((e) => {
+          const eventTime = new Date(e.time).getTime();
+          return now.getTime() - eventTime > evaluation.retainDays * 86_400_000;
+        });
+        if (eligibleEvents.length === 0) {
+          continue;
+        }
+        // 调度器直接归档 + 清理（不经过审批）
+        if (evaluation.archiveBeforeDelete) {
+          await this.auditLog.exportSignedPackage({ format: "jsonl", ...(policy.eventType !== "*" ? { action: policy.eventType } : {}) }).catch(() => undefined);
+        }
+        const pruneResult = await this.auditLog.prune(evaluation.retainDays);
+        await this.auditLog.append({
+          actor: "scheduler",
+          action: "platform.audit_retention.execute",
+          target: `${policy.workspace}:${policy.eventType}`,
+          status: "success",
+          detail: `scheduled;removed=${pruneResult.removed};remaining=${pruneResult.remaining};retainDays=${evaluation.retainDays}`
+        });
+      }
+    } catch (error) {
+      this.logger.warn({ err: error }, "scheduled audit retention tick failed");
     }
   }
 }

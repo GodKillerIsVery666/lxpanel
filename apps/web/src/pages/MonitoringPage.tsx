@@ -1,21 +1,39 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Cpu, HardDrive, MemoryStick, RotateCw } from "lucide-react";
-import type { MetricSample } from "@lxpanel/shared";
+import { Activity, Clock, Cpu, Database, Gauge, HardDrive, MemoryStick, RotateCw } from "lucide-react";
+import type { CapacityPlan, MetricSample } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { MetricCard } from "../components/MetricCard.js";
+
 import { formatDate } from "../utils/format.js";
 
 export function MonitoringPage(): JSX.Element {
   const [samples, setSamples] = useState<MetricSample[]>([]);
   const [hostId, setHostId] = useState("local");
   const [error, setError] = useState<string | null>(null);
+  const [capacity, setCapacity] = useState<CapacityPlan | null>(null);
+  const [apiLatencyMs, setApiLatencyMs] = useState(0);
+  const [schedulerDelayMs, setSchedulerDelayMs] = useState(0);
   const ordered = useMemo(() => [...samples].reverse(), [samples]);
   const latest = samples[0];
 
   async function load(): Promise<void> {
     try {
-      const response = await api.monitoringSamples(hostId || "local", 288);
-      setSamples(response.samples);
+      const [samplesResponse, capacityResponse] = await Promise.all([
+        api.monitoringSamples(hostId || "local", 288),
+        api.capacityPlan().catch(() => null)
+      ]);
+      setSamples(samplesResponse.samples);
+      setCapacity(capacityResponse?.plan ?? null);
+      // 测量 API 延迟
+      const t0 = performance.now();
+      try { await fetch("/api/health/live", { signal: AbortSignal.timeout(5000) }); } catch { /* ignore */ }
+      setApiLatencyMs(Math.round(performance.now() - t0));
+      // 估计调度器延迟（基于样本时间差）
+      if (samplesResponse.samples.length > 1) {
+        const lastTwo = samplesResponse.samples.slice(0, 2);
+        const delay = lastTwo[0] && lastTwo[1] ? new Date(lastTwo[0].time).getTime() - new Date(lastTwo[1].time).getTime() : 0;
+        setSchedulerDelayMs(Math.max(0, delay - 30000)); // 减去 30s 标准间隔
+      }
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "加载失败。");
@@ -39,6 +57,15 @@ export function MonitoringPage(): JSX.Element {
         <MetricCard label="磁盘" value={typeof latest?.diskUsedPercent === "number" ? `${latest.diskUsedPercent}%` : "-"} accent="#315f99" icon={<HardDrive size={22} />} />
         <MetricCard label="样本" value={`${samples.length}`} meta={`${hostId || "local"} 最近 288 条`} accent="#6f5a96" icon={<Activity size={22} />} />
       </div>
+      <section className="table-panel"><div className="panel-title">性能面板 <span className="muted-text">实时诊断 API 与调度器状态</span></div>
+        <div className="metric-grid">
+          <MetricCard label="API 延迟" value={`${apiLatencyMs}ms`} accent="#267871" icon={<Gauge size={22} />} />
+          <MetricCard label="调度器偏差" value={schedulerDelayMs > 5000 ? `${Math.round(schedulerDelayMs / 1000)}s` : "正常"} accent={schedulerDelayMs > 5000 ? "#c0392b" : "#27ae60"} icon={<Clock size={22} />} />
+          <MetricCard label="状态体积" value={capacity ? `${(capacity.stateBytes / 1024).toFixed(1)}KB` : "-"} accent="#315f99" icon={<Database size={22} />} />
+          <MetricCard label="监控样本" value={`${samples.length}`} meta={`${hostId || "local"}`} accent="#6f5a96" icon={<Activity size={22} />} />
+        </div>
+        {capacity?.recommendations.map((item) => <p className="notice" key={item}>{item}</p>)}
+      </section>
       <section className="table-panel">
         <div className="panel-title">资源曲线</div>
         {ordered.length ? <TrendChart samples={ordered} /> : <p className="muted-text">暂无监控样本，调度器会自动写入。</p>}

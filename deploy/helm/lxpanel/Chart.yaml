@@ -1,0 +1,13 @@
+apiVersion: v2
+name: lxpanel
+description: LXPanel 服务器运维管理面板
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - server-management
+  - monitoring
+  - devops
+home: https://github.com/your-org/lxpanel
+sources:
+  - https://github.com/your-org/lxpanel

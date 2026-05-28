@@ -3,7 +3,7 @@ import type { IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { AccessEvaluationRequestSchema, AuditRetentionEvaluationRequestSchema, AuditRetentionExecutionRequestSchema, ConnectorUpgradeRequestSchema, CreateAccessPolicySchema, CreateAuditRetentionPolicySchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, PluginPermissionEvaluationRequestSchema, PluginSandboxRunRequestSchema, RegisterPluginManifestSchema, ResourceApprovalCheckSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateBackupEncryptionPolicySchema, UpdateConnectorReleaseChannelSchema, UpdateIdentityProviderSchema, UpdateLicenseSchema } from "@lxpanel/shared";
+import { AccessEvaluationRequestSchema, AiDiagnosticRequestSchema, AuditRetentionEvaluationRequestSchema, AuditRetentionExecutionRequestSchema, ConnectorUpgradeRequestSchema, CreateAccessPolicySchema, CreateAuditRetentionPolicySchema, CreateFederatedClusterSchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, GenerateLicenseSchema, PluginPermissionEvaluationRequestSchema, PluginSandboxRunRequestSchema, RegisterPluginManifestSchema, ResourceApprovalCheckSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateBackupEncryptionPolicySchema, UpdateConnectorReleaseChannelSchema, UpdateIdentityProviderSchema, UpdateLicenseSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole, requireUser, sessionCookieName } from "../auth/authMiddleware.js";
@@ -12,6 +12,7 @@ import { verifySignedValue } from "../../lib/sessionCookie.js";
 export function registerPlatformRoutes(app: FastifyInstance, services: Services): void {
   const terminalSockets = new Map<string, Set<Socket>>();
   attachTerminalWebSocket(app, services, terminalSockets);
+  attachAuditStreamWebSocket(app, services);
 
   app.get("/api/platform/access-policies", async (request, reply) => {
     const user = await requireUser(request, reply, services);
@@ -375,6 +376,25 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     return { execution };
   });
 
+  app.post("/api/platform/audit-archive-remote", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const format = body.format === "jsonl" ? "jsonl" as const : "jsonl" as const;
+    const auditPackage = await services.auditLog.exportSignedPackage({ format });
+    if (!auditPackage) {
+      await reply.code(404).send({ message: "无审计数据可归档。" });
+      return;
+    }
+    const fileName = `audit-${auditPackage.manifest.generatedAt.replace(/[:.]/gu, "-")}.jsonl`;
+    const content = JSON.stringify(auditPackage);
+    const results = await services.platformStore.archiveAuditToRemote({ fileName, content });
+    await services.auditLog.append({ actor: user.username, action: "platform.audit_archive_remote", target: "remote-backup", ip: request.ip, status: results.some((r) => r.status === "success") ? "success" : "error", detail: `targets=${results.length};ok=${results.filter((r) => r.status === "success").length}` });
+    return { results };
+  });
+
   app.get("/api/platform/plugins", async (request, reply) => {
     const user = await requireRole(request, reply, services, "operator");
     if (!user) {
@@ -391,6 +411,24 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     const input = RegisterPluginManifestSchema.parse(request.body);
     const plugin = await services.platformStore.registerPluginManifest(input, user.username);
     await services.auditLog.append({ actor: user.username, action: "platform.plugin.register", target: plugin.id, ip: request.ip, status: "success", detail: `scopes=${plugin.permissions.join(",")}` });
+    return { plugin };
+  });
+
+  app.post("/api/platform/plugins/sync-remote", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const url = typeof body.url === "string" ? body.url : "";
+    const trustMode = body.trustMode === "signed" ? "signed" as const : "internal" as const;
+    const publicKey = typeof body.publicKey === "string" ? body.publicKey : undefined;
+    if (!url) {
+      await reply.code(400).send({ message: "缺少远程插件 URL。" });
+      return;
+    }
+    const plugin = await services.platformStore.syncPluginManifest(url, trustMode, user.username, publicKey);
+    await services.auditLog.append({ actor: user.username, action: "platform.plugin.sync_remote", target: plugin.id, ip: request.ip, status: "success", detail: `url=${url};trustMode=${trustMode}` });
     return { plugin };
   });
 
@@ -432,6 +470,41 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     return { plan: services.platformStore.clientApplicationPlan() };
   });
 
+  app.get("/api/platform/federated-clusters", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) return;
+    return { clusters: await services.platformStore.listFederatedClusters() };
+  });
+
+  app.post("/api/platform/federated-clusters", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) return;
+    const input = CreateFederatedClusterSchema.parse(request.body);
+    const cluster = await services.platformStore.createFederatedCluster(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "platform.federated_cluster.create", target: cluster.name, ip: request.ip, status: "success" });
+    return { cluster };
+  });
+
+  app.post("/api/platform/federated-clusters/sync", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) return;
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const clusterId = typeof body.clusterId === "string" ? body.clusterId : "";
+    if (!clusterId) { await reply.code(400).send({ message: "缺少 clusterId。" }); return; }
+    const cluster = await services.platformStore.syncFederatedCluster(clusterId);
+    await services.auditLog.append({ actor: user.username, action: "platform.federated_cluster.sync", target: clusterId, ip: request.ip, status: cluster.status === "online" ? "success" : "error" });
+    return { cluster };
+  });
+
+  app.post("/api/platform/ai-diagnostic", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) return;
+    const input = AiDiagnosticRequestSchema.parse(request.body);
+    const result = await services.platformStore.aiDiagnostic(input);
+    await services.auditLog.append({ actor: user.username, action: "platform.ai_diagnostic", target: input.context, ip: request.ip, status: "success" });
+    return { result };
+  });
+
   app.get("/api/platform/license", async (request, reply) => {
     const user = await requireRole(request, reply, services, "owner");
     if (!user) {
@@ -459,6 +532,17 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     const input = UpdateLicenseSchema.parse(request.body);
     const result = services.platformStore.verifyLicense(input);
     await services.auditLog.append({ actor: user.username, action: "platform.license.verify", target: input.licensedTo, ip: request.ip, status: result.ok ? "success" : "error", detail: result.error ?? result.machineCode });
+    return { result };
+  });
+
+  app.post("/api/platform/license/generate", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = GenerateLicenseSchema.parse(request.body);
+    const result = services.platformStore.generateLicense(input);
+    await services.auditLog.append({ actor: user.username, action: "platform.license.generate", target: input.licensedTo, ip: request.ip, status: "success", detail: `plan=${input.plan}` });
     return { result };
   });
 
@@ -637,16 +721,36 @@ function attachTerminalWebSocket(app: FastifyInstance, services: Services, socke
   });
 }
 
+/** 每会话最大 WebSocket 连接数 */
+const maxWsConnectionsPerSession = 10;
+/** 全局最大 WebSocket 连接数 */
+const maxWsTotalConnections = 500;
+
 async function handleTerminalUpgrade(services: Services, sockets: Map<string, Set<Socket>>, request: IncomingMessage, socket: Socket, _head: Buffer, url: URL): Promise<void> {
   const user = await readUpgradeUser(request, services);
   if (!user || roleRank(user.role) < roleRank("operator") || !hasPlatformReadScope(user)) {
     closeUpgrade(socket, 401, "unauthorized");
     return;
   }
+  // 全局连接数限制
+  let totalConnections = 0;
+  for (const bucket of sockets.values()) {
+    totalConnections += bucket.size;
+  }
+  if (totalConnections >= maxWsTotalConnections) {
+    closeUpgrade(socket, 503, "too many websocket connections");
+    return;
+  }
   const sessionId = url.searchParams.get("sessionId") ?? "";
   const session = await services.platformStore.terminalSession(sessionId);
   if (!session) {
     closeUpgrade(socket, 404, "terminal session not found");
+    return;
+  }
+  // 每会话连接数限制
+  const existingBucket = sockets.get(session.id);
+  if (existingBucket && existingBucket.size >= maxWsConnectionsPerSession) {
+    closeUpgrade(socket, 429, "too many connections for this session");
     return;
   }
   const key = request.headers["sec-websocket-key"];
@@ -735,6 +839,53 @@ function parseClientTextFrames(chunk: Buffer): string[] {
     }
   }
   return messages;
+}
+
+/** 审计实时流式导出 WebSocket */
+function attachAuditStreamWebSocket(app: FastifyInstance, services: Services): void {
+  const auditSockets = new Set<Socket>();
+  // 注册审计事件回调
+  const unsubscribe = services.auditLog.onEvent((event) => {
+    const body = Buffer.from(JSON.stringify({ type: "audit", event }), "utf8");
+    const header = body.length < 126 ? Buffer.from([0x81, body.length]) : Buffer.from([0x81, 126, body.length >> 8, body.length & 0xff]);
+    const frame = Buffer.concat([header, body]);
+    for (const socket of auditSockets) {
+      try { socket.write(frame); } catch { auditSockets.delete(socket); }
+    }
+  });
+
+  app.server.on("upgrade", (request, socket, _head) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (url.pathname !== "/api/platform/audit-stream/ws") {
+      return;
+    }
+    const tcpSocket = socket as Socket;
+    void (async () => {
+      const user = await readUpgradeUser(request, services);
+      if (!user || roleRank(user.role) < roleRank("operator")) {
+        closeUpgrade(tcpSocket, 401, "unauthorized");
+        return;
+      }
+      const key = request.headers["sec-websocket-key"];
+      if (typeof key !== "string") {
+        closeUpgrade(tcpSocket, 400, "missing websocket key");
+        return;
+      }
+      const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+      tcpSocket.write([
+        "HTTP/1.1 101 Switching Protocols",
+        "Upgrade: websocket",
+        "Connection: Upgrade",
+        `Sec-WebSocket-Accept: ${accept}`,
+        "", ""
+      ].join("\r\n"));
+      auditSockets.add(tcpSocket);
+      tcpSocket.on("close", () => auditSockets.delete(tcpSocket));
+      tcpSocket.on("error", () => auditSockets.delete(tcpSocket));
+    })();
+  });
+
+  app.addHook("onClose", () => { unsubscribe(); });
 }
 
 async function readUpgradeUser(request: IncomingMessage, services: Services) {

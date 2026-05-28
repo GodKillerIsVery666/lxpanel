@@ -163,6 +163,8 @@ export const platformText: Record<Locale, {
   capacity: string;
   openApi: string;
   quality: string;
+  pluginMarket: string;
+  performance: string;
 }> = {
   "zh-CN": {
     title: "平台治理",
@@ -174,7 +176,9 @@ export const platformText: Record<Locale, {
     audit: "审计完整性和签名包",
     capacity: "容量、归档和升级",
     openApi: "开放 API 和 SDK 示例",
-    quality: "可访问性与国际化"
+    quality: "可访问性与国际化",
+    pluginMarket: "插件市场",
+    performance: "性能面板"
   },
   "en-US": {
     title: "Platform Governance",
@@ -186,6 +190,8 @@ export const platformText: Record<Locale, {
     audit: "Audit Integrity and Signed Bundle",
     capacity: "Capacity, Archive, and Upgrade",
     openApi: "Open API and SDK Examples",
-    quality: "Accessibility and Internationalization"
+    quality: "Accessibility and Internationalization",
+    pluginMarket: "Plugin Marketplace",
+    performance: "Performance Panel"
   }
 };

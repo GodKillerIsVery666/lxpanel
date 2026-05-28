@@ -1,0 +1,27 @@
+[package]
+name = "lxpanel-desktop"
+version = "0.1.0"
+description = "LXPanel Tauri desktop tray MVP"
+edition = "2021"
+
+[lib]
+name = "lxpanel_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+keyring = "3"
+aes-gcm = { version = "0.10", features = ["aes"] }
+base64 = "0.22"
+rand = "0.8"
+sha2 = "0.10"
+machine-uid = "0.3"

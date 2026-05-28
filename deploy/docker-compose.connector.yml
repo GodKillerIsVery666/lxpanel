@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  lxpanel-connector:
+    build:
+      context: ..
+      dockerfile: scripts/Dockerfile.connector
+    image: lxpanel/connector:latest
+    container_name: lxpanel-connector
+    network_mode: host
+    environment:
+      LXPANEL_URL: "${LXPANEL_URL:-http://127.0.0.1:7080}"
+      LXPANEL_CONNECTOR_TOKEN: "${LXPANEL_CONNECTOR_TOKEN:?请设置连接器 Token}"
+      LXPANEL_CONNECTOR_NAME: "${LXPANEL_CONNECTOR_NAME:-docker-connector}"
+      LXPANEL_CONNECTOR_POLL_MS: "5000"
+      LXPANEL_CONNECTOR_ALLOW_COMMANDS: "hostname,uptime,whoami,df,free,ps,docker,ss,netstat"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

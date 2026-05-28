@@ -65,6 +65,26 @@ export class AlertService {
     });
   }
 
+  /** 导入外部告警（如 Prometheus AlertManager Webhook） */
+  async importExternalAlert(input: { type: string; level: "warning" | "critical"; target: string; message: string; externalId?: string }): Promise<AlertEvent> {
+    const alertType: "cpu" | "memory" | "disk" = input.type === "cpu" || input.type === "memory" || input.type === "disk" ? input.type : "cpu";
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const event: AlertEvent = {
+        id: randomToken(12),
+        time: now,
+        type: alertType,
+        level: input.level,
+        target: input.target,
+        currentValue: 0,
+        threshold: 0,
+        message: `${input.message}${input.externalId ? ` [${input.externalId}]` : ""}`
+      };
+      const events = [...(state.alertEvents ?? []), event].slice(-maxAlertEvents);
+      return { data: { ...state, alertEvents: events }, result: event };
+    });
+  }
+
   async updateThreshold(input: UpdateAlertThreshold, actor: string): Promise<AlertThreshold[]> {
     return this.store.update((state) => {
       const now = new Date().toISOString();

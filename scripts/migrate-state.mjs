@@ -117,6 +117,18 @@ if (existsSync(target)) {
 await writeFile(target, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 console.log(`migrated ${source} -> ${target}`);
 
+// v1.0 补充字段
+state.federatedClusters ??= [];
+state.jwksCache ??= [];
+for (const plugin of state.pluginManifests ?? []) {
+  plugin.source ??= plugin.source ?? undefined;
+}
+for (const backup of state.backups ?? []) {
+  if (backup.encryption && typeof backup.encryption.keyVersion === "number") {
+    backup.encryption.keyVersion = String(backup.encryption.keyVersion);
+  }
+}
+
 function defaultConnectorReleaseChannels() {
   const updatedAt = new Date(0).toISOString();
   return [

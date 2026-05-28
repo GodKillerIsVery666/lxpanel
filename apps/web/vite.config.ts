@@ -17,5 +17,21 @@ export default defineConfig({
   },
   preview: {
     port: 4173
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string): string | undefined {
+          if (id.includes("node_modules/react") || id.includes("node_modules/lucide-react")) {
+            return "vendor";
+          }
+          if (id.includes("packages/shared")) {
+            return "shared";
+          }
+          return undefined;
+        }
+      }
+    },
+    chunkSizeWarningLimit: 600
   }
 });

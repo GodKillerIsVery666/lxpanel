@@ -1,0 +1,13 @@
+{
+  "name": "@lxpanel/desktop-tauri",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LXPanel Tauri desktop shell - system tray + WebView",
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build",
+    "icon": "cargo tauri icon",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:headed": "playwright test --config e2e/playwright.config.ts --headed"
+  }
+}

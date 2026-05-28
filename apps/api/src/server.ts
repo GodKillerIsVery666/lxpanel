@@ -28,6 +28,7 @@ import { registerConnectorRoutes } from "./modules/connectors/connectorRoutes.js
 import { ConnectorStore } from "./modules/connectors/connectorStore.js";
 import { registerDatabaseRoutes } from "./modules/databases/databaseRoutes.js";
 import { DatabaseStore } from "./modules/databases/databaseStore.js";
+import { registerDocsRoutes } from "./modules/docs/docsRoutes.js";
 import { registerDockerRoutes } from "./modules/docker/dockerRoutes.js";
 import { registerFileRoutes } from "./modules/files/fileRoutes.js";
 import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
@@ -91,7 +92,7 @@ export async function createServices(config: AppConfig): Promise<Services> {
 export async function buildApp(config: AppConfig = loadConfig()): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel } });
   const services = await createServices(config);
-  const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.databaseStore, services.alertService, services.monitoringService, services.notificationService, services.auditLog, app.log);
+  const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.databaseStore, services.alertService, services.monitoringService, services.notificationService, services.auditLog, app.log, services.platformStore);
 
   await app.register(cookie);
   await app.register(cors, { credentials: true, origin: config.allowedOrigins });
@@ -99,16 +100,24 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerIpAllowlist(app, config);
   registerSecurityHeaders(app, config);
 
-  app.setErrorHandler(async (error, _request, reply) => {
+  app.setErrorHandler(async (error, request, reply) => {
     app.log.error(error);
+    // 根据 Accept-Language 选择错误消息语言
+    const lang = (request.headers["accept-language"] ?? "zh-CN").startsWith("en") ? "en" : "zh";
+    const messages: Record<string, { validation: string; internal: string }> = {
+      zh: { validation: "请求参数不合法。", internal: "服务内部错误。" },
+      en: { validation: "Invalid request parameters.", internal: "Internal server error." }
+    };
+    const msg = messages[lang] ?? { validation: "请求参数不合法。", internal: "服务内部错误。" };
     if (error instanceof ZodError) {
-      await reply.code(400).send({ message: "请求参数不合法。" });
+      await reply.code(400).send({ message: msg.validation });
       return;
     }
-    await reply.code(500).send({ message: "服务内部错误。" });
+    await reply.code(500).send({ message: msg.internal });
   });
 
   registerHealthRoutes(app, services);
+  registerDocsRoutes(app, services);
   registerAuthRoutes(app, services);
   registerUserRoutes(app, services);
   registerSystemRoutes(app, services);

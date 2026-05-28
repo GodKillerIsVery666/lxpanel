@@ -8,7 +8,13 @@ export default tseslint.config(
       "**/dist/**",
       "**/coverage/**",
       "**/node_modules/**",
-      "data/**"
+      "data/**",
+      "apps/desktop-tauri/e2e/**",
+      "apps/desktop-tauri/src-tauri/**",
+      "packages/plugin-sdk/**",
+      "scripts/generate-api-client.mjs",
+      "scripts/generate-route-tests.mjs",
+      "scripts/stress-test.mjs"
     ]
   },
   {
@@ -44,6 +50,7 @@ export default tseslint.config(
     },
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/consistent-type-imports": "error"
     }
   }

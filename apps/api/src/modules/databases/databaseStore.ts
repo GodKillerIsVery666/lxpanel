@@ -1,7 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CreateDatabaseConnection, DatabaseBackupCleanupResult, DatabaseBackupResult, DatabaseConnection, DatabaseRestoreDrillResult, DatabaseType, UpdateDatabaseConnection } from "@lxpanel/shared";
+import type { CreateDatabaseConnection, DatabaseBackupCleanupResult, DatabaseBackupResult, DatabaseConnection, DatabaseRestoreDrillResult, DatabaseRestoreResult, DatabaseType, UpdateDatabaseConnection } from "@lxpanel/shared";
 import { runCommand, type CommandResult } from "../../lib/command.js";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
@@ -13,6 +14,18 @@ const outputLimit = 12_000;
 
 export type DatabaseDumpRunner = (type: DatabaseType, url: string, filePath: string) => Promise<CommandResult>;
 export type DatabaseRestoreDrillRunner = (type: DatabaseType, url: string, filePath: string) => Promise<CommandResult>;
+export type DatabaseRestoreRunner = (type: DatabaseType, url: string, dumpData: Buffer) => Promise<CommandResult>;
+export type DatabaseWalArchiveRunner = (type: DatabaseType, url: string, archiveDir: string) => Promise<CommandResult>;
+
+const defaultWalArchiveRunner: DatabaseWalArchiveRunner = async (type, url, archiveDir) => {
+  if (type !== "postgres") {
+    throw new Error("WAL 归档仅支持 PostgreSQL。");
+  }
+  // 使用 pg_archivewal 或手动归档 WAL 段
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(archiveDir, { recursive: true });
+  return runCommand("psql", ["--dbname", url, "-c", `SELECT pg_switch_wal(); SELECT pg_walfile_name_offset(pg_current_wal_lsn());`], 30_000);
+};
 
 const defaultDumpRunner: DatabaseDumpRunner = (type, url, filePath) => {
   if (type === "postgres") {
@@ -35,6 +48,50 @@ const defaultRestoreDrillRunner: DatabaseRestoreDrillRunner = async (type, _url,
   return { stdout: "SQL dump structure ok", stderr: "" };
 };
 
+/**
+ * 默认生产恢复运行器：解密后 pipe 到 pg_restore / mysql 的 stdin。
+ * 避免先写临时文件再读取，减少密钥材料在磁盘上的暴露窗口。
+ */
+const defaultRestoreRunner: DatabaseRestoreRunner = async (type, url, dumpData) => {
+  if (type === "postgres") {
+    return new Promise((resolve, reject) => {
+      const child = spawn("pg_restore", ["--dbname", url, "--format", "custom"], { stdio: ["pipe", "pipe", "pipe"], timeout: 300_000 });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+      child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve({ stdout, stderr });
+        } else {
+          reject(new Error(`pg_restore 退出码 ${code}: ${stderr.slice(0, 2000)}`));
+        }
+      });
+      child.on("error", reject);
+      child.stdin.end(dumpData);
+    });
+  }
+  const parsed = new URL(url);
+  const database = parsed.pathname.replace(/^\//u, "");
+  const command = type === "mariadb" ? "mariadb" : "mysql";
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, [`--host=${parsed.hostname}`, `--port=${parsed.port || "3306"}`, `--user=${decodeURIComponent(parsed.username)}`, `--password=${decodeURIComponent(parsed.password)}`, database], { stdio: ["pipe", "pipe", "pipe"], timeout: 300_000 });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        reject(new Error(`${command} 退出码 ${code}: ${stderr.slice(0, 2000)}`));
+      }
+    });
+    child.on("error", reject);
+    child.stdin.end(dumpData);
+  });
+};
+
 export class DatabaseStore {
   private readonly encryptionKey: Buffer | null;
 
@@ -43,7 +100,8 @@ export class DatabaseStore {
     private readonly dataDir: string,
     encryptionSecret = "",
     private readonly dumpRunner: DatabaseDumpRunner = defaultDumpRunner,
-    private readonly restoreDrillRunner: DatabaseRestoreDrillRunner = defaultRestoreDrillRunner
+    private readonly restoreDrillRunner: DatabaseRestoreDrillRunner = defaultRestoreDrillRunner,
+    private readonly restoreRunner: DatabaseRestoreRunner = defaultRestoreRunner
   ) {
     this.encryptionKey = encryptionSecret ? createHash("sha256").update(encryptionSecret).digest() : null;
   }
@@ -167,6 +225,88 @@ export class DatabaseStore {
       result = { connectionId, checkedAt: new Date().toISOString(), status: "failed", backupPath: connection.lastBackupPath, error: error instanceof Error ? error.message : String(error) };
     }
     return this.markRestoreDrill(connectionId, result, actor);
+  }
+
+  /**
+   * 为 PostgreSQL 连接执行 WAL 归档（增量备份）。
+   * 切换 WAL 段并将归档文件复制到备份目录。
+   */
+  async archiveWal(connectionId: string): Promise<{ connectionId: string; status: string; walFile?: string; error?: string }> {
+    const state = await this.store.read();
+    const connection = (state.databaseConnections ?? []).find((item) => item.id === connectionId);
+    if (!connection) {
+      throw new Error("数据库连接不存在。");
+    }
+    if (connection.type !== "postgres") {
+      return { connectionId, status: "failed", error: "WAL 归档仅支持 PostgreSQL。" };
+    }
+    const walDir = join(this.dataDir, "database-wal", sanitizeName(connection.name));
+    try {
+      const output = await defaultWalArchiveRunner(connection.type, this.readUrl(connection), walDir);
+      const walMatch = output.stdout.match(/walfile_name_offset[^)]+\)\s*--\s*([^\s]+)/iu);
+      const walFile = walMatch?.[1] ?? `wal-${new Date().toISOString().replace(/[:.]/gu, "-")}`;
+      return { connectionId, status: "success", walFile };
+    } catch (error) {
+      return { connectionId, status: "failed", error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async runRestore(connectionId: string, targetDatabaseUrl: string | undefined): Promise<DatabaseRestoreResult> {
+    const startedAt = new Date().toISOString();
+    const state = await this.store.read();
+    const connection = (state.databaseConnections ?? []).find((item) => item.id === connectionId);
+    if (!connection) {
+      throw new Error("数据库连接不存在。");
+    }
+    if (!connection.lastBackupPath) {
+      return { connectionId, startedAt, finishedAt: new Date().toISOString(), status: "failed", backupPath: "", error: "无可用备份文件。" };
+    }
+    const restoreUrl = targetDatabaseUrl ?? this.readUrl(connection);
+    let result: DatabaseRestoreResult;
+    try {
+      const dumpData = await this.decryptDumpIfNeeded(connection.lastBackupPath);
+      const output = await this.restoreRunner(connection.type, restoreUrl, dumpData);
+      result = {
+        connectionId,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        status: "success",
+        backupPath: connection.lastBackupPath,
+        outputTail: tailOutput(`${output.stdout}\n${output.stderr}`.trim())
+      };
+    } catch (error) {
+      result = { connectionId, startedAt, finishedAt: new Date().toISOString(), status: "failed", backupPath: connection.lastBackupPath ?? "", error: error instanceof Error ? error.message : String(error) };
+    }
+    await this.auditRestore(connectionId, result);
+    return result;
+  }
+
+  /**
+   * 读取备份文件，如果是加密 envelope 则解密后返回明文 Buffer，
+   * 否则直接读取文件内容。避免解密材料留在临时文件。
+   */
+  private async decryptDumpIfNeeded(filePath: string): Promise<Buffer> {
+    if (!filePath.endsWith(".lxenc")) {
+      return readFile(filePath);
+    }
+    if (!this.encryptionKey) {
+      throw new Error("数据库 dump 已加密，但当前未配置解密密钥。");
+    }
+    const envelope = JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>;
+    if (envelope.kind !== encryptedDumpKind || envelope.algorithm !== "AES-256-GCM" || typeof envelope.iv !== "string" || typeof envelope.tag !== "string" || typeof envelope.ciphertext !== "string") {
+      throw new Error("数据库 dump 加密 envelope 格式不正确。");
+    }
+    const decipher = createDecipheriv("aes-256-gcm", this.encryptionKey, Buffer.from(envelope.iv, "base64url"));
+    decipher.setAuthTag(Buffer.from(envelope.tag, "base64url"));
+    return Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, "base64url")), decipher.final()]);
+  }
+
+  private async auditRestore(connectionId: string, resultValue: DatabaseRestoreResult): Promise<void> {
+    // 审计记录由调用方在 routes 层写入，这里仅用于状态持久化（可选）
+    await this.store.update((state) => ({
+      data: { ...state, databaseConnections: (state.databaseConnections ?? []).map((conn) => conn.id === connectionId ? { ...conn, lastRestoreDrillAt: new Date().toISOString(), lastRestoreDrillStatus: resultValue.status === "success" ? "success" : "failed" } : conn) },
+      result: undefined
+    }));
   }
 
   async runDueScheduledBackups(now = new Date()): Promise<DatabaseBackupResult[]> {

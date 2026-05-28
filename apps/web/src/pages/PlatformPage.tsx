@@ -35,6 +35,9 @@ export function PlatformPage(): JSX.Element {
   const [retentionPolicies, setRetentionPolicies] = useState<AuditRetentionPolicy[]>([]);
   const [retentionEvaluation, setRetentionEvaluation] = useState<AuditRetentionEvaluation | null>(null);
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
+  const [marketUrl, setMarketUrl] = useState("");
+  const [marketTrustMode, setMarketTrustMode] = useState<"internal" | "signed">("internal");
+  const [marketPublicKey, setMarketPublicKey] = useState("");
   const [haPlan, setHaPlan] = useState<HighAvailabilityPlan | null>(null);
   const [upgradePlan, setUpgradePlan] = useState<ConnectorUpgradePlan | null>(null);
   const [tenantReport, setTenantReport] = useState<TenantReport | null>(null);
@@ -58,6 +61,11 @@ export function PlatformPage(): JSX.Element {
   const [licenseTo, setLicenseTo] = useState("customer");
   const [licenseToken, setLicenseToken] = useState("");
   const [licensePublicKey, setLicensePublicKey] = useState("");
+  const [genPlan, setGenPlan] = useState<"community" | "team" | "enterprise">("team");
+  const [genTo, setGenTo] = useState("LXPanel Customer");
+  const [genMachineCode, setGenMachineCode] = useState("");
+  const [genExpires, setGenExpires] = useState("");
+  const [genResult, setGenResult] = useState<{ offlineToken: string; generatedPrivateKey?: string | undefined } | null>(null);
   const [approvalAction, setApprovalAction] = useState("backup.restore");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +105,18 @@ export function PlatformPage(): JSX.Element {
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "加载平台治理数据失败。");
+    }
+  }
+
+  async function syncMarketPlugin(): Promise<void> {
+    try {
+      const response = await api.syncPluginManifest?.({ url: marketUrl, trustMode: marketTrustMode, ...(marketPublicKey ? { publicKey: marketPublicKey } : {}) });
+      if (response) {
+        setNotice(`插件 ${response.plugin.id}@${response.plugin.version} 已从远程市场安装。`);
+        await load();
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "插件市场同步失败。");
     }
   }
 
@@ -232,6 +252,16 @@ export function PlatformPage(): JSX.Element {
     }
   }
 
+  async function generateLicense(): Promise<void> {
+    try {
+      const response = await api.generateLicense({ plan: genPlan, licensedTo: genTo, ...(genMachineCode ? { machineCode: genMachineCode } : {}), ...(genExpires ? { expiresAt: genExpires } : {}) });
+      setGenResult(response.result);
+      setNotice(`许可证已生成：${response.result.offlineToken.slice(0, 32)}...`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "许可证生成失败。");
+    }
+  }
+
   async function dryRun(itemId: string): Promise<void> {
     try {
       const response = await api.createRemediationRun({ itemId, dryRun: true });
@@ -332,6 +362,8 @@ export function PlatformPage(): JSX.Element {
         <table><thead><tr><th>仓库</th><th>信任</th><th>状态</th><th>模板</th><th>索引</th><th>操作</th></tr></thead><tbody>{repositories.map((repository) => <tr key={repository.id}><td>{repository.name}</td><td>{repository.trustMode}</td><td>{repository.lastError ?? repository.lastStatus ?? "pending"}</td><td>{repository.templateCount}</td><td><code className="inline-code">{repository.indexSha256?.slice(0, 16) ?? "-"}</code></td><td><button className="mini-button" onClick={() => void syncRepository(repository.id)}>同步</button><button className="mini-button" onClick={() => void rollbackRepository(repository.id)}>回滚</button></td></tr>)}</tbody></table>
         <div className="inline-form wrap"><select value={licensePlan} onChange={(event) => setLicensePlan(event.target.value as "community" | "team" | "enterprise")} aria-label="许可证版本"><option value="community">community</option><option value="team">team</option><option value="enterprise">enterprise</option></select><input value={licenseTo} onChange={(event) => setLicenseTo(event.target.value)} placeholder="授权客户" /><input value={licenseToken} onChange={(event) => setLicenseToken(event.target.value)} placeholder="离线许可证 token" /><input value={licensePublicKey} onChange={(event) => setLicensePublicKey(event.target.value)} placeholder="验签公钥 PEM" /><button type="button" onClick={() => void verifyLicense()}><ShieldCheck size={16} /> 验签</button><button type="button" onClick={() => void saveLicense()}><KeyRound size={16} /> 保存授权</button></div>
         <p className="muted-text">授权：{licenseStatus?.license.plan ?? "-"} / {licenseStatus?.license.verificationStatus ?? "unverified"} / 机器码 {licenseStatus?.license.machineCode ?? "-"} / 主机 {licenseStatus?.usage.hosts ?? 0}/{licenseStatus?.license.maxHosts ?? 0} / 用户 {licenseStatus?.usage.users ?? 0}/{licenseStatus?.license.maxUsers ?? 0} / 应用 {licenseStatus?.usage.apps ?? 0}/{licenseStatus?.license.maxApps ?? 0}</p>
+        <div className="inline-form wrap"><span className="muted-text">签发：</span><select value={genPlan} onChange={(event) => setGenPlan(event.target.value as "community" | "team" | "enterprise")} aria-label="签发版本"><option value="community">community</option><option value="team">team</option><option value="enterprise">enterprise</option></select><input value={genTo} onChange={(event) => setGenTo(event.target.value)} placeholder="授权客户" /><input value={genMachineCode} onChange={(event) => setGenMachineCode(event.target.value)} placeholder="机器码(可选)" /><input value={genExpires} onChange={(event) => setGenExpires(event.target.value)} placeholder="过期 2027-01-01T00:00:00Z" /><button type="button" onClick={() => void generateLicense()}><KeyRound size={16} /> 生成</button></div>
+        {genResult ? <div><p className="muted-text">Token: <code className="inline-code">{genResult.offlineToken.slice(0, 64)}...</code></p>{genResult.generatedPrivateKey ? <details><summary>新私钥（请立即保存）</summary><pre className="inline-log">{genResult.generatedPrivateKey}</pre></details> : null}</div> : null}
       </section>
       <section className="table-panel">
         <div className="panel-title">{text.workspace}</div>
@@ -348,6 +380,10 @@ export function PlatformPage(): JSX.Element {
         <div className="panel-title">商业化治理</div>
         <div className="inline-form wrap"><StatusPill status={ssoReadiness?.enabled ? "secure" : "warn"} label={ssoReadiness?.enabled ? "SSO 已启用" : "SSO 未启用"} /><StatusPill status={backupEncryption?.enabled ? "secure" : "warn"} label={backupEncryption?.enabled ? `备份加密 v${backupEncryption.keyVersion}` : "备份未加密"} /><StatusPill status={releaseManifest?.verification.allArtifactsHaveSha256 ? "secure" : "warn"} label={`发行清单 ${releaseManifest?.manifestSha256.slice(0, 12) ?? "-"}`} /><StatusPill status={(haPlan?.checks.every((check) => check.ready) ?? false) ? "secure" : "warn"} label={haPlan?.mode ?? "single-node"} /></div>
         <table><thead><tr><th>能力</th><th>状态</th><th>关键数据</th></tr></thead><tbody><tr><td>SSO/OIDC</td><td>{ssoReadiness?.checks.filter((check) => check.ready).length ?? 0}/{ssoReadiness?.checks.length ?? 0}</td><td>{ssoReadiness?.provider?.name ?? "未配置"} / {ssoReadiness?.localBreakGlassAvailable ? "保留本地应急" : "未保留本地应急"}</td></tr><tr><td>连接器发行</td><td>{releaseManifest?.verification.allArtifactsHaveSignature ? "签名齐全" : "需补签名"}</td><td>{releaseManifest?.channels.map((channel) => `${channel.name}:${channel.version}`).join(" / ") ?? "-"}</td></tr><tr><td>备份密钥</td><td>{backupRotation ? `v${backupRotation.currentKeyVersion} -> v${backupRotation.nextKeyVersion}` : "-"}</td><td>{backupEncryption?.nextRotationAt ? formatDate(backupEncryption.nextRotationAt) : "未排期"}</td></tr><tr><td>审计保留</td><td>{retentionPolicies.length} 条</td><td>{retentionEvaluation ? `${retentionEvaluation.retainDays} 天 / ${retentionEvaluation.archiveBeforeDelete ? "先归档" : "直接清理"}` : "-"}</td></tr><tr><td>插件权限</td><td>{plugins.length} 个</td><td>{plugins[0] ? `${plugins[0].id} / ${plugins[0].permissions.join(", ")}` : "未注册插件"}</td></tr><tr><td>高可用</td><td>{haPlan?.estimatedRecoveryMinutes ?? 0} 分钟 RTO</td><td>{haPlan?.rolloutSteps.map((step) => step.title).join(" / ") ?? "-"}</td></tr></tbody></table>
+      </section>
+      <section className="table-panel"><div className="panel-title">插件市场 <span className="muted-text">({plugins.length} 个已注册)</span></div>
+        <div className="inline-form wrap"><select value={marketTrustMode} onChange={(event) => setMarketTrustMode(event.target.value as "internal" | "signed")}><option value="internal">internal</option><option value="signed">signed</option></select><input value={marketUrl} onChange={(event) => setMarketUrl(event.target.value)} placeholder="https://plugins.example.com/manifest.json" /><input value={marketPublicKey} onChange={(event) => setMarketPublicKey(event.target.value)} placeholder="公钥 PEM(签名模式)" /><button type="button" onClick={() => void syncMarketPlugin()}><Download size={16} /> 安装</button></div>
+        {plugins.length > 0 ? <table><thead><tr><th>ID</th><th>版本</th><th>入口</th><th>权限</th><th>来源</th></tr></thead><tbody>{plugins.map((plugin) => <tr key={plugin.id}><td>{plugin.id}</td><td>{plugin.version}</td><td><code className="inline-code">{plugin.entryPoint}</code></td><td>{plugin.permissions.join(", ")}</td><td>{plugin.source ?? "本地注册"}</td></tr>)}</tbody></table> : <p className="muted-text">暂无已注册插件。</p>}
       </section>
       <section className="table-panel">
         <div className="panel-title">{text.approval}</div>

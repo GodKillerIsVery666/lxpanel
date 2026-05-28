@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateAlertSilenceSchema, DismissAlertSchema, UpdateAlertThresholdSchema } from "@lxpanel/shared";
+import { CreateAlertSilenceSchema, DismissAlertSchema, PrometheusAlertWebhookSchema, UpdateAlertThresholdSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
 
@@ -69,5 +69,24 @@ export function registerAlertRoutes(app: FastifyInstance, services: Services): v
     const event = await services.alertService.dismissAlert(body.alertId, user.username);
     await services.auditLog.append({ actor: user.username, action: "alerts.dismiss", target: body.alertId, ip: request.ip, status: "success" });
     return { event };
+  });
+
+  // Prometheus AlertManager Webhook 接收端点
+  app.post("/api/alerts/prometheus-webhook", async (request, _reply) => {
+    const body = PrometheusAlertWebhookSchema.parse(request.body);
+    let imported = 0;
+    for (const alert of body.alerts) {
+      const type = alert.labels.alertname ?? "prometheus";
+      const target = alert.labels.instance ?? alert.labels.host ?? "unknown";
+      const level = alert.status === "firing" ? "critical" as const : "warning" as const;
+      const message = alert.annotations.summary ?? alert.annotations.description ?? `${type} on ${target}`;
+      await services.alertService.importExternalAlert({ type, level, target, message, externalId: alert.fingerprint ?? alert.startsAt });
+      imported += 1;
+    }
+    await services.auditLog.append({
+      actor: "prometheus", action: "alert.prometheus_webhook", target: body.commonLabels?.alertname ?? "prometheus",
+      ip: request.ip, status: "success", detail: `imported=${imported};status=${body.status}`
+    });
+    return { ok: true, imported };
   });
 }

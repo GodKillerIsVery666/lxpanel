@@ -5,45 +5,18 @@ on:
     branches: [main]
   pull_request:
 
-jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Lint
-        run: npm run lint
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Test
-        run: npm run test
-      - name: Build
-        run: npm run build
-      - name: Smoke
-        run: npm run smoke
-      - name: Package release
-        run: npm run package:release
-name: ci
-
-on:
-  push:
-  pull_request:
+env:
+  NODE_VERSION: "24"
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
       - run: npm run lint
@@ -51,3 +24,94 @@ jobs:
       - run: npm run test
       - run: npm run build
       - run: npm run smoke
+      - run: npm run package:release
+      - run: npm run diagnose:release
+
+  # 连接器构建矩阵：多平台 + 自定义版本参数
+  connectors:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        channel: [stable, candidate]
+        platform: [win32-x64, linux-x64, darwin-arm64]
+      max-parallel: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Package connector (${{ matrix.channel }} / ${{ matrix.platform }})
+        run: npm run package:connectors -- --channel ${{ matrix.channel }} --platforms ${{ matrix.platform }}
+      - name: Upload connector artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: connector-${{ matrix.channel }}-${{ matrix.platform }}
+          path: release/connectors/
+          retention-days: 14
+
+  # E2E 测试
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Build
+        run: npm run build
+      - name: E2E smoke test
+        run: npm run smoke
+      - name: Stress test (light)
+        run: node scripts/stress-test.mjs --store json --hosts 1000 --events 10000
+
+  # 桌面客户端构建（仅在标签推送时）
+  desktop:
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Build Tauri desktop
+        working-directory: apps/desktop-tauri
+        run: npm run build
+      - name: Upload desktop installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-installer
+          path: apps/desktop-tauri/src-tauri/target/release/bundle/
+          retention-days: 30
+
+  # 发布（仅在标签推送时）
+  release:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, connectors, e2e]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run package:release
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/lxpanel-*.tar.gz
+            release/connectors/*

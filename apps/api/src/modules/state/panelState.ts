@@ -1,4 +1,4 @@
-import type { AccessPolicy, AlertEvent, AlertSilence, AlertThreshold, ApiTokenScope, AppDeployment, Approval, AuditRetentionPolicy, BackupEncryptionPolicy, ConnectorReleaseChannel, DatabaseConnection, Host, HostGroup, IdentityProvider, ImportedAppTemplate, LicenseInfo, MetricSample, NotificationChannel, NotificationDelivery, PluginManifest, RemoteBackupTarget, ResourceApprovalPolicy, Role, SecurityRemediationRun, TemplateRepository, TerminalSession, Workspace } from "@lxpanel/shared";
+import type { AccessPolicy, AlertEvent, AlertSilence, AlertThreshold, ApiTokenScope, AppDeployment, Approval, AuditRetentionPolicy, BackupEncryptionPolicy, ConnectorReleaseChannel, DatabaseConnection, FederatedCluster, Host, HostGroup, IdentityProvider, ImportedAppTemplate, LicenseInfo, MetricSample, NotificationChannel, NotificationDelivery, PluginManifest, RemoteBackupTarget, ResourceApprovalPolicy, Role, SecurityRemediationRun, TemplateRepository, TerminalSession, Workspace } from "@lxpanel/shared";
 
 export interface UserRecord {
   id: string;
@@ -164,6 +164,7 @@ export type ConnectorReleaseChannelRecord = ConnectorReleaseChannel;
 export type BackupEncryptionPolicyRecord = BackupEncryptionPolicy;
 export type AuditRetentionPolicyRecord = AuditRetentionPolicy;
 export type PluginManifestRecord = PluginManifest;
+export type FederatedClusterRecord = FederatedCluster;
 
 export interface PanelState {
   users: UserRecord[];
@@ -201,6 +202,20 @@ export interface PanelState {
   backupEncryptionPolicy?: BackupEncryptionPolicyRecord;
   auditRetentionPolicies?: AuditRetentionPolicyRecord[];
   pluginManifests?: PluginManifestRecord[];
+  jwksCache?: Array<{ uri: string; keys: JwkCachedKey[]; fetchedAt: number }>;
+  federatedClusters?: FederatedClusterRecord[];
+}
+
+export interface JwkCachedKey {
+  kid?: string;
+  kty: string;
+  alg?: string;
+  use?: string;
+  n?: string;
+  e?: string;
+  x?: string;
+  y?: string;
+  crv?: string;
 }
 
 export function createInitialPanelState(): PanelState {

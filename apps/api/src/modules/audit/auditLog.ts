@@ -31,6 +31,10 @@ export class AuditLog {
     try {
       await mkdir(dirname(this.filePath), { recursive: true });
       await appendFile(this.filePath, `${JSON.stringify(fullEvent)}\n`, "utf8");
+      // 通知实时流订阅者
+      for (const callback of this.streamCallbacks) {
+        try { callback(fullEvent); } catch { /* 单个订阅者失败不影响其他 */ }
+      }
     } catch (error) {
       console.error("[audit] 写入审计日志失败", error);
       throw error;
@@ -55,6 +59,17 @@ export class AuditLog {
     const events = filtered.slice(offset, offset + query.limit);
     const nextOffset = offset + events.length;
     return { events, total: filtered.length, ...(nextOffset < filtered.length ? { nextCursor: String(nextOffset) } : {}) };
+  }
+
+  /** 审计事件订阅回调列表（用于实时流式导出） */
+  private streamCallbacks: Array<(event: AuditEvent) => void> = [];
+
+  /** 订阅实时审计事件流 */
+  onEvent(callback: (event: AuditEvent) => void): () => void {
+    this.streamCallbacks.push(callback);
+    return () => {
+      this.streamCallbacks = this.streamCallbacks.filter((cb) => cb !== callback);
+    };
   }
 
   async exportSignedPackage(query: AuditExportQuery): Promise<AuditExportPackage> {

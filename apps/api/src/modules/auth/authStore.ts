@@ -1,8 +1,27 @@
 import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type ApiTokenStatus, type AuthSession, type AuthUser, type CreatedApiToken, type CreateApiToken, type CreateUser, type IdentityProvider, type OidcCallback, type Role } from "@lxpanel/shared";
+import { createPublicKey, createVerify } from "node:crypto";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from "../../lib/totp.js";
-import type { ApiTokenRecord, PanelState, UserRecord } from "../state/panelState.js";
+import type { ApiTokenRecord, JwkCachedKey, PanelState, UserRecord } from "../state/panelState.js";
+
+/** JWKS 键类型 */
+interface JwkKey {
+  kid?: string;
+  kty: string;
+  alg?: string;
+  use?: string;
+  n?: string;
+  e?: string;
+  x?: string;
+  y?: string;
+  crv?: string;
+}
+/** 内存 JWKS 缓存（主缓存，最快） */
+const jwksCache = new Map<string, { keys: JwkKey[]; fetchedAt: number }>();
+const jwksCacheTtlMs = 300_000; // 5 分钟
+/** 持久化回调，由 AuthStore 构造函数设置 */
+let jwksPersistCallback: (() => Promise<void>) | undefined;
 
 const sessionTtlMs = 1000 * 60 * 60 * 12;
 const apiTokenExpiryWarningMs = 1000 * 60 * 60 * 24 * 7;
@@ -32,7 +51,53 @@ export interface OidcLoginResult {
 }
 
 export class AuthStore {
-  constructor(private readonly store: StateStore<PanelState>) {}
+  private jwksLoaded = false;
+
+  constructor(private readonly store: StateStore<PanelState>) {
+    jwksPersistCallback = () => this.persistJwksCache();
+  }
+
+  /**
+   * 从状态存储加载持久化的 JWKS 缓存到内存。
+   */
+  private async ensureJwksLoaded(): Promise<void> {
+    if (this.jwksLoaded) {
+      return;
+    }
+    this.jwksLoaded = true;
+    try {
+      const state = await this.store.read();
+      if (state.jwksCache) {
+        for (const entry of state.jwksCache) {
+          jwksCache.set(entry.uri, { keys: entry.keys, fetchedAt: entry.fetchedAt });
+        }
+      }
+    } catch {
+      // 静默失败，下次重新获取
+    }
+  }
+
+  /**
+   * 将内存中的 JWKS 缓存持久化到状态存储。
+   */
+  private async persistJwksCache(): Promise<void> {
+    const entries = [...jwksCache.entries()].map(([uri, entry]) => ({
+      uri,
+      keys: entry.keys.map((key) => ({
+        kid: key.kid,
+        kty: key.kty,
+        alg: key.alg,
+        use: key.use,
+        n: key.n,
+        e: key.e,
+        x: key.x,
+        y: key.y,
+        crv: key.crv
+      })) as JwkCachedKey[],
+      fetchedAt: entry.fetchedAt
+    }));
+    await this.store.update((state) => ({ data: { ...state, jwksCache: entries }, result: undefined }));
+  }
 
   async hasUsers(): Promise<boolean> {
     const state = await this.store.read();
@@ -175,6 +240,7 @@ export class AuthStore {
   }
 
   async completeOidcLogin(input: OidcCallback): Promise<OidcLoginResult> {
+    await this.ensureJwksLoaded();
     const state = await this.store.read();
     const provider = state.identityProvider;
     if (!provider?.enabled) {
@@ -476,29 +542,142 @@ function toAuthUser(user: UserRecord): AuthUser {
   };
 }
 
+/**
+ * 从 JWKS URI 获取并缓存公钥，验证 id_token 签名。
+ * 支持 RS256 / ES256 / ES384 算法。
+ */
+async function verifyJwtSignature(idToken: string, jwksUri: string): Promise<void> {
+  const header = decodeJwtHeader(idToken);
+  const alg = header.alg;
+  const kid = header.kid;
+  if (!alg || !kid) {
+    throw new Error("JWT header 缺少 alg 或 kid。");
+  }
+  const keys = await fetchJwksKeys(jwksUri);
+  const jwk = keys.find((k) => k.kid === kid && (k.use === undefined || k.use === "sig"));
+  if (!jwk) {
+    throw new Error(`JWKS 中未找到匹配 kid=${kid} 的签名密钥。`);
+  }
+  const publicKey = jwkToCryptoKey(jwk, alg);
+  const parts = idToken.split(".");
+  if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
+    throw new Error("JWT 格式不正确。");
+  }
+  const signature = Buffer.from(parts[2], "base64url");
+  const data = `${parts[0]}.${parts[1]}`;
+  const verifier = createVerify(algToNodeHash(alg));
+  verifier.update(data, "utf8");
+  const valid = verifier.verify(publicKey, signature);
+  if (!valid) {
+    throw new Error("OIDC id_token 签名验证失败。");
+  }
+}
+
+function decodeJwtHeader(token: string): { alg: string; kid: string } {
+  const parts = token.split(".");
+  if (parts.length < 2 || !parts[0]) {
+    throw new Error("JWT 格式不正确。");
+  }
+  const parsed = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")) as Record<string, unknown>;
+  const alg = typeof parsed.alg === "string" ? parsed.alg : "";
+  const kid = typeof parsed.kid === "string" ? parsed.kid : "";
+  return { alg, kid };
+}
+
+async function fetchJwksKeys(jwksUri: string): Promise<JwkKey[]> {
+  const cached = jwksCache.get(jwksUri);
+  if (cached && Date.now() - cached.fetchedAt < jwksCacheTtlMs) {
+    return cached.keys;
+  }
+  const response = await fetch(jwksUri, { signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) {
+    throw new Error(`JWKS 获取失败: ${response.status}`);
+  }
+  const body = (await response.json()) as Record<string, unknown>;
+  const rawKeys = body.keys;
+  if (!Array.isArray(rawKeys)) {
+    throw new Error("JWKS 响应缺少 keys 数组。");
+  }
+  const keys = rawKeys as JwkKey[];
+  jwksCache.set(jwksUri, { keys, fetchedAt: Date.now() });
+  // 异步持久化到状态存储，不阻塞当前请求
+  if (jwksPersistCallback) {
+    jwksPersistCallback().catch(() => undefined);
+  }
+  return keys;
+}
+
+function jwkToCryptoKey(jwk: JwkKey, alg: string): string {
+  if (jwk.kty === "RSA" && jwk.n && jwk.e) {
+    const pem = [
+      "-----BEGIN PUBLIC KEY-----",
+      Buffer.from(JSON.stringify({ kty: "RSA", n: jwk.n, e: jwk.e }), "utf8").toString("base64"),
+      "-----END PUBLIC KEY-----"
+    ].join("\n");
+    return createPublicKey({ key: pem, format: "pem" }).export({ type: "spki", format: "pem" }).toString();
+  }
+  if ((jwk.kty === "EC" || jwk.crv) && jwk.x && jwk.y) {
+    const pem = [
+      "-----BEGIN PUBLIC KEY-----",
+      Buffer.from(JSON.stringify({ kty: "EC", crv: jwk.crv ?? (alg === "ES256" ? "P-256" : "P-384"), x: jwk.x, y: jwk.y }), "utf8").toString("base64"),
+      "-----END PUBLIC KEY-----"
+    ].join("\n");
+    return createPublicKey({ key: pem, format: "pem" }).export({ type: "spki", format: "pem" }).toString();
+  }
+  throw new Error(`不支持的 JWK key type: ${jwk.kty}`);
+}
+
+function algToNodeHash(alg: string): string {
+  if (alg === "RS256" || alg === "ES256") {
+    return "sha256";
+  }
+  if (alg === "RS384" || alg === "ES384") {
+    return "sha384";
+  }
+  if (alg === "RS512" || alg === "ES512") {
+    return "sha512";
+  }
+  throw new Error(`不支持的 JWT 算法: ${alg}`);
+}
+
 async function resolveOidcClaims(input: OidcCallback, provider: NonNullable<PanelState["identityProvider"]>): Promise<Record<string, unknown>> {
+  let idToken: string | undefined;
   if (input.claims) {
     return input.claims;
   }
   if (input.idToken) {
-    return decodeJwtPayload(input.idToken);
+    idToken = input.idToken;
+  } else {
+    if (!provider.tokenEndpoint) {
+      throw new Error("OIDC token endpoint 未配置。");
+    }
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code: input.code,
+      redirect_uri: input.redirectUri ?? "/api/auth/oidc/callback",
+      client_id: provider.clientId
+    });
+    if (provider.clientSecret) {
+      body.set("client_secret", provider.clientSecret);
+    }
+    const response = await fetch(provider.tokenEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+      body
+    });
+    if (!response.ok) {
+      throw new Error(`OIDC token 交换失败: ${response.status}`);
+    }
+    const payload = await response.json() as unknown;
+    if (!isRecord(payload) || typeof payload.id_token !== "string") {
+      throw new Error("OIDC token 响应缺少 id_token。");
+    }
+    idToken = payload.id_token;
   }
-  if (!provider.tokenEndpoint) {
-    throw new Error("OIDC token endpoint 未配置。");
+  if (provider.jwksUri) {
+    await verifyJwtSignature(idToken, provider.jwksUri);
   }
-  const body = new URLSearchParams({ grant_type: "authorization_code", code: input.code, redirect_uri: input.redirectUri ?? "/api/auth/oidc/callback", client_id: provider.clientId });
-  if (provider.clientSecret) {
-    body.set("client_secret", provider.clientSecret);
-  }
-  const response = await fetch(provider.tokenEndpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body });
-  if (!response.ok) {
-    throw new Error(`OIDC token 交换失败: ${response.status}`);
-  }
-  const payload = await response.json() as unknown;
-  if (!isRecord(payload) || typeof payload.id_token !== "string") {
-    throw new Error("OIDC token 响应缺少 id_token。");
-  }
-  return decodeJwtPayload(payload.id_token);
+  return decodeJwtPayload(idToken);
 }
 
 function validateOidcClaims(provider: NonNullable<PanelState["identityProvider"]>, claims: Record<string, unknown>): void {

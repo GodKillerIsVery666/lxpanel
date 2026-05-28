@@ -415,6 +415,26 @@ export const AuditExportPackageSchema = z.object({
 });
 export type AuditExportPackage = z.infer<typeof AuditExportPackageSchema>;
 
+export const PrometheusAlertWebhookSchema = z.object({
+  receiver: z.string().optional(),
+  status: z.enum(["firing", "resolved"]),
+  alerts: z.array(z.object({
+    status: z.enum(["firing", "resolved"]),
+    labels: z.record(z.string(), z.string()),
+    annotations: z.record(z.string(), z.string()).default({}),
+    startsAt: z.string(),
+    endsAt: z.string().optional(),
+    generatorURL: z.string().optional(),
+    fingerprint: z.string().optional()
+  })),
+  groupLabels: z.record(z.string(), z.string()).default({}),
+  commonLabels: z.record(z.string(), z.string()).default({}),
+  commonAnnotations: z.record(z.string(), z.string()).default({}),
+  externalURL: z.string().optional(),
+  version: z.string().optional()
+});
+export type PrometheusAlertWebhook = z.infer<typeof PrometheusAlertWebhookSchema>;
+
 export const ComplianceReportSchema = z.object({
   generatedAt: z.string(),
   totalEvents: z.number().int().nonnegative(),
@@ -503,7 +523,7 @@ export const CreateAlertSilenceSchema = z.object({
 });
 export type CreateAlertSilence = z.infer<typeof CreateAlertSilenceSchema>;
 
-export const NotificationChannelTypeSchema = z.enum(["webhook"]);
+export const NotificationChannelTypeSchema = z.enum(["webhook", "eventbus"]);
 export type NotificationChannelType = z.infer<typeof NotificationChannelTypeSchema>;
 
 export const NotificationChannelSchema = z.object({
@@ -511,6 +531,7 @@ export const NotificationChannelSchema = z.object({
   name: z.string(),
   type: NotificationChannelTypeSchema,
   url: z.string().url(),
+  topic: z.string().optional(),
   enabled: z.boolean(),
   minLevel: AlertLevelSchema,
   createdAt: z.string(),
@@ -526,6 +547,7 @@ export const CreateNotificationChannelSchema = z.object({
   name: z.string().min(2).max(80),
   type: NotificationChannelTypeSchema.default("webhook"),
   url: z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "仅支持 HTTP/HTTPS Webhook。"),
+  topic: z.string().min(1).max(120).optional(),
   enabled: z.boolean().default(true),
   minLevel: AlertLevelSchema.default("warning")
 });
@@ -1242,6 +1264,24 @@ export const DatabaseRestoreDrillResultSchema = z.object({
 });
 export type DatabaseRestoreDrillResult = z.infer<typeof DatabaseRestoreDrillResultSchema>;
 
+export const DatabaseRestoreRequestSchema = z.object({
+  connectionId: z.string().min(1),
+  targetDatabaseUrl: z.string().url().optional()
+});
+export type DatabaseRestoreRequest = z.infer<typeof DatabaseRestoreRequestSchema>;
+
+export const DatabaseRestoreResultSchema = z.object({
+  connectionId: z.string(),
+  startedAt: z.string(),
+  finishedAt: z.string(),
+  status: z.enum(["success", "failed"]),
+  backupPath: z.string(),
+  encryption: z.object({ algorithm: z.string(), provider: z.string().optional(), keyVersion: z.string().optional() }).optional(),
+  outputTail: z.string().optional(),
+  error: z.string().optional()
+});
+export type DatabaseRestoreResult = z.infer<typeof DatabaseRestoreResultSchema>;
+
 export const ResourceTypeSchema = z.enum(["host", "app", "fileRoot", "database", "backupTarget", "workspace"]);
 export type ResourceType = z.infer<typeof ResourceTypeSchema>;
 
@@ -1451,6 +1491,29 @@ export const LicenseVerificationResultSchema = z.object({
   error: z.string().optional()
 });
 export type LicenseVerificationResult = z.infer<typeof LicenseVerificationResultSchema>;
+
+export const GenerateLicenseSchema = z.object({
+  plan: z.enum(["community", "team", "enterprise"]).default("team"),
+  licensedTo: z.string().min(1).max(120).default("LXPanel Customer"),
+  machineCode: z.string().max(64).optional(),
+  expiresAt: z.string().optional(),
+  privateKey: z.string().min(1).max(4000).optional()
+});
+export type GenerateLicense = z.infer<typeof GenerateLicenseSchema>;
+
+export const LicenseGenerationResultSchema = z.object({
+  payload: z.object({
+    plan: z.string(),
+    licensedTo: z.string(),
+    machineCode: z.string(),
+    expiresAt: z.string().optional(),
+    issuedAt: z.string(),
+    issuer: z.string()
+  }),
+  offlineToken: z.string(),
+  generatedPrivateKey: z.string().optional()
+});
+export type LicenseGenerationResult = z.infer<typeof LicenseGenerationResultSchema>;
 
 export const ResourceApprovalPolicySchema = z.object({
   id: z.string(),
@@ -1706,6 +1769,7 @@ export const PluginManifestSchema = z.object({
   entryPoint: z.string(),
   permissions: z.array(ApiTokenScopeSchema),
   signature: z.string().optional(),
+  source: z.string().optional(),
   enabled: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -1721,6 +1785,7 @@ export const RegisterPluginManifestSchema = z.object({
   entryPoint: z.string().min(1).max(240),
   permissions: z.array(ApiTokenScopeSchema).min(1).max(20),
   signature: z.string().max(4000).optional(),
+  source: z.string().url().optional(),
   enabled: z.boolean().default(false)
 });
 export type RegisterPluginManifest = z.infer<typeof RegisterPluginManifestSchema>;
@@ -1779,7 +1844,7 @@ export type HighAvailabilityPlan = z.infer<typeof HighAvailabilityPlanSchema>;
 
 export const ClientApplicationPlanSchema = z.object({
   generatedAt: z.string(),
-  currentClients: z.array(z.object({ id: z.string(), type: z.enum(["web", "agent"]), status: z.enum(["available", "planned"]), detail: z.string() })),
+  currentClients: z.array(z.object({ id: z.string(), type: z.enum(["web", "agent", "desktop"]), status: z.enum(["available", "planned"]), detail: z.string() })),
   candidates: z.array(z.object({ id: z.string(), type: z.enum(["desktop", "mobile"]), recommendedStack: z.string(), priority: z.enum(["now", "next", "later"]), decision: z.string(), risks: z.array(z.string()) })),
   recommendation: z.string()
 });
@@ -1936,6 +2001,46 @@ export type OpenApiSummary = z.infer<typeof OpenApiSummarySchema>;
 
 export const OpenApiDocumentSchema = z.record(z.string(), z.unknown());
 export type OpenApiDocument = z.infer<typeof OpenApiDocumentSchema>;
+
+export const FederatedClusterSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  apiUrl: z.string().url(),
+  apiToken: z.string().optional(),
+  status: z.enum(["online", "offline", "degraded"]),
+  version: z.string().optional(),
+  hostCount: z.number().int().nonnegative().default(0),
+  connectorCount: z.number().int().nonnegative().default(0),
+  lastSyncAt: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type FederatedCluster = z.infer<typeof FederatedClusterSchema>;
+
+export const CreateFederatedClusterSchema = z.object({
+  name: z.string().min(2).max(80),
+  apiUrl: z.string().url(),
+  apiToken: z.string().min(10)
+});
+export type CreateFederatedCluster = z.infer<typeof CreateFederatedClusterSchema>;
+
+export const AiDiagnosticRequestSchema = z.object({
+  query: z.string().min(5).max(2000),
+  context: z.enum(["audit", "alerts", "security", "backup"]).default("audit"),
+  maxResults: z.number().int().min(1).max(50).default(10)
+});
+export type AiDiagnosticRequest = z.infer<typeof AiDiagnosticRequestSchema>;
+
+export const AiDiagnosticResultSchema = z.object({
+  generatedAt: z.string(),
+  context: z.string(),
+  query: z.string(),
+  summary: z.string(),
+  recommendations: z.array(z.string()),
+  sourceCount: z.number().int().nonnegative()
+});
+export type AiDiagnosticResult = z.infer<typeof AiDiagnosticResultSchema>;
 
 function isSupportedDatabaseUrl(type: z.infer<typeof DatabaseTypeSchema>, value: string): boolean {
   if (type === "postgres") {

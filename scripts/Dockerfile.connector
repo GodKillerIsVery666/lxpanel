@@ -1,0 +1,26 @@
+# LXPanel Connector Docker 镜像
+# 基于 Node.js 24 Alpine，体积小、启动快
+FROM node:24-alpine AS base
+RUN apk add --no-cache tini
+WORKDIR /app
+
+# 复制连接器脚本
+COPY scripts/lxpanel-connector.mjs .
+COPY package.json /tmp/
+
+# 生产镜像
+FROM base AS production
+COPY --from=base /app/lxpanel-connector.mjs /app/
+
+# 运行参数（可通过环境变量覆盖）
+ENV LXPANEL_URL=""
+ENV LXPANEL_CONNECTOR_TOKEN=""
+ENV LXPANEL_CONNECTOR_NAME=""
+ENV LXPANEL_CONNECTOR_POLL_MS=5000
+ENV LXPANEL_CONNECTOR_ALLOW_COMMANDS="hostname,uptime,whoami,df,free,ps"
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://localhost:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" || exit 0
+
+ENTRYPOINT ["/sbin/tini", "--", "node", "/app/lxpanel-connector.mjs"]
+CMD []

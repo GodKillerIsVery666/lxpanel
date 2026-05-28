@@ -27,7 +27,7 @@ describe("健康检查路由", () => {
 
     expect(live.statusCode).toBe(200);
     expect(ready.statusCode).toBe(200);
-    expect(ready.json()).toMatchObject({ ok: true, dataDirWritable: true });
+    expect(ready.json()).toMatchObject({ ok: true, checks: { dataDir: true } });
     await app.close();
   });
 });

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "LXPanel Desktop",
+  "version": "0.1.0",
+  "identifier": "com.lxpanel.desktop",
+  "build": {
+    "frontendDist": "../../apps/web/dist",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "npm run dev -w @lxpanel/web",
+    "beforeBuildCommand": "npm run build -w @lxpanel/web"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "LXPanel Desktop",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:7080; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "updater": {
+      "pubkey": "YOUR_UPDATER_PUBLIC_KEY",
+      "endpoints": [
+        "https://update.lxpanel.io/api/updates/{{target}}/{{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    },
+    "notification": {
+      "enabled": true
+    }
+  }
+}

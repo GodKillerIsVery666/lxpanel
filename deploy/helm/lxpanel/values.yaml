@@ -1,0 +1,38 @@
+# LXPanel Helm Chart 配置
+replicaCount: 1
+
+image:
+  repository: lxpanel/server
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 7080
+
+ingress:
+  enabled: false
+  className: ""
+  host: lxpanel.example.com
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+
+sessionSecret: ""
+redis:
+  enabled: false
+  url: ""
+
+resources:
+  limits:
+    cpu: "1"
+    memory: 1Gi
+  requests:
+    cpu: 256m
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

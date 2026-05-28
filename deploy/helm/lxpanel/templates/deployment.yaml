@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lxpanel.fullname" . }}
+  labels:
+    app.kubernetes.io/name: lxpanel
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lxpanel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lxpanel
+    spec:
+      containers:
+        - name: lxpanel
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 7080
+              name: http
+          env:
+            - name: LXPANEL_PORT
+              value: "7080"
+            - name: LXPANEL_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lxpanel.fullname" . }}
+                  key: session-secret
+            - name: LXPANEL_DATA_DIR
+              value: /data
+            - name: LXPANEL_LOG_LEVEL
+              value: info
+            {{- if .Values.redis.enabled }}
+            - name: LXPANEL_REDIS_URL
+              value: {{ .Values.redis.url | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /api/health/live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "lxpanel.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lxpanel.fullname" . }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/name: lxpanel
+---
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "lxpanel.fullname" . }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "lxpanel.fullname" . }}
+                port:
+                  name: http
+{{- end }}
+---
+{{- if .Values.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "lxpanel.fullname" . }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "lxpanel.fullname" . }}
+type: Opaque
+data:
+  session-secret: {{ .Values.sessionSecret | default (randAlphaNum 32) | b64enc | quote }}

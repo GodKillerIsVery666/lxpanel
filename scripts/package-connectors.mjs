@@ -6,11 +6,25 @@ import { gzipSync } from "node:zlib";
 
 const root = process.cwd();
 const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-const version = String(packageJson.version ?? "0.0.0");
+
+// CLI 参数解析：--version <x.y.z> --channel <stable|candidate> --platforms <p1,p2,...>
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const opts = { version: "", channel: "stable", platforms: [] };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--version" && args[i + 1]) { opts.version = args[++i]; continue; }
+    if (args[i] === "--channel" && args[i + 1]) { opts.channel = args[++i]; continue; }
+    if (args[i] === "--platforms" && args[i + 1]) { opts.platforms = args[++i].split(",").map((p) => p.trim()).filter(Boolean); continue; }
+  }
+  return opts;
+}
+const cli = parseArgs();
+const version = cli.version || String(packageJson.version ?? "0.0.0");
 const agentVersion = `node-agent-${version}`;
-const releaseDir = join(root, "release", "connectors");
+const channel = cli.channel;
 const releaseSecret = process.env.LXPANEL_CONNECTOR_RELEASE_SECRET || `lxpanel-connector-release-${version}`;
-const platforms = ["win32-x64", "linux-x64", "darwin-arm64"];
+const platforms = cli.platforms.length > 0 ? cli.platforms : ["win32-x64", "linux-x64", "darwin-arm64"];
+const releaseDir = join(root, "release", "connectors");
 
 await mkdir(releaseDir, { recursive: true });
 
@@ -32,7 +46,7 @@ for (const platform of platforms) {
   checksumLines.push(`${digest}  ${fileName}`, `${sha256(signature)}  ${fileName}.sig`);
   artifacts.push({
     id: `connector-${platform}`,
-    channel: "stable",
+    channel,
     version: agentVersion,
     platform,
     url: `release/connectors/${fileName}`,
