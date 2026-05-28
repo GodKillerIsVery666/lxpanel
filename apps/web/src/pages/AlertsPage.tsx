@@ -3,6 +3,7 @@ import { CheckCircle2, RotateCw, Save } from "lucide-react";
 import type { AlertEvent, AlertSilence, AlertThreshold, AlertType } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
+import { CustomAlertRulesPanel } from "../components/CustomAlertRulesPanel.js";
 import { formatDate } from "../utils/format.js";
 
 type ThresholdDrafts = Record<AlertType, { warningPercent: string; criticalPercent: string; enabled: boolean }>;
@@ -136,6 +137,7 @@ export function AlertsPage(): JSX.Element {
           </table>
         ) : <p className="muted-text">暂无资源告警。</p>}
       </section>
+      <CustomAlertRulesPanel />
     </main>
   );
 }

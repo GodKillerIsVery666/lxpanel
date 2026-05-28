@@ -3,6 +3,7 @@ import { Bell, KeyRound, Send, Trash2 } from "lucide-react";
 import type { NotificationChannel, NotificationDelivery, NotificationSecretRotationResult } from "@lxpanel/shared";
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
+import { SmtpConfigForm } from "../components/SmtpConfigForm.js";
 import { formatDate } from "../utils/format.js";
 
 export function NotificationsPage(): JSX.Element {
@@ -105,6 +106,7 @@ export function NotificationsPage(): JSX.Element {
         {rotationResult ? <p className="notice">共 {rotationResult.total} 个渠道，重加密 {rotationResult.rotated} 个，明文迁移 {rotationResult.plaintextMigrated} 个，已是当前密钥 {rotationResult.alreadyCurrent} 个，失败 {rotationResult.failed} 个。</p> : null}
         {rotationResult?.issues.length ? rotationResult.issues.map((issue) => <p className="form-error" key={issue}>{issue}</p>) : null}
       </section>
+      <SmtpConfigForm />
       <section className="table-panel">
         <div className="panel-title">渠道</div>
         <table>
