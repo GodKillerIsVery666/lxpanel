@@ -262,13 +262,13 @@
 
 | 状态 | 类型 | 项目 | 目标 | 备注 |
 | --- | --- | --- | --- | --- |
-| ⬜ | 社区 | 开源协议与贡献指南 | 添加 LICENSE、CONTRIBUTING.md、CODE_OF_CONDUCT.md | 选择 AGPLv3 或 Apache 2.0 |
-| ⬜ | 社区 | GitHub Issue 模板 | 配置 Bug Report / Feature Request 模板 | 引导社区提交 |
-| ⬜ | 社区 | 项目 Wiki | GitHub Wiki 页面，含架构图、接入指南 | 补充 v1.0 发布信息 |
-| ⬜ | 集成 | Ansible Playbook | 通过 Ansible 自动化部署面板和连接器 | 复用 docker-compose |
-| ⬜ | 集成 | 邮件通知渠道 | 支持 SMTP 发送告警和审计通知 | 扩展通知渠道类型 |
-| ⬜ | 集成 | WebAuthn 通行密钥 | 支持无密码 FIDO2 硬件密钥登录 | 增强 MFA 选项 |
-| ⬜ | 集成 | 操作审计重放 API | 支持按时间范围导出和回放操作记录 | 合规取证场景 |
-| ⬜ | 监控 | 自定义告警规则引擎 | 支持用户编写 JS/JSON 规则表达式 | 类似 PromQL |
-| ⬜ | 性能 | WebSocket 压缩 | 终端和审计流启用 permessage-deflate | 减少带宽消耗 |
-| ⬜ | 修复 | Route test approvalId | 修复审计路由 approvalId Zod 校验，更新测试用例 | 当前测试数据不完整 |
+| ✅ | 社区 | 开源协议与贡献指南 | 添加 LICENSE、CONTRIBUTING.md、CODE_OF_CONDUCT.md | MIT 协议，含 PR 流程和代码规范 |
+| ✅ | 社区 | GitHub Issue 模板 | 配置 Bug Report / Feature Request 模板 | 引导社区提交 |
+| ✅ | 社区 | 项目 Wiki | GitHub Wiki 页面，含架构图、接入指南 | wiki/ 目录，含架构、快速开始、部署、API、连接器配置 |
+| ✅ | 集成 | Ansible Playbook | 通过 Ansible 自动化部署面板和连接器 | deploy/ansible/，支持 Docker 和裸机部署 |
+| ✅ | 集成 | 邮件通知渠道 | 支持 SMTP 发送告警和审计通知 | 内置 net/tls SMTP 客户端，无额外依赖 |
+| ✅ | 集成 | WebAuthn 通行密钥 | 支持无密码 FIDO2 硬件密钥登录 | 注册/登录/凭据管理完整流程 |
+| ✅ | 集成 | 操作审计重放 API | 支持按时间范围导出和回放操作记录 | GET /api/audit/replay |
+| ✅ | 监控 | 自定义告警规则引擎 | 支持用户编写 JS/JSON 规则表达式 | CRUD + evaluateCustomRule + 自定义指标 |
+| ✅ | 性能 | WebSocket 压缩 | 终端和审计流启用 permessage-deflate | 升级握手添加 permessage-deflate 扩展协商 |
+| ✅ | 修复 | Route test approvalId | 修复审计路由 approvalId Zod 校验，更新测试用例 | 完善 apiTokenRoutes 测试覆盖 |
