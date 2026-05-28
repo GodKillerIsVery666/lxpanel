@@ -46,10 +46,10 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
         ...section,
         items: section.items
           .filter((item) => !item.minRole || roleRank(user.role) >= roleRank(item.minRole))
-          .filter((item) => term.length === 0 || matchesNavItem(item, term, text))
+          .filter((item) => term.length === 0 || matchesNavItem(item, term))
       }))
       .filter((section) => section.items.length > 0);
-  }, [filter, user.role]);
+  }, [filter, user.role, locale]);
   const recentItems = recentViews
     .map((view) => navItems.find((item) => item.id === view))
     .filter((item): item is NavItem => {
@@ -139,14 +139,14 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
     const views: CommandEntry[] = navSections
       .flatMap((section) => section.items.map((item) => ({ section: text.sections[section.id], item })))
       .filter((result) => !result.item.minRole || roleRank(user.role) >= roleRank(result.item.minRole))
-      .filter((result) => term.length === 0 || matchesNavItem(result.item, term, text))
+      .filter((result) => term.length === 0 || matchesNavItem(result.item, term))
       .map((result) => ({ type: "view", section: result.section, item: result.item }));
     const actions: CommandEntry[] = commandActions
       .filter((action) => !action.minRole || roleRank(user.role) >= roleRank(action.minRole))
       .filter((action) => term.length === 0 || matchesAction(action, term))
       .map((action) => ({ type: "action", action }));
     return [...actions, ...views].slice(0, 10);
-  }, [commandActions, commandQuery, user.role]);
+  }, [commandActions, commandQuery, user.role, locale]);
 
   useEffect(() => {
     setRecentViews((current) => addRecentViewPreference(activeView, current));
@@ -300,9 +300,8 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
   );
 }
 
-function matchesNavItem(item: NavItem, term: string, text?: typeof shellText[LocalePreference]): boolean {
-  const viewText = text?.views[item.id];
-  return [item.label, item.description, ...item.keywords, viewText?.label ?? "", viewText?.description ?? ""].some((value) => value.toLowerCase().includes(term));
+function matchesNavItem(item: NavItem, term: string): boolean {
+  return [item.label, item.description, ...item.keywords].some((value) => value.toLowerCase().includes(term));
 }
 
 function viewLabel(item: NavItem, text: typeof shellText[LocalePreference]): string {
