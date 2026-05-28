@@ -48,9 +48,13 @@ export function MonitoringPage(): JSX.Element {
     <main className="page-stack">
       <div className="page-heading">
         <div><h1>监控趋势</h1><p>{latest ? `${latest.hostName} · ${formatDate(latest.time)}` : "等待调度器采样"}</p></div>
-        <div className="inline-form wrap"><input value={hostId} onChange={(event) => setHostId(event.target.value)} placeholder="hostId" aria-label="监控主机 ID" /><button className="icon-button" onClick={() => void load()} title="刷新"><RotateCw size={18} /></button></div>
+        <button className="icon-button" onClick={() => void load()} title="刷新"><RotateCw size={18} /></button>
       </div>
       {error ? <div className="form-error">{error}</div> : null}
+      <div className="list-toolbar">
+        <input value={hostId} onChange={(event) => setHostId(event.target.value)} placeholder="hostId" aria-label="监控主机 ID" />
+        <p className="muted-text">输入主机 ID 筛选监控数据</p>
+      </div>
       <div className="metric-grid">
         <MetricCard label="CPU" value={`${latest?.cpuPercent ?? 0}%`} accent="#267871" icon={<Cpu size={22} />} />
         <MetricCard label="内存" value={`${latest?.memoryPercent ?? 0}%`} accent="#a05a2c" icon={<MemoryStick size={22} />} />
