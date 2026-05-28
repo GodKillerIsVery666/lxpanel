@@ -81,10 +81,10 @@ export function DashboardPage({ user, onNavigate }: DashboardPageProps): JSX.Ele
         })}
       </section>
       <div className="metric-grid">
-        <MetricCard label="CPU" value={formatPercent(overview?.cpu.usagePercent ?? 0)} meta={overview?.cpu.model} progressPercent={overview?.cpu.usagePercent ?? 0} accent="#267871" icon={<Cpu size={22} />} />
-        <MetricCard label="内存" value={formatPercent(overview?.memory.usedPercent ?? 0)} meta={overview ? `${formatBytes(overview.memory.totalBytes - overview.memory.freeBytes)} / ${formatBytes(overview.memory.totalBytes)}` : "-"} progressPercent={overview?.memory.usedPercent ?? 0} accent="#b8692d" icon={<HardDrive size={22} />} />
-        <MetricCard label="运行时间" value={overview ? formatDuration(overview.uptimeSeconds) : "-"} accent="#315f99" icon={<Timer size={22} />} />
-        <MetricCard label="网络地址" value={`${overview?.networkInterfaces.filter((item) => !item.internal).length ?? 0}`} meta="外部接口" accent="#7356a1" icon={<Network size={22} />} />
+        <MetricCard label="CPU" value={formatPercent(overview?.cpu.usagePercent ?? 0)} meta={overview?.cpu.model} progressPercent={overview?.cpu.usagePercent ?? 0} accent="#3a5a6e" icon={<Cpu size={22} />} />
+        <MetricCard label="内存" value={formatPercent(overview?.memory.usedPercent ?? 0)} meta={overview ? `${formatBytes(overview.memory.totalBytes - overview.memory.freeBytes)} / ${formatBytes(overview.memory.totalBytes)}` : "-"} progressPercent={overview?.memory.usedPercent ?? 0} accent="#b87a3a" icon={<HardDrive size={22} />} />
+        <MetricCard label="运行时间" value={overview ? formatDuration(overview.uptimeSeconds) : "-"} accent="#4a6b8f" icon={<Timer size={22} />} />
+        <MetricCard label="网络地址" value={`${overview?.networkInterfaces.filter((item) => !item.internal).length ?? 0}`} meta="外部接口" accent="#7c5f9e" icon={<Network size={22} />} />
       </div>
       <section className="table-panel">
         <div className="panel-title">资源告警</div>
@@ -105,13 +105,13 @@ export function DashboardPage({ user, onNavigate }: DashboardPageProps): JSX.Ele
 
 function dashboardActions(alertAttention: number, securityAttention: number): QuickAction[] {
   return [
-    { view: "hosts", title: "纳管主机", detail: "资产、分组、批量命令", icon: Server, tone: "#267871" },
-    { view: "apps", title: "部署应用", detail: "模板、升级、回滚", icon: PackagePlus, tone: "#315f99" },
-    { view: "databases", title: "数据库备份", detail: "连接、计划、演练", icon: Database, tone: "#b8692d" },
-    { view: "alerts", title: "处理告警", detail: alertAttention > 0 ? `${alertAttention} 个未确认` : "阈值和静默", icon: BellRing, tone: alertAttention > 0 ? "#b9473f" : "#267871" },
-    { view: "backups", title: "创建快照", detail: "本地与远程备份", icon: Archive, tone: "#7356a1" },
-    { view: "security", title: "安全巡检", detail: securityAttention > 0 ? `${securityAttention} 项需关注` : "会话和 Token", icon: ShieldCheck, tone: securityAttention > 0 ? "#b8692d" : "#267871" },
-    { view: "platform", title: "交付治理", detail: "许可证、工作空间、OpenAPI", icon: SlidersHorizontal, tone: "#202520" }
+    { view: "hosts", title: "纳管主机", detail: "资产、分组、批量命令", icon: Server, tone: "#3a5a6e" },
+    { view: "apps", title: "部署应用", detail: "模板、升级、回滚", icon: PackagePlus, tone: "#4a6b8f" },
+    { view: "databases", title: "数据库备份", detail: "连接、计划、演练", icon: Database, tone: "#b87a3a" },
+    { view: "alerts", title: "处理告警", detail: alertAttention > 0 ? `${alertAttention} 个未确认` : "阈值和静默", icon: BellRing, tone: alertAttention > 0 ? "#bc4b3c" : "#3a5a6e" },
+    { view: "backups", title: "创建快照", detail: "本地与远程备份", icon: Archive, tone: "#7c5f9e" },
+    { view: "security", title: "安全巡检", detail: securityAttention > 0 ? `${securityAttention} 项需关注` : "会话和 Token", icon: ShieldCheck, tone: securityAttention > 0 ? "#b87a3a" : "#3a5a6e" },
+    { view: "platform", title: "交付治理", detail: "许可证、工作空间、OpenAPI", icon: SlidersHorizontal, tone: "#1e1b18" }
   ];
 }
 
