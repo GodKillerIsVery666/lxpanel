@@ -1,0 +1,70 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "title": "LXPanel 面板监控",
+  "version": 1,
+  "description": "面板自身关键指标：主机数、连接器数、审计事件、API 延迟、状态文件大小",
+  "tags": ["lxpanel", "monitoring"],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "API 健康状态",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{
+        "expr": "probe_success{job=\"lxpanel\"}",
+        "legendFormat": "健康"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "value": 0, "color": "red" }, { "value": 1, "color": "green" }] }
+        }
+      }
+    },
+    {
+      "title": "当前主机数",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{ "expr": "lxpanel_hosts_total", "legendFormat": "主机" }]
+    },
+    {
+      "title": "连接器在线数",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{ "expr": "lxpanel_connectors_online", "legendFormat": "连接器" }]
+    },
+    {
+      "title": "审计事件总数",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [{ "expr": "lxpanel_audit_events_total", "legendFormat": "审计" }]
+    },
+    {
+      "title": "状态文件大小",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [{ "expr": "lxpanel_state_bytes / 1024 / 1024", "legendFormat": "MB" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MB",
+          "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 5, "color": "yellow" }, { "value": 10, "color": "red" }] }
+        }
+      }
+    },
+    {
+      "title": "API 响应时间 P99",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [{ "expr": "histogram_quantile(0.99, rate(lxpanel_api_duration_seconds_bucket[5m]))", "legendFormat": "P99" }]
+    },
+    {
+      "title": "调度器延迟",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [{ "expr": "lxpanel_scheduler_tick_duration_ms", "legendFormat": "调度" }]
+    }
+  ],
+  "refresh": "30s"
+}

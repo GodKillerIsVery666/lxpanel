@@ -14,7 +14,14 @@ export default tseslint.config(
       "packages/plugin-sdk/**",
       "scripts/generate-api-client.mjs",
       "scripts/generate-route-tests.mjs",
-      "scripts/stress-test.mjs"
+      "scripts/stress-test.mjs",
+      "scripts/changelog.mjs",
+      "scripts/chaos-test.mjs",
+      "scripts/security-audit.mjs",
+      "scripts/stress-report.mjs",
+      "scripts/bundle-analyze.mjs",
+      "scripts/generate-route-tests.mjs",
+      "scripts/generate-api-client.mjs"
     ]
   },
   {

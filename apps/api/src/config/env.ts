@@ -17,6 +17,7 @@ export interface AppConfig {
   fileRoots: string[];
   logRoots: string[];
   logLevel: string;
+  logFormat: "json" | "text";
 }
 
 const defaultDevSecret = "dev-change-me-lxpanel-session-secret-32-bytes";
@@ -48,7 +49,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     webRoot: resolve(env.LXPANEL_WEB_ROOT ?? defaultWebRoot),
     fileRoots: fileRoots.length > 0 ? fileRoots : [homedir()],
     logRoots: logRoots.length > 0 ? logRoots : defaultLogRoots(dataDir),
-    logLevel: env.LXPANEL_LOG_LEVEL ?? "info"
+    logLevel: env.LXPANEL_LOG_LEVEL ?? "info",
+    logFormat: env.LXPANEL_LOG_FORMAT === "text" ? "text" : "json"
   };
 }
 

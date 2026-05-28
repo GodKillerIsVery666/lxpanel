@@ -90,7 +90,12 @@ export async function createServices(config: AppConfig): Promise<Services> {
 }
 
 export async function buildApp(config: AppConfig = loadConfig()): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: config.logLevel } });
+  const loggerConfig: Record<string, unknown> = { level: config.logLevel };
+  // JSON 格式日志（默认）：结构化输出到 stdout，适用于 ELK/Loki
+  if (config.logFormat === "text") {
+    loggerConfig.transport = { target: "pino-pretty", options: { colorize: true } };
+  }
+  const app = Fastify({ logger: loggerConfig });
   const services = await createServices(config);
   const scheduler = new SchedulerService(services.taskStore, services.backupStore, services.databaseStore, services.alertService, services.monitoringService, services.notificationService, services.auditLog, app.log, services.platformStore);
 
