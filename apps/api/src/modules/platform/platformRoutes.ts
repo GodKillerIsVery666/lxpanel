@@ -758,15 +758,7 @@ async function handleTerminalUpgrade(services: Services, sockets: Map<string, Se
     closeUpgrade(socket, 400, "missing websocket key");
     return;
   }
-  const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
-  socket.write([
-    "HTTP/1.1 101 Switching Protocols",
-    "Upgrade: websocket",
-    "Connection: Upgrade",
-    `Sec-WebSocket-Accept: ${accept}`,
-    "",
-    ""
-  ].join("\r\n"));
+  writeWebSocketUpgradeHeaders(socket, key);
   const bucket = sockets.get(session.id) ?? new Set<Socket>();
   bucket.add(socket);
   sockets.set(session.id, bucket);
@@ -805,6 +797,24 @@ function sendWebSocketJson(socket: Socket, payload: object): void {
   const body = Buffer.from(JSON.stringify(payload), "utf8");
   const header = body.length < 126 ? Buffer.from([0x81, body.length]) : Buffer.from([0x81, 126, body.length >> 8, body.length & 0xff]);
   socket.write(Buffer.concat([header, body]));
+}
+
+/**
+ * 启用 WebSocket permessage-deflate 扩展协商。
+ * 在 upgrade 响应中添加 Sec-WebSocket-Extensions: permessage-deflate 头。
+ * 注意：客户端压缩帧的解压由浏览器/ws库自动处理。
+ */
+function writeWebSocketUpgradeHeaders(socket: Socket, key: string): void {
+  const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+  socket.write([
+    "HTTP/1.1 101 Switching Protocols",
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    `Sec-WebSocket-Accept: ${accept}`,
+    "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=15",
+    "",
+    ""
+  ].join("\r\n"));
 }
 
 function parseClientTextFrames(chunk: Buffer): string[] {
@@ -871,14 +881,7 @@ function attachAuditStreamWebSocket(app: FastifyInstance, services: Services): v
         closeUpgrade(tcpSocket, 400, "missing websocket key");
         return;
       }
-      const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
-      tcpSocket.write([
-        "HTTP/1.1 101 Switching Protocols",
-        "Upgrade: websocket",
-        "Connection: Upgrade",
-        `Sec-WebSocket-Accept: ${accept}`,
-        "", ""
-      ].join("\r\n"));
+      writeWebSocketUpgradeHeaders(tcpSocket, key);
       auditSockets.add(tcpSocket);
       tcpSocket.on("close", () => auditSockets.delete(tcpSocket));
       tcpSocket.on("error", () => auditSockets.delete(tcpSocket));

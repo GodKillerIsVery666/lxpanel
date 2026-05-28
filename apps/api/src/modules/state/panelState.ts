@@ -127,7 +127,7 @@ export type AlertSilenceRecord = AlertSilence;
 export type HostRecord = Omit<Host, "status" | "connectorName" | "lastSeenAt">;
 export type HostGroupRecord = HostGroup;
 export type MetricSampleRecord = MetricSample;
-export type NotificationChannelRecord = Omit<NotificationChannel, "url"> & { url?: string; encryptedUrl?: string };
+export type NotificationChannelRecord = Omit<NotificationChannel, "url"> & { url?: string; encryptedUrl?: string; smtpPassword?: string; encryptedSmtpPassword?: string };
 export type NotificationDeliveryRecord = NotificationDelivery;
 export interface AppDeploymentRevisionRecord {
   version: number;
@@ -204,6 +204,36 @@ export interface PanelState {
   pluginManifests?: PluginManifestRecord[];
   jwksCache?: Array<{ uri: string; keys: JwkCachedKey[]; fetchedAt: number }>;
   federatedClusters?: FederatedClusterRecord[];
+  webauthnCredentials?: WebAuthnCredentialRecord[];
+  customAlertRules?: CustomAlertRuleRecord[];
+}
+
+export interface WebAuthnCredentialRecord {
+  id: string;
+  userId: string;
+  publicKey: string;
+  counter: number;
+  transports: string[];
+  createdAt: string;
+  lastUsedAt?: string;
+  deviceName: string;
+}
+
+export interface CustomAlertRuleRecord {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  metric: string;
+  condition: ">" | ">=" | "<" | "<=" | "==" | "!=";
+  threshold: number;
+  duration: number;
+  level: "warning" | "critical";
+  target: string;
+  messageTemplate: string;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string;
 }
 
 export interface JwkCachedKey {
@@ -252,7 +282,9 @@ export function createInitialPanelState(): PanelState {
     connectorReleaseChannels: createDefaultConnectorReleaseChannels(),
     backupEncryptionPolicy: createDefaultBackupEncryptionPolicy(),
     auditRetentionPolicies: createDefaultAuditRetentionPolicies(),
-    pluginManifests: []
+    pluginManifests: [],
+    webauthnCredentials: [],
+    customAlertRules: []
   };
 }
 

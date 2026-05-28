@@ -114,7 +114,7 @@ export function NotificationsPage(): JSX.Element {
               <td>{channel.name}</td>
               <td>{channel.minLevel}</td>
               <td><StatusPill status={channel.enabled ? "active" : "inactive"} /></td>
-              <td>{maskUrl(channel.url)}</td>
+              <td>{channel.url ? maskUrl(channel.url) : "-"}</td>
               <td>{channel.lastSentAt ? formatDate(channel.lastSentAt) : "-"}</td>
               <td>{channel.lastStatus ? <StatusPill status={channel.lastStatus} /> : "-"}</td>
               <td className="row-actions"><button onClick={() => void toggle(channel)}>{channel.enabled ? "停用" : "启用"}</button><button onClick={() => void test(channel.id)}><Send size={14} /></button><button onClick={() => void remove(channel.id)}><Trash2 size={14} /></button></td>

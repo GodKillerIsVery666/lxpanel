@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateAlertSilenceSchema, DismissAlertSchema, PrometheusAlertWebhookSchema, UpdateAlertThresholdSchema } from "@lxpanel/shared";
+import { CreateAlertSilenceSchema, CreateCustomAlertRuleSchema, DismissAlertSchema, PrometheusAlertWebhookSchema, UpdateAlertThresholdSchema, UpdateCustomAlertRuleSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
 
@@ -88,5 +88,55 @@ export function registerAlertRoutes(app: FastifyInstance, services: Services): v
       ip: request.ip, status: "success", detail: `imported=${imported};status=${body.status}`
     });
     return { ok: true, imported };
+  });
+
+  // ---- 自定义告警规则 ----
+  app.get("/api/alerts/custom-rules", async (request, reply) => {
+    const user = await requireUser(request, reply, services);
+    if (!user) {
+      return;
+    }
+    return { rules: await services.alertService.listCustomRules() };
+  });
+
+  app.post("/api/alerts/custom-rules", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const input = CreateCustomAlertRuleSchema.parse(request.body);
+    const rule = await services.alertService.createCustomRule(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "alerts.custom_rule.create", target: rule.name, ip: request.ip, status: "success" });
+    return { rule };
+  });
+
+  app.patch("/api/alerts/custom-rules", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const input = UpdateCustomAlertRuleSchema.parse(request.body);
+    const rule = await services.alertService.updateCustomRule(input, user.username);
+    await services.auditLog.append({ actor: user.username, action: "alerts.custom_rule.update", target: rule.name, ip: request.ip, status: "success" });
+    return { rule };
+  });
+
+  app.delete<{ Querystring: { ruleId?: string } }>("/api/alerts/custom-rules", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const ruleId = request.query.ruleId ?? "";
+    if (!ruleId) {
+      await reply.code(400).send({ message: "缺少规则 ID。" });
+      return;
+    }
+    const deleted = await services.alertService.deleteCustomRule(ruleId);
+    if (!deleted) {
+      await reply.code(404).send({ message: "规则不存在。" });
+      return;
+    }
+    await services.auditLog.append({ actor: user.username, action: "alerts.custom_rule.delete", target: ruleId, ip: request.ip, status: "success" });
+    return { ok: true };
   });
 }

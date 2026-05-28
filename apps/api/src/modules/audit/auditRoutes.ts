@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { AuditExportQuerySchema, AuditPageQuerySchema, AuditQuerySchema, AuditRetentionSchema } from "@lxpanel/shared";
+import { AuditExportQuerySchema, AuditPageQuerySchema, AuditQuerySchema, AuditReplayQuerySchema, AuditRetentionSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
@@ -94,5 +94,27 @@ export function registerAuditRoutes(app: FastifyInstance, services: Services): v
     const result = await services.auditLog.prune(input.retainDays);
     await services.auditLog.append({ actor: user.username, action: "audit.prune", target: `${input.retainDays}d`, ip: request.ip, status: "success", detail: `removed=${result.removed}` });
     return { result };
+  });
+
+  // ---- 审计重放 API ----
+  app.get("/api/audit/replay", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const query = AuditReplayQuerySchema.parse(request.query);
+    const events = await services.auditLog.list({ ...(query.from ? { from: query.from } : {}), ...(query.to ? { to: query.to } : {}) });
+    const filtered = query.eventTypes ? events.filter((ev) => query.eventTypes!.includes(ev.action)) : events;
+    
+    if (query.format === "tar") {
+      const content = filtered.map((ev) => JSON.stringify(ev)).join("\n");
+      reply.header("content-type", "application/x-tar");
+      reply.header("content-disposition", `attachment; filename="lxpanel-audit-replay.tar"`);
+      return content;
+    }
+    
+    reply.header("content-type", "application/x-ndjson; charset=utf-8");
+    reply.header("content-disposition", `attachment; filename="lxpanel-audit-replay.jsonl"`);
+    return filtered.map((ev) => JSON.stringify(ev)).join("\n");
   });
 }

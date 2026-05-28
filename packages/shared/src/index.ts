@@ -523,15 +523,135 @@ export const CreateAlertSilenceSchema = z.object({
 });
 export type CreateAlertSilence = z.infer<typeof CreateAlertSilenceSchema>;
 
-export const NotificationChannelTypeSchema = z.enum(["webhook", "eventbus"]);
+// ---- 自定义告警规则 ----
+export const CustomAlertRuleSchema = z.object({
+  id: z.string(),
+  name: z.string().min(2).max(80),
+  description: z.string().max(500).default(""),
+  enabled: z.boolean(),
+  metric: z.string(),
+  condition: z.enum([">", ">=", "<", "<=", "==", "!="]),
+  threshold: z.number(),
+  duration: z.number().int().min(0).default(0),
+  level: AlertLevelSchema,
+  target: z.string().optional(),
+  messageTemplate: z.string().max(500),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  updatedBy: z.string()
+});
+export type CustomAlertRule = z.infer<typeof CustomAlertRuleSchema>;
+
+export const CreateCustomAlertRuleSchema = z.object({
+  name: z.string().min(2).max(80),
+  description: z.string().max(500).default(""),
+  enabled: z.boolean().default(true),
+  metric: z.string().min(1).max(80),
+  condition: z.enum([">", ">=", "<", "<=", "==", "!="]),
+  threshold: z.number(),
+  duration: z.number().int().min(0).default(0),
+  level: AlertLevelSchema.default("warning"),
+  target: z.string().optional(),
+  messageTemplate: z.string().max(500)
+});
+export type CreateCustomAlertRule = z.infer<typeof CreateCustomAlertRuleSchema>;
+
+export const UpdateCustomAlertRuleSchema = z.object({
+  ruleId: z.string().min(1),
+  name: z.string().min(2).max(80).optional(),
+  description: z.string().max(500).optional(),
+  enabled: z.boolean().optional(),
+  metric: z.string().min(1).max(80).optional(),
+  condition: z.enum([">", ">=", "<", "<=", "==", "!="]).optional(),
+  threshold: z.number().optional(),
+  duration: z.number().int().min(0).optional(),
+  level: AlertLevelSchema.optional(),
+  target: z.string().optional(),
+  messageTemplate: z.string().max(500).optional()
+});
+export type UpdateCustomAlertRule = z.infer<typeof UpdateCustomAlertRuleSchema>;
+
+// ---- 审计重放 ----
+export const AuditReplayQuerySchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+  eventTypes: z.string().optional(),
+  format: z.enum(["jsonl", "tar"]).default("jsonl")
+});
+export type AuditReplayQuery = z.infer<typeof AuditReplayQuerySchema>;
+
+// ---- WebAuthn ----
+export const WebAuthnCredentialSchema = z.object({
+  id: z.string(),
+  publicKey: z.string(),
+  counter: z.number().int().nonnegative(),
+  transports: z.array(z.string()).default([]),
+  createdAt: z.string(),
+  lastUsedAt: z.string().optional(),
+  deviceName: z.string().default("")
+});
+export type WebAuthnCredential = z.infer<typeof WebAuthnCredentialSchema>;
+
+export const WebAuthnRegistrationOptionsSchema = z.object({
+  challenge: z.string(),
+  rp: z.object({ name: z.string(), id: z.string() }),
+  user: z.object({ id: z.string(), name: z.string(), displayName: z.string() }),
+  pubKeyCredParams: z.array(z.object({ type: z.literal("public-key"), alg: z.number() })),
+  attestation: z.string().optional(),
+  excludeCredentials: z.array(z.object({ id: z.string(), type: z.literal("public-key"), transports: z.array(z.string()) })).optional()
+});
+export type WebAuthnRegistrationOptions = z.infer<typeof WebAuthnRegistrationOptionsSchema>;
+
+export const WebAuthnRegistrationResultSchema = z.object({
+  id: z.string(),
+  rawId: z.string(),
+  type: z.literal("public-key"),
+  response: z.object({
+    clientDataJSON: z.string(),
+    attestationObject: z.string(),
+    transports: z.array(z.string()).optional()
+  })
+});
+export type WebAuthnRegistrationResult = z.infer<typeof WebAuthnRegistrationResultSchema>;
+
+export const WebAuthnAssertionOptionsSchema = z.object({
+  challenge: z.string(),
+  rpId: z.string(),
+  allowCredentials: z.array(z.object({ id: z.string(), type: z.literal("public-key"), transports: z.array(z.string()) })),
+  userVerification: z.string().default("preferred")
+});
+export type WebAuthnAssertionOptions = z.infer<typeof WebAuthnAssertionOptionsSchema>;
+
+export const WebAuthnAssertionResultSchema = z.object({
+  id: z.string(),
+  rawId: z.string(),
+  type: z.literal("public-key"),
+  response: z.object({
+    clientDataJSON: z.string(),
+    authenticatorData: z.string(),
+    signature: z.string(),
+    userHandle: z.string().optional()
+  })
+});
+export type WebAuthnAssertionResult = z.infer<typeof WebAuthnAssertionResultSchema>;
+
+export const NotificationChannelTypeSchema = z.enum(["webhook", "eventbus", "email"]);
 export type NotificationChannelType = z.infer<typeof NotificationChannelTypeSchema>;
 
 export const NotificationChannelSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: NotificationChannelTypeSchema,
-  url: z.string().url(),
+  url: z.string().url().optional(),
   topic: z.string().optional(),
+  // SMTP 字段（仅邮件渠道）
+  smtpHost: z.string().optional(),
+  smtpPort: z.number().int().optional(),
+  smtpSecure: z.boolean().optional(),
+  smtpUsername: z.string().optional(),
+  smtpPassword: z.string().optional(),
+  smtpFrom: z.string().email().optional(),
+  smtpTo: z.string().email().optional(),
   enabled: z.boolean(),
   minLevel: AlertLevelSchema,
   createdAt: z.string(),
@@ -543,13 +663,32 @@ export const NotificationChannelSchema = z.object({
 });
 export type NotificationChannel = z.infer<typeof NotificationChannelSchema>;
 
+export const EmailSmtpConfigSchema = z.object({
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535).default(587),
+  secure: z.boolean().default(false),
+  username: z.string().min(1),
+  password: z.string().min(1),
+  from: z.string().email()
+});
+export type EmailSmtpConfig = z.infer<typeof EmailSmtpConfigSchema>;
+
 export const CreateNotificationChannelSchema = z.object({
   name: z.string().min(2).max(80),
   type: NotificationChannelTypeSchema.default("webhook"),
-  url: z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "仅支持 HTTP/HTTPS Webhook。"),
+  url: z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "仅支持 HTTP/HTTPS Webhook。").optional(),
   topic: z.string().min(1).max(120).optional(),
+  smtp: EmailSmtpConfigSchema.optional(),
+  smtpTo: z.string().email().optional(),
   enabled: z.boolean().default(true),
   minLevel: AlertLevelSchema.default("warning")
+}).superRefine((value, context) => {
+  if (value.type === "email" && !value.smtp) {
+    context.addIssue({ code: "custom", path: ["smtp"], message: "邮件渠道需要 SMTP 配置。" });
+  }
+  if (value.type === "webhook" && !value.url) {
+    context.addIssue({ code: "custom", path: ["url"], message: "Webhook 渠道需要 URL。" });
+  }
 });
 export type CreateNotificationChannel = z.infer<typeof CreateNotificationChannelSchema>;
 

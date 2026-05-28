@@ -1,10 +1,11 @@
-import type { AlertEvent, AlertSilence, AlertSummary, AlertThreshold, CreateAlertSilence, UpdateAlertThreshold, SystemOverview } from "@lxpanel/shared";
+import type { AlertEvent, AlertSilence, AlertSummary, AlertThreshold, CreateAlertSilence, UpdateAlertThreshold, SystemOverview, CustomAlertRule, CreateCustomAlertRule, UpdateCustomAlertRule } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
-import type { PanelState } from "../state/panelState.js";
+import type { PanelState, CustomAlertRuleRecord } from "../state/panelState.js";
 import { createDefaultAlertThresholds } from "../state/panelState.js";
 import { getSystemOverview, listDiskUsage, type DiskUsageInfo } from "../system/systemService.js";
 import { AlertEvaluator } from "./alertEvaluator.js";
+import { evaluateCustomRule, buildMetricsMap } from "./alertRuleEngine.js";
 
 const maxAlertEvents = 200;
 const defaultListLimit = 100;
@@ -113,6 +114,73 @@ export class AlertService {
     });
   }
 
+  // ---- 自定义告警规则 CRUD ----
+
+  async listCustomRules(): Promise<CustomAlertRule[]> {
+    const state = await this.store.read();
+    return (state.customAlertRules ?? []).map(toCustomAlertRule);
+  }
+
+  async createCustomRule(input: CreateCustomAlertRule, actor: string): Promise<CustomAlertRule> {
+    return this.store.update((state) => {
+      const now = new Date().toISOString();
+      const rule: CustomAlertRuleRecord = {
+        id: randomToken(12),
+        name: input.name,
+        description: input.description ?? "",
+        enabled: input.enabled ?? true,
+        metric: input.metric,
+        condition: input.condition,
+        threshold: input.threshold,
+        duration: input.duration ?? 0,
+        level: input.level ?? "warning",
+        target: input.target ?? "",
+        messageTemplate: input.messageTemplate,
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: actor
+      };
+      const rules = [...(state.customAlertRules ?? []), rule].slice(-200);
+      return { data: { ...state, customAlertRules: rules }, result: toCustomAlertRule(rule) };
+    });
+  }
+
+  async updateCustomRule(input: UpdateCustomAlertRule, actor: string): Promise<CustomAlertRule> {
+    return this.store.update((state) => {
+      const rules = state.customAlertRules ?? [];
+      const existing = rules.find((r) => r.id === input.ruleId);
+      if (!existing) {
+        throw new Error("自定义告警规则不存在。");
+      }
+      const now = new Date().toISOString();
+      const updated: CustomAlertRuleRecord = {
+        ...existing,
+        ...(input.name ? { name: input.name } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        ...(input.metric ? { metric: input.metric } : {}),
+        ...(input.condition ? { condition: input.condition } : {}),
+        ...(input.threshold !== undefined ? { threshold: input.threshold } : {}),
+        ...(input.duration !== undefined ? { duration: input.duration } : {}),
+        ...(input.level ? { level: input.level } : {}),
+        ...(input.target !== undefined ? { target: input.target } : {}),
+        ...(input.messageTemplate ? { messageTemplate: input.messageTemplate } : {}),
+        updatedAt: now,
+        updatedBy: actor
+      };
+      const nextRules = rules.map((r) => r.id === input.ruleId ? updated : r);
+      return { data: { ...state, customAlertRules: nextRules }, result: toCustomAlertRule(updated) };
+    });
+  }
+
+  async deleteCustomRule(ruleId: string): Promise<boolean> {
+    return this.store.update((state) => {
+      const rules = state.customAlertRules ?? [];
+      const nextRules = rules.filter((r) => r.id !== ruleId);
+      return { data: { ...state, customAlertRules: nextRules }, result: nextRules.length !== rules.length };
+    });
+  }
+
   async check(now = new Date()): Promise<AlertEvent[]> {
     const state = await this.store.read();
     const thresholds = normalizeThresholds(state.alertThresholds);
@@ -125,6 +193,30 @@ export class AlertService {
     }
     const silences = state.alertSilences ?? [];
     const candidates = this.evaluator.evaluate({ overview, disks, thresholds, now }).filter((event) => !isSilenced(event, silences, now));
+
+    // 评估自定义告警规则
+    const latestSample = state.metricSamples?.[state.metricSamples.length - 1];
+    const metrics = buildMetricsMap(latestSample, { cpu: overview.cpu, memory: overview.memory, disks });
+    const customRules = state.customAlertRules ?? [];
+    for (const rule of customRules) {
+      if (!rule.enabled) {
+        continue;
+      }
+      const triggered = evaluateCustomRule({ rule, metrics });
+      if (triggered) {
+        const triggeredLevel: "warning" | "critical" = rule.level;
+        candidates.push({
+          id: randomToken(12),
+          time: now.toISOString(),
+          type: "cpu",  // 自定义规则使用通用类型
+          level: triggeredLevel,
+          target: rule.target ?? "system",
+          currentValue: metrics[rule.metric] ?? 0,
+          threshold: rule.threshold,
+          message: rule.messageTemplate || `自定义规则「${rule.name}」触发: ${rule.metric} ${rule.condition} ${rule.threshold}`
+        });
+      }
+    }
     if (candidates.length === 0) {
       return [];
     }
@@ -175,4 +267,23 @@ function isDuplicate(events: AlertEvent[], candidate: AlertEvent, now: Date): bo
     }
     return now.getTime() - new Date(event.time).getTime() < duplicateCooldownMs;
   });
+}
+
+function toCustomAlertRule(record: CustomAlertRuleRecord): CustomAlertRule {
+  return {
+    id: record.id,
+    name: record.name,
+    description: record.description,
+    enabled: record.enabled,
+    metric: record.metric,
+    condition: record.condition,
+    threshold: record.threshold,
+    duration: record.duration,
+    level: record.level,
+    target: record.target,
+    messageTemplate: record.messageTemplate,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    updatedBy: record.updatedBy
+  };
 }

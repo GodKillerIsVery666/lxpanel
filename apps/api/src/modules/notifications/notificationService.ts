@@ -3,6 +3,7 @@ import type { AlertEvent, CreateNotificationChannel, NotificationChannel, Notifi
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import type { NotificationChannelRecord, NotificationDeliveryRecord, PanelState } from "../state/panelState.js";
+import { sendSmtpEmail, type SmtpConfig } from "./emailChannelService.js";
 
 const maxDeliveries = 300;
 const defaultDeliveryLimit = 100;
@@ -55,8 +56,8 @@ export class NotificationService {
   }
 
   async createChannel(input: CreateNotificationChannel, actor: string): Promise<NotificationChannel> {
-    this.assertWebhookAllowed(input.url);
-    const storedUrl = this.toStoredUrl(input.url);
+    this.assertWebhookAllowed(input.url ?? "");
+    const storedUrl = input.url ? this.toStoredUrl(input.url) : {};
     return this.store.update((state) => {
       const now = new Date().toISOString();
       const channel: NotificationChannelRecord = {
@@ -64,13 +65,22 @@ export class NotificationService {
         name: input.name,
         type: input.type,
         ...storedUrl,
+        ...(input.type === "email" && input.smtp ? {
+          smtpHost: input.smtp.host,
+          smtpPort: input.smtp.port,
+          smtpSecure: input.smtp.secure,
+          smtpUsername: input.smtp.username,
+          smtpPassword: input.smtp.password,
+          smtpFrom: input.smtp.from,
+          smtpTo: input.smtpTo
+        } : {}),
         enabled: input.enabled,
         minLevel: input.minLevel,
         createdAt: now,
         updatedAt: now,
         updatedBy: actor
       };
-      return { data: { ...state, notificationChannels: [...(state.notificationChannels ?? []), channel] }, result: toPublicChannel(channel, input.url) };
+      return { data: { ...state, notificationChannels: [...(state.notificationChannels ?? []), channel] }, result: toPublicChannel(channel, input.url ?? "") };
     });
   }
 
@@ -208,12 +218,40 @@ export class NotificationService {
     let status: NotificationDelivery["status"] = "success";
     let errorMessage: string | undefined;
     try {
-      const url = this.readWebhookUrl(channel);
-      this.assertWebhookAllowed(url);
-      const response = await this.webhookSender(url, createPayload(channel, alert, now));
-      if (!response.ok) {
-        status = "failed";
-        errorMessage = `HTTP ${response.status}${response.body ? ` ${response.body.slice(0, 200)}` : ""}`;
+      if (channel.type === "email") {
+        if (!channel.smtpHost || !channel.smtpUsername || !channel.smtpPassword || !channel.smtpFrom) {
+          throw new Error("邮件渠道 SMTP 配置不完整。");
+        }
+        const smtpConfig: SmtpConfig = {
+          host: channel.smtpHost,
+          port: channel.smtpPort ?? 587,
+          secure: channel.smtpSecure ?? false,
+          username: channel.smtpUsername,
+          password: channel.smtpPassword,
+          from: channel.smtpFrom
+        };
+        const result = await sendSmtpEmail(smtpConfig, channel.smtpTo ?? channel.smtpFrom, `[LXPanel] ${alert.level} - ${alert.message.slice(0, 80)}`, [
+          `告警 ID: ${alert.id}`,
+          `级别: ${alert.level}`,
+          `类型: ${alert.type}`,
+          `目标: ${alert.target}`,
+          `当前值: ${alert.currentValue}`,
+          `阈值: ${alert.threshold}`,
+          `时间: ${alert.time}`,
+          `消息: ${alert.message}`
+        ].join("\n"));
+        if (!result.ok) {
+          status = "failed";
+          errorMessage = result.error;
+        }
+      } else {
+        const url = this.readWebhookUrl(channel);
+        this.assertWebhookAllowed(url);
+        const response = await this.webhookSender(url, createPayload(channel, alert, now));
+        if (!response.ok) {
+          status = "failed";
+          errorMessage = `HTTP ${response.status}${response.body ? ` ${response.body.slice(0, 200)}` : ""}`;
+        }
       }
     } catch (error) {
       status = "failed";
@@ -322,7 +360,17 @@ function createPayload(channel: NotificationChannelRecord, alert: AlertEvent, ti
 function toPublicChannel(channel: NotificationChannelRecord, url: string): NotificationChannel {
   const publicChannel = { ...channel };
   delete publicChannel.encryptedUrl;
-  return { ...publicChannel, url: maskWebhookUrl(url) };
+  return {
+    ...publicChannel,
+    url: maskWebhookUrl(url),
+    smtpHost: channel.smtpHost,
+    smtpPort: channel.smtpPort,
+    smtpSecure: channel.smtpSecure,
+    smtpUsername: channel.smtpUsername,
+    smtpPassword: channel.smtpPassword,
+    smtpFrom: channel.smtpFrom,
+    smtpTo: channel.smtpTo
+  };
 }
 
 function withStoredUrl(channel: NotificationChannelRecord, storedUrl: Pick<NotificationChannelRecord, "url" | "encryptedUrl">): NotificationChannelRecord {

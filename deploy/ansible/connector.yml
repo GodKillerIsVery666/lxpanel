@@ -1,0 +1,81 @@
+---
+- name: 部署 LXPanel 连接器
+  hosts: all
+  become: yes
+  vars:
+    lxpanel_server_url: "http://panel:7080"
+    lxpanel_connector_token: ""
+    lxpanel_connector_version: "latest"
+    lxpanel_deploy_method: "docker"  # docker | bare
+
+  tasks:
+    - name: 检查 Docker 是否安装
+      command: docker --version
+      register: docker_check
+      ignore_errors: yes
+      when: lxpanel_deploy_method == "docker"
+
+    - name: 安装 Docker
+      include_role:
+        name: geerlingguy.docker
+      when: lxpanel_deploy_method == "docker" and docker_check is failed
+
+    - name: 创建 docker-compose.connector.yml
+      copy:
+        dest: "/opt/lxpanel-connector/docker-compose.yml"
+        content: |
+          version: "3"
+          services:
+            connector:
+              image: "lxpanel/connector:{{ lxpanel_connector_version }}"
+              restart: unless-stopped
+              network_mode: host
+              environment:
+                - LXPANEL_SERVER={{ lxpanel_server_url }}
+                - LXPANEL_TOKEN={{ lxpanel_connector_token }}
+      when: lxpanel_deploy_method == "docker"
+
+    - name: 启动连接器容器
+      command: docker compose -f /opt/lxpanel-connector/docker-compose.yml up -d
+      when: lxpanel_deploy_method == "docker"
+
+    - name: 安装 Node.js (裸机)
+      include_role:
+        name: geerlingguy.nodejs
+      vars:
+        nodejs_version: "22.x"
+      when: lxpanel_deploy_method == "bare"
+
+    - name: 下载连接器脚本
+      get_url:
+        url: "{{ lxpanel_server_url }}/api/connectors/script"
+        dest: "/opt/lxpanel-connector/connector.mjs"
+        mode: "0755"
+      when: lxpanel_deploy_method == "bare"
+
+    - name: 创建 systemd 服务
+      copy:
+        dest: "/etc/systemd/system/lxpanel-connector.service"
+        content: |
+          [Unit]
+          Description=LXPanel Connector
+          After=network.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=/opt/lxpanel-connector
+          ExecStart=/usr/bin/node connector.mjs --server {{ lxpanel_server_url }} --token {{ lxpanel_connector_token }}
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+      when: lxpanel_deploy_method == "bare"
+
+    - name: 启动连接器服务
+      systemd:
+        name: lxpanel-connector
+        state: started
+        enabled: yes
+        daemon_reload: yes
+      when: lxpanel_deploy_method == "bare"

@@ -54,7 +54,7 @@ export class EventBusService {
         time: new Date().toISOString()
       }));
       try {
-        const result = await this.sender(channel.url, payload);
+        const result = await this.sender(channel.url ?? channel.topic ?? "http://localhost", payload);
         deliveries.push({
           id: `eb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           channelId: channel.id,

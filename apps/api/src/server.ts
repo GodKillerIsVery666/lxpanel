@@ -49,6 +49,7 @@ import { registerSystemRoutes } from "./modules/system/systemRoutes.js";
 import { TaskStore } from "./modules/tasks/taskStore.js";
 import { registerTaskRoutes } from "./modules/tasks/taskRoutes.js";
 import { registerUserRoutes } from "./modules/users/userRoutes.js";
+import { registerWebAuthnRoutes } from "./modules/auth/webauthnRoutes.js";
 
 export interface Services {
   config: AppConfig;
@@ -125,6 +126,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerDocsRoutes(app, services);
   registerAuthRoutes(app, services);
   registerUserRoutes(app, services);
+  registerWebAuthnRoutes(app, services);
   registerSystemRoutes(app, services);
   registerHostRoutes(app, services);
   registerMonitoringRoutes(app, services);

@@ -1,0 +1,126 @@
+---
+- name: 部署 LXPanel 面板
+  hosts: all
+  become: yes
+  vars:
+    lxpanel_version: "latest"
+    lxpanel_host: "0.0.0.0"
+    lxpanel_port: 7080
+    lxpanel_data_dir: "/opt/lxpanel/data"
+    lxpanel_session_secret: ""
+    lxpanel_state_store: "json"
+    lxpanel_deploy_method: "docker"  # docker | bare
+    lxpanel_docker_image: "lxpanel/server:{{ lxpanel_version }}"
+    lxpanel_node_version: "22.x"
+
+  tasks:
+    - name: 创建数据目录
+      file:
+        path: "{{ lxpanel_data_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: 检查 Docker 是否安装
+      command: docker --version
+      register: docker_check
+      ignore_errors: yes
+      when: lxpanel_deploy_method == "docker"
+
+    - name: 安装 Docker
+      include_role:
+        name: geerlingguy.docker
+      when: lxpanel_deploy_method == "docker" and docker_check is failed
+
+    - name: 创建 docker-compose.yml
+      copy:
+        dest: "/opt/lxpanel/docker-compose.yml"
+        content: |
+          version: "3"
+          services:
+            lxpanel:
+              image: "{{ lxpanel_docker_image }}"
+              restart: unless-stopped
+              ports:
+                - "{{ lxpanel_host }}:{{ lxpanel_port }}:7080"
+              volumes:
+                - "{{ lxpanel_data_dir }}:/app/data"
+              environment:
+                - LXPANEL_HOST=0.0.0.0
+                - LXPANEL_PORT=7080
+                - LXPANEL_DATA_DIR=/app/data
+                - LXPANEL_STATE_STORE={{ lxpanel_state_store }}
+                - LXPANEL_SESSION_SECRET={{ lxpanel_session_secret }}
+                - LXPANEL_COOKIE_SECURE=false
+      when: lxpanel_deploy_method == "docker"
+
+    - name: 启动 LXPanel 容器
+      command: docker compose -f /opt/lxpanel/docker-compose.yml up -d
+      when: lxpanel_deploy_method == "docker"
+
+    - name: 安装 Node.js (裸机部署)
+      include_role:
+        name: geerlingguy.nodejs
+      vars:
+        nodejs_version: "{{ lxpanel_node_version }}"
+      when: lxpanel_deploy_method == "bare"
+
+    - name: 克隆 LXPanel 源码
+      git:
+        repo: "https://github.com/GodKillerIsVery666/lxpanel.git"
+        dest: "/opt/lxpanel/src"
+        version: "v{{ lxpanel_version }}"
+      when: lxpanel_deploy_method == "bare"
+
+    - name: 安装依赖并构建
+      command: |
+        npm install && npm run build
+      args:
+        chdir: "/opt/lxpanel/src"
+      when: lxpanel_deploy_method == "bare"
+
+    - name: 创建 systemd 服务
+      copy:
+        dest: "/etc/systemd/system/lxpanel.service"
+        content: |
+          [Unit]
+          Description=LXPanel Server
+          After=network.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=/opt/lxpanel/src
+          ExecStart=/usr/bin/node apps/api/dist/server.js
+          Restart=always
+          RestartSec=5
+          Environment=LXPANEL_HOST={{ lxpanel_host }}
+          Environment=LXPANEL_PORT={{ lxpanel_port }}
+          Environment=LXPANEL_DATA_DIR={{ lxpanel_data_dir }}
+          Environment=LXPANEL_STATE_STORE={{ lxpanel_state_store }}
+          Environment=LXPANEL_SESSION_SECRET={{ lxpanel_session_secret }}
+          Environment=LXPANEL_COOKIE_SECURE=false
+
+          [Install]
+          WantedBy=multi-user.target
+      when: lxpanel_deploy_method == "bare"
+
+    - name: 启动 LXPanel 服务
+      systemd:
+        name: lxpanel
+        state: started
+        enabled: yes
+        daemon_reload: yes
+      when: lxpanel_deploy_method == "bare"
+
+    - name: 等待面板就绪
+      uri:
+        url: "http://127.0.0.1:{{ lxpanel_port }}/api/health/live"
+        method: GET
+        status_code: 200
+      register: health_result
+      retries: 30
+      delay: 2
+      until: health_result.status == 200
+
+    - name: 输出面板地址
+      debug:
+        msg: "LXPanel 已部署完成，访问 http://{{ ansible_host }}:{{ lxpanel_port }}"
