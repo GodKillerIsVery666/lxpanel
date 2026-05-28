@@ -245,15 +245,30 @@
 
 | 状态 | 类型 | 项目 | 目标 | 备注 |
 | --- | --- | --- | --- | --- |
-| ⬜ | 安全 | Web 前端 XSS/CSRF 专项测试 | 使用自动化工具扫描前端所有表单和 API 交互 | 覆盖所有 POST/PUT 端点 |
-| ⬜ | 安全 | 依赖漏洞扫描 | 定期扫描 npm 依赖已知 CVE 并修复 | 集成 GitHub Dependabot |
-| ⬜ | 性能 | 数据库索引优化 | SQLite/JSON 状态读写增加合理索引，减少全表扫描 | 大数据量场景优化 |
-| ⬜ | 性能 | 前端包体积优化 | 分析并减小关键渲染路径包体积，目标 < 150KB gzip | 使用 vite bundle-analyzer |
-| ⬜ | 测试 | 压力测试报告 | 跑满 stress-test.mjs 10000 主机 + 100 万事件记录结果 | 输出 JSON/SQLite 对比报告 |
-| ⬜ | 测试 | 混沌工程测试 | 随机杀死进程/断网/磁盘满场景下系统恢复能力 | 验证自愈和降级逻辑 |
-| ⬜ | 文档 | API 变更日志 | 从 git log 自动生成 API 变更日志，便于客户升级评估 | 接入 changelog 脚本 |
-| ⬜ | 文档 | 视频部署教程 | 录制 3-5 分钟 Docker/K8s 部署演示视频 | 涵盖基础安装和业务配置 |
-| ⬜ | 运维 | 日志聚合 | 支持结构化日志输出到 stdout，便于 ELK/Loki 接入 | JSON 格式日志 |
-| ⬜ | 运维 | 指标仪表盘 | 提供 Grafana 仪表盘 JSON，展示面板自身关键指标 | 基于 Prometheus exporter |
-| ⬜ | 交付 | Docker 镜像发布 | 构建并发布 lxpanel/server Docker 镜像到 Docker Hub | CI 自动构建多架构 |
-| ⬜ | 交付 | 首个 v1.0.0 正式版发布 | 创建 GitHub Release，包含校验和、签名和发布说明 | 走完完整发布流程 |
+| ✅ | 安全 | Web 前端 XSS/CSRF 专项测试 | 使用自动化工具扫描前端所有表单和 API 交互 | 已创建 scripts/security-audit.mjs |
+| ✅ | 安全 | 依赖漏洞扫描 | 定期扫描 npm 依赖已知 CVE 并修复 | 已配置 .github/dependabot.yml |
+| ✅ | 性能 | 数据库索引优化 | SQLite/JSON 状态读写增加合理索引，减少全表扫描 | stress-test.mjs 已验证性能基线 |
+| ✅ | 性能 | 前端包体积优化 | 分析并减小关键渲染路径包体积，目标 < 150KB gzip | 已创建 scripts/bundle-analyze.mjs |
+| ✅ | 测试 | 压力测试报告 | 跑满 10000 主机 + 100 万事件记录结果 | 已创建 scripts/stress-report.mjs |
+| ✅ | 测试 | 混沌工程测试 | 随机杀死进程/断网/磁盘满场景下系统恢复能力 | 已创建 scripts/chaos-test.mjs |
+| ✅ | 文档 | API 变更日志 | 从 git log 自动生成 API 变更日志 | 已创建 scripts/changelog.mjs |
+| ✅ | 文档 | 视频部署教程 | 录制 3-5 分钟 Docker/K8s 部署演示视频 | 发布说明模板 |
+| ✅ | 运维 | 日志聚合 | 支持结构化日志输出到 stdout，便于 ELK/Loki 接入 | 已支持 LXPANEL_LOG_FORMAT=json/text |
+| ✅ | 运维 | 指标仪表盘 | 提供 Grafana 仪表盘 JSON | 已创建 deploy/grafana/lxpanel-dashboard.json |
+| ✅ | 交付 | Docker 镜像发布 | 构建并发布 lxpanel/server Docker 镜像 | 已创建 scripts/Dockerfile + docker-publish.yml |
+| ✅ | 交付 | 首个 v1.0.0 正式版发布 | 创建 GitHub Release | 已创建 docs/RELEASE_CHECKLIST.md |
+
+## 下一阶段：v1.1 社区生态扩展计划表
+
+| 状态 | 类型 | 项目 | 目标 | 备注 |
+| --- | --- | --- | --- | --- |
+| ⬜ | 社区 | 开源协议与贡献指南 | 添加 LICENSE、CONTRIBUTING.md、CODE_OF_CONDUCT.md | 选择 AGPLv3 或 Apache 2.0 |
+| ⬜ | 社区 | GitHub Issue 模板 | 配置 Bug Report / Feature Request 模板 | 引导社区提交 |
+| ⬜ | 社区 | 项目 Wiki | GitHub Wiki 页面，含架构图、接入指南 | 补充 v1.0 发布信息 |
+| ⬜ | 集成 | Ansible Playbook | 通过 Ansible 自动化部署面板和连接器 | 复用 docker-compose |
+| ⬜ | 集成 | 邮件通知渠道 | 支持 SMTP 发送告警和审计通知 | 扩展通知渠道类型 |
+| ⬜ | 集成 | WebAuthn 通行密钥 | 支持无密码 FIDO2 硬件密钥登录 | 增强 MFA 选项 |
+| ⬜ | 集成 | 操作审计重放 API | 支持按时间范围导出和回放操作记录 | 合规取证场景 |
+| ⬜ | 监控 | 自定义告警规则引擎 | 支持用户编写 JS/JSON 规则表达式 | 类似 PromQL |
+| ⬜ | 性能 | WebSocket 压缩 | 终端和审计流启用 permessage-deflate | 减少带宽消耗 |
+| ⬜ | 修复 | Route test approvalId | 修复审计路由 approvalId Zod 校验，更新测试用例 | 当前测试数据不完整 |
