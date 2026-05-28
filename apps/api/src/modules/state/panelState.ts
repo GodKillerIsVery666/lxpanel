@@ -5,6 +5,10 @@ export interface UserRecord {
   username: string;
   role: Role;
   passwordHash: string;
+  email?: string;
+  displayName?: string;
+  authProvider?: "local" | "oidc";
+  externalSubject?: string;
   totpSecret?: string;
   totpEnabled?: boolean;
   createdAt: string;

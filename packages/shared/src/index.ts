@@ -47,6 +47,9 @@ export const AuthUserSchema = z.object({
   role: RoleSchema,
   createdAt: z.string(),
   lastLoginAt: z.string().optional(),
+  email: z.string().email().optional(),
+  displayName: z.string().optional(),
+  authProvider: z.enum(["local", "oidc"]).default("local"),
   totpEnabled: z.boolean().default(false),
   tokenScopes: z.array(ApiTokenScopeSchema).optional()
 });
@@ -64,6 +67,22 @@ export const LoginResponseSchema = z.union([
   z.object({ totpRequired: z.literal(true) })
 ]);
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+export const OidcCallbackSchema = z.object({
+  code: z.string().min(1).max(2000),
+  state: z.string().min(1).max(2000),
+  redirectUri: z.string().url().optional(),
+  idToken: z.string().min(10).max(8000).optional(),
+  claims: z.record(z.string(), z.unknown()).optional()
+});
+export type OidcCallback = z.infer<typeof OidcCallbackSchema>;
+
+export const OidcStartResponseSchema = z.object({
+  authorizationUrl: z.string(),
+  state: z.string(),
+  callbackPath: z.string()
+});
+export type OidcStartResponse = z.infer<typeof OidcStartResponseSchema>;
 
 export const SetupRequestSchema = LoginRequestSchema.extend({
   inviteCode: z.string().max(128).optional()
@@ -1149,6 +1168,7 @@ export const DatabaseConnectionSchema = z.object({
   lastBackupAt: z.string().optional(),
   lastStatus: z.enum(["success", "failed"]).optional(),
   lastError: z.string().optional(),
+  lastBackupEncryption: z.object({ algorithm: z.literal("AES-256-GCM"), provider: z.enum(["local", "kms"]), keyVersion: z.number().int().min(1) }).optional(),
   lastRestoreDrillAt: z.string().optional(),
   lastRestoreDrillStatus: z.enum(["success", "failed", "skipped"]).optional()
 });
@@ -1193,6 +1213,7 @@ export const DatabaseBackupResultSchema = z.object({
   connectionId: z.string(),
   filePath: z.string(),
   status: z.enum(["success", "failed"]),
+  encryption: z.object({ algorithm: z.literal("AES-256-GCM"), provider: z.enum(["local", "kms"]), keyVersion: z.number().int().min(1) }).optional(),
   outputTail: z.string().optional(),
   error: z.string().optional()
 });
@@ -1489,6 +1510,9 @@ export const IdentityProviderSchema = z.object({
     name: z.string().default("name"),
     groups: z.string().default("groups")
   }),
+  autoCreateUsers: z.boolean().default(true),
+  defaultRole: RoleSchema.default("viewer"),
+  allowedEmailDomains: z.array(z.string()).default([]),
   requireMfa: z.boolean().default(true),
   breakGlassLocalLogin: z.boolean().default(true),
   enabled: z.boolean(),
@@ -1513,6 +1537,9 @@ export const UpdateIdentityProviderSchema = z.object({
     name: z.string().min(1).max(80).default("name"),
     groups: z.string().min(1).max(80).default("groups")
   }).default({ subject: "sub", email: "email", name: "name", groups: "groups" }),
+  autoCreateUsers: z.boolean().default(true),
+  defaultRole: RoleSchema.default("viewer"),
+  allowedEmailDomains: z.array(z.string().min(1).max(120)).max(50).default([]),
   requireMfa: z.boolean().default(true),
   breakGlassLocalLogin: z.boolean().default(true),
   enabled: z.boolean().default(true)
@@ -1652,6 +1679,25 @@ export const AuditRetentionEvaluationSchema = z.object({
 });
 export type AuditRetentionEvaluation = z.infer<typeof AuditRetentionEvaluationSchema>;
 
+export const AuditRetentionExecutionRequestSchema = z.object({
+  workspace: z.string().min(2).max(80).default("default"),
+  eventType: z.string().min(1).max(120).default("*"),
+  dryRun: z.boolean().default(true),
+  approvalId: z.string().min(1).optional()
+});
+export type AuditRetentionExecutionRequest = z.infer<typeof AuditRetentionExecutionRequestSchema>;
+
+export const AuditRetentionExecutionSchema = z.object({
+  generatedAt: z.string(),
+  dryRun: z.boolean(),
+  status: z.enum(["planned", "approval-required", "executed", "skipped"]),
+  evaluation: AuditRetentionEvaluationSchema,
+  approval: ApprovalSchema.optional(),
+  archivePackage: AuditExportPackageSchema.optional(),
+  pruneTask: z.object({ id: z.string(), action: z.literal("audit.prune"), target: z.string(), status: z.enum(["planned", "success", "skipped"]), removed: z.number().int().nonnegative().optional(), remaining: z.number().int().nonnegative().optional() })
+});
+export type AuditRetentionExecution = z.infer<typeof AuditRetentionExecutionSchema>;
+
 export const PluginManifestSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -1696,6 +1742,30 @@ export const PluginPermissionEvaluationSchema = z.object({
 });
 export type PluginPermissionEvaluation = z.infer<typeof PluginPermissionEvaluationSchema>;
 
+export const PluginSandboxRunRequestSchema = z.object({
+  pluginId: z.string().min(1),
+  operation: z.enum(["metadata", "health-check"]).default("metadata"),
+  requestedScopes: z.array(ApiTokenScopeSchema).min(1).max(20).default(["platform:read"]),
+  timeoutMs: z.number().int().min(100).max(5000).default(1000),
+  input: z.record(z.string(), z.unknown()).default({})
+});
+export type PluginSandboxRunRequest = z.infer<typeof PluginSandboxRunRequestSchema>;
+
+export const PluginSandboxRunSchema = z.object({
+  pluginId: z.string(),
+  operation: z.enum(["metadata", "health-check"]),
+  status: z.enum(["success", "denied", "timeout", "failed"]),
+  startedAt: z.string(),
+  finishedAt: z.string(),
+  durationMs: z.number().int().nonnegative(),
+  grantedScopes: z.array(ApiTokenScopeSchema),
+  deniedScopes: z.array(ApiTokenScopeSchema),
+  sandbox: z.object({ network: z.literal(false), filesystem: z.literal(false), timeoutMs: z.number().int(), directStateAccess: z.literal(false) }),
+  output: z.record(z.string(), z.unknown()).optional(),
+  error: z.string().optional()
+});
+export type PluginSandboxRun = z.infer<typeof PluginSandboxRunSchema>;
+
 export const HighAvailabilityPlanSchema = z.object({
   generatedAt: z.string(),
   mode: z.enum(["single-node", "active-passive", "active-active"]),
@@ -1706,6 +1776,14 @@ export const HighAvailabilityPlanSchema = z.object({
   estimatedRecoveryMinutes: z.number().int().min(1)
 });
 export type HighAvailabilityPlan = z.infer<typeof HighAvailabilityPlanSchema>;
+
+export const ClientApplicationPlanSchema = z.object({
+  generatedAt: z.string(),
+  currentClients: z.array(z.object({ id: z.string(), type: z.enum(["web", "agent"]), status: z.enum(["available", "planned"]), detail: z.string() })),
+  candidates: z.array(z.object({ id: z.string(), type: z.enum(["desktop", "mobile"]), recommendedStack: z.string(), priority: z.enum(["now", "next", "later"]), decision: z.string(), risks: z.array(z.string()) })),
+  recommendation: z.string()
+});
+export type ClientApplicationPlan = z.infer<typeof ClientApplicationPlanSchema>;
 
 export const WorkspaceSchema = z.object({
   id: z.string(),

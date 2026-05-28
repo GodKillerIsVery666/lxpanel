@@ -3,7 +3,7 @@ import type { IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { AccessEvaluationRequestSchema, AuditRetentionEvaluationRequestSchema, ConnectorUpgradeRequestSchema, CreateAccessPolicySchema, CreateAuditRetentionPolicySchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, PluginPermissionEvaluationRequestSchema, RegisterPluginManifestSchema, ResourceApprovalCheckSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateBackupEncryptionPolicySchema, UpdateConnectorReleaseChannelSchema, UpdateIdentityProviderSchema, UpdateLicenseSchema } from "@lxpanel/shared";
+import { AccessEvaluationRequestSchema, AuditRetentionEvaluationRequestSchema, AuditRetentionExecutionRequestSchema, ConnectorUpgradeRequestSchema, CreateAccessPolicySchema, CreateAuditRetentionPolicySchema, CreateResourceApprovalPolicySchema, CreateTemplateRepositorySchema, CreateTerminalSessionSchema, CreateWorkspaceSchema, PluginPermissionEvaluationRequestSchema, PluginSandboxRunRequestSchema, RegisterPluginManifestSchema, ResourceApprovalCheckSchema, SecurityRemediationRequestSchema, StateArchiveRequestSchema, TerminalInputSchema, TerminalOutputSchema, UpdateBackupEncryptionPolicySchema, UpdateConnectorReleaseChannelSchema, UpdateIdentityProviderSchema, UpdateLicenseSchema } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
 import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole, requireUser, sessionCookieName } from "../auth/authMiddleware.js";
@@ -343,6 +343,38 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     return { evaluation };
   });
 
+  app.post("/api/platform/audit-retention-policies/execute", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const input = AuditRetentionExecutionRequestSchema.parse(request.body ?? {});
+    const events = await services.auditLog.list({ limit: 5000, ...(input.eventType !== "*" ? { action: input.eventType } : {}) });
+    const eventCount = events.filter((event) => input.workspace === "default" || event.target.startsWith(`${input.workspace}:`) || event.detail?.includes(`workspace=${input.workspace}`) === true).length;
+    const evaluation = await services.platformStore.evaluateAuditRetention({ workspace: input.workspace, eventType: input.eventType, eventCount });
+    const archivePackage = evaluation.archiveBeforeDelete && !evaluation.legalHold ? await services.auditLog.exportSignedPackage({ format: "jsonl", ...(input.eventType !== "*" ? { action: input.eventType } : {}) }) : undefined;
+    let approval: Awaited<ReturnType<typeof services.approvalStore.request>> | undefined;
+    let pruneResult: Awaited<ReturnType<typeof services.auditLog.prune>> | undefined;
+    if (!input.dryRun && !evaluation.legalHold) {
+      if (input.approvalId) {
+        try {
+          await services.approvalStore.consume({ approvalId: input.approvalId, action: "audit.prune", target: `${evaluation.retainDays}d`, actor: user.username });
+        } catch (error) {
+          if (await sendApprovalError(reply, error)) {
+            return;
+          }
+          throw error;
+        }
+        pruneResult = await services.auditLog.prune(evaluation.retainDays);
+      } else {
+        approval = await services.approvalStore.request({ action: "audit.prune", target: `${evaluation.retainDays}d`, reason: `audit retention ${input.workspace}/${input.eventType}`, requiredApprovals: 1, expiresInMinutes: 120 }, user.username);
+      }
+    }
+    const execution = await services.platformStore.auditRetentionExecution(input, eventCount, archivePackage, approval, pruneResult);
+    await services.auditLog.append({ actor: user.username, action: "platform.audit_retention.execute", target: `${input.workspace}:${input.eventType}`, ip: request.ip, status: execution.status === "executed" || execution.status === "planned" ? "success" : "denied", detail: `status=${execution.status};events=${eventCount}` });
+    return { execution };
+  });
+
   app.get("/api/platform/plugins", async (request, reply) => {
     const user = await requireRole(request, reply, services, "operator");
     if (!user) {
@@ -373,12 +405,31 @@ export function registerPlatformRoutes(app: FastifyInstance, services: Services)
     return { evaluation };
   });
 
+  app.post("/api/platform/plugins/sandbox-run", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "operator");
+    if (!user) {
+      return;
+    }
+    const input = PluginSandboxRunRequestSchema.parse(request.body ?? {});
+    const run = await services.platformStore.runPluginSandbox(input);
+    await services.auditLog.append({ actor: user.username, action: "platform.plugin.sandbox_run", target: input.pluginId, ip: request.ip, status: run.status === "success" ? "success" : "denied", detail: `operation=${run.operation};scopes=${run.grantedScopes.join(",")}` });
+    return { run };
+  });
+
   app.get("/api/platform/high-availability-plan", async (request, reply) => {
     const user = await requireRole(request, reply, services, "owner");
     if (!user) {
       return;
     }
     return { plan: await services.platformStore.highAvailabilityPlan() };
+  });
+
+  app.get("/api/platform/client-application-plan", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    return { plan: services.platformStore.clientApplicationPlan() };
   });
 
   app.get("/api/platform/license", async (request, reply) => {

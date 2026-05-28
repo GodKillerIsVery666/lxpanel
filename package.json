@@ -18,7 +18,8 @@
     "lint": "npm run build -w @lxpanel/shared && eslint .",
     "e2e": "node scripts/e2e-smoke.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "package:release": "node scripts/package-release.mjs",
+    "package:connectors": "node scripts/package-connectors.mjs",
+    "package:release": "node scripts/package-connectors.mjs && node scripts/package-release.mjs",
     "diagnose:release": "node scripts/diagnose-release.mjs",
     "license:issue": "node scripts/license-issue.mjs"
   },

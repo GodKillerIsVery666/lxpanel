@@ -50,6 +50,12 @@ LXPanel 首版采用 npm workspaces 管理三块代码：
 39. 审计保留策略按 workspace 与 eventType 精确匹配，精确动作优先于通配策略；评估接口返回留存天数、归档优先级、legal hold 和预计可清理事件数。
 40. 插件扩展先建立权限边界而不加载任意代码：manifest 声明入口、版本、签名和 API scope，评估接口拒绝超出声明的 scope，并将结果写入审计链。
 41. 高可用方案以可执行 runbook 输出，结合远程备份、连接器冗余和备份加密状态生成拓扑、健康检查、滚动步骤和故障切换步骤。
+42. OIDC 登录闭环实现 code flow：`/api/auth/oidc/start` 生成签名 state 和授权 URL，回调 `/api/auth/oidc/callback` 交换 id_token、校验 audience/exp/iss、解析 subject/email/name claim、自动创建或更新用户并签发 Cookie 会话；支持域名白名单、自定义 claim 映射和自动建用户开关。
+43. 连接器制品流水线 `scripts/package-connectors.mjs` 为 win32-x64/linux-x64/darwin-arm64 生成 agent tar.gz、HMAC-SHA256 签名文件、SHA256SUMS 和标准 manifest.json，`package:release` 和 `diagnose:release` 均包含该流水线产物。
+44. 数据库 dump 加密复用 `BackupStore` 的 AES-256-GCM 加密密钥：启用加密策略后 dump runner 输出明文再加密写入 `.lxenc` envelope，恢复演练时临时解密到 `.restore-drill.tmp.dump` 再执行 drill runner，完成后清理临时文件。
+45. 审计保留执行编排由平台 API 统一编排：dry-run 模式生成评估和归档包预览，审批后按策略执行 `auditLog.prune` 和 `exportSignedPackage`，返回结构化的执行报告（status/approval/archivePackage/pruneTask）。
+46. 插件沙箱运行时封装 manifest 权限评估与沙箱约束：`runPluginSandbox` 返回 `{ network: false, filesystem: false, directStateAccess: false }` 的沙箱声明，对 health-check 操作返回注册元数据，禁止插件直接访问服务端内部状态。
+47. 客户端形态评估报告 `clientApplicationPlan()` 输出现有 Web 客户端和连接器 agent 的状态，以及 Tauri 桌面端和 PWA 移动端的候选栈、优先级和风险。
 
 ## 状态存储
 

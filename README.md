@@ -27,7 +27,12 @@ LXPanel 是一个从零开始搭建的轻量服务器运维面板原型，目标
 - 轻量连接器 agent：`scripts/lxpanel-connector.mjs` 可用令牌心跳、上报远端主机指标、轮询命令、验签、响应升级控制命令并在本机 allowlist 内参数化执行。
 - 审计日志：支持筛选、分页查询、CSV/JSONL 导出、签名 manifest 包、tar 签名包下载、哈希链完整性校验、合规统计、细粒度保留策略评估和带审批的保留清理；安全态势页结构化检查会话密钥、HTTPS Cookie、IP 白名单、备份、状态存储、Docker socket 与 SSH 配置，并提供防火墙、SSH、Docker socket 加固计划；CI、类型检查、单元测试和 E2E smoke。
 - 备份加密与密钥轮换：可在平台治理中启用 AES-256-GCM 状态快照加密，备份记录保存算法、provider 和 keyVersion，校验/恢复会自动解密并验证 SHA-256；平台提供密钥轮换计划和版本提升接口。
-- 企业身份与扩展：平台治理支持 OIDC 身份源配置、MFA 策略就绪检查、本地 owner break-glass 校验、插件 manifest 登记、API scope 权限评估和越权审计。
+- 企业身份与 OIDC 完整登录闭环：平台治理支持 OIDC 身份源配置、授权 URL 生成、state 签名校验、code flow callback、id_token claim 验证、用户自动创建/更新（含 email/displayName/externalSubject）、域名白名单和默认角色分配，以及本地 owner break-glass 保留。
+- 连接器多平台制品流水线：`npm run package:connectors` 为 win32-x64/linux-x64/darwin-arm64 生成 tar.gz 包，附带 HMAC-SHA256 签名、SHA256SUMS 校验文件和 GitHub release 风格的 manifest.json，与 `package:release` 和 `diagnose:release` 衔接。
+- 数据库 dump 加密：启用备份加密策略后，数据库备份 dump 以 AES-256-GCM 加密 envelope 写入，备份记录保存算法、provider 和 keyVersion，恢复演练会临时解密再运行，所有临时文件在完成后清理。
+- 审计保留执行编排：平台提供执行 API，dry-run 模式预览可清理事件和归档包，审批后自动执行 `auditLog.prune` 和归档导出，返回标准化执行报告。
+- 插件沙箱运行时：沙箱 API 返回禁止网络/文件系统/服务端直接访问的约束，超时控制在毫秒级，执行结果和 scope 评估写审计链。
+- 桌面/移动客户端评估：`GET /api/platform/client-application-plan` 输出现行客户端形态和 Tauri/PWA 候选方案的成本与风险分析。
 - 平台治理：提供多租户工作空间、租户级报表导出、资源级访问策略、资源审批强制执行与可视化预检、WebSocket 终端流式通道、终端审计回放、模板仓库导入验签与快照回滚、许可证离线验签与租户配额、内置离线许可证签发脚本、自动化安全修复 dry-run、SQLite 状态归档查询、容量计划、升级向导、高可用部署计划、离线安装向导、诊断包、SDK 示例、前端可访问性/国际化检查和覆盖全部业务路由的 OpenAPI 3.1 JSON/Webhook 摘要；OpenAPI 路径包含 requestBody、query 参数、错误模型和关键响应 schema。
 - 易用性体验：侧边栏按场景分组，支持功能搜索、可执行动作的全局命令面板、收藏入口、最近访问、页面记忆、语言、表格密度和列显示偏好；Shell、导航、平台、主机、应用、备份、数据库、安全和审计关键页面已接入中英文资源，主机、应用部署、备份、数据库、安全和审计等大列表支持搜索、排序、虚拟滚动和列配置。
 

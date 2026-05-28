@@ -1,4 +1,4 @@
-import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type ApiTokenStatus, type AuthSession, type AuthUser, type CreatedApiToken, type CreateApiToken, type CreateUser, type Role } from "@lxpanel/shared";
+import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type ApiTokenStatus, type AuthSession, type AuthUser, type CreatedApiToken, type CreateApiToken, type CreateUser, type IdentityProvider, type OidcCallback, type Role } from "@lxpanel/shared";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from "../../lib/totp.js";
@@ -24,6 +24,13 @@ export interface ApiTokenExpirySummary {
   warningDays: number;
 }
 
+export interface OidcLoginResult {
+  user: AuthUser;
+  provider: IdentityProvider;
+  created: boolean;
+  subject: string;
+}
+
 export class AuthStore {
   constructor(private readonly store: StateStore<PanelState>) {}
 
@@ -44,6 +51,7 @@ export class AuthStore {
         username,
         role: "owner",
         passwordHash,
+        authProvider: "local",
         createdAt: now
       };
       return { data: { ...state, users: [user] }, result: toAuthUser(user) };
@@ -72,6 +80,7 @@ export class AuthStore {
         username: input.username,
         role: input.role,
         passwordHash,
+        authProvider: "local",
         createdAt: now
       };
       return { data: { ...state, users: [...state.users, user] }, result: toAuthUser(user) };
@@ -163,6 +172,51 @@ export class AuthStore {
       users: state.users.map((item) => item.id === user.id ? updatedUser : item)
     });
     return { status: "ok", user: toAuthUser(updatedUser) };
+  }
+
+  async completeOidcLogin(input: OidcCallback): Promise<OidcLoginResult> {
+    const state = await this.store.read();
+    const provider = state.identityProvider;
+    if (!provider?.enabled) {
+      throw new Error("OIDC 身份源未启用。");
+    }
+    const claims = await resolveOidcClaims(input, provider);
+    validateOidcClaims(provider, claims);
+    const subject = requiredClaim(claims, provider.claimMappings.subject);
+    const email = optionalClaim(claims, provider.claimMappings.email);
+    const displayName = optionalClaim(claims, provider.claimMappings.name) ?? email ?? subject;
+    const profile = { ...(email ? { email } : {}), ...(displayName ? { displayName } : {}) };
+    assertAllowedEmailDomain(email, provider.allowedEmailDomains ?? []);
+
+    return this.store.update((current) => {
+      const existing = current.users.find((user) => user.authProvider === "oidc" && user.externalSubject === subject)
+        ?? current.users.find((user) => email && user.authProvider === "oidc" && user.email?.toLowerCase() === email.toLowerCase());
+      if (!existing && provider.autoCreateUsers === false) {
+        throw new Error("OIDC 用户自动创建未启用。");
+      }
+      const now = new Date().toISOString();
+      const updated: UserRecord = existing ? {
+        ...existing,
+        ...profile,
+        authProvider: "oidc",
+        externalSubject: subject,
+        lastLoginAt: now
+      } : {
+        id: randomToken(12),
+        username: uniqueOidcUsername(current.users, email ?? displayName, subject),
+        role: provider.defaultRole ?? "viewer",
+        passwordHash: "oidc$disabled",
+        ...profile,
+        authProvider: "oidc",
+        externalSubject: subject,
+        createdAt: now,
+        lastLoginAt: now
+      };
+      return {
+        data: { ...current, users: existing ? current.users.map((user) => user.id === existing.id ? updated : user) : [...current.users, updated] },
+        result: { user: toAuthUser(updated), provider: toPublicProvider(provider), created: !existing, subject }
+      };
+    });
   }
 
   async createSession(userId: string): Promise<string> {
@@ -414,7 +468,131 @@ function toAuthUser(user: UserRecord): AuthUser {
     username: user.username,
     role: user.role,
     createdAt: user.createdAt,
+    ...(user.email ? { email: user.email } : {}),
+    ...(user.displayName ? { displayName: user.displayName } : {}),
+    authProvider: user.authProvider ?? "local",
     totpEnabled: user.totpEnabled ?? false,
     ...(user.lastLoginAt ? { lastLoginAt: user.lastLoginAt } : {})
   };
+}
+
+async function resolveOidcClaims(input: OidcCallback, provider: NonNullable<PanelState["identityProvider"]>): Promise<Record<string, unknown>> {
+  if (input.claims) {
+    return input.claims;
+  }
+  if (input.idToken) {
+    return decodeJwtPayload(input.idToken);
+  }
+  if (!provider.tokenEndpoint) {
+    throw new Error("OIDC token endpoint 未配置。");
+  }
+  const body = new URLSearchParams({ grant_type: "authorization_code", code: input.code, redirect_uri: input.redirectUri ?? "/api/auth/oidc/callback", client_id: provider.clientId });
+  if (provider.clientSecret) {
+    body.set("client_secret", provider.clientSecret);
+  }
+  const response = await fetch(provider.tokenEndpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body });
+  if (!response.ok) {
+    throw new Error(`OIDC token 交换失败: ${response.status}`);
+  }
+  const payload = await response.json() as unknown;
+  if (!isRecord(payload) || typeof payload.id_token !== "string") {
+    throw new Error("OIDC token 响应缺少 id_token。");
+  }
+  return decodeJwtPayload(payload.id_token);
+}
+
+function validateOidcClaims(provider: NonNullable<PanelState["identityProvider"]>, claims: Record<string, unknown>): void {
+  if (optionalClaim(claims, "iss") && optionalClaim(claims, "iss") !== provider.issuerUrl) {
+    throw new Error("OIDC issuer 不匹配。");
+  }
+  const audience = claims.aud;
+  if (typeof audience === "string" && audience !== provider.clientId) {
+    throw new Error("OIDC audience 不匹配。");
+  }
+  if (Array.isArray(audience) && !audience.includes(provider.clientId)) {
+    throw new Error("OIDC audience 不匹配。");
+  }
+  if (typeof claims.exp === "number" && claims.exp * 1000 <= Date.now()) {
+    throw new Error("OIDC id_token 已过期。");
+  }
+  requiredClaim(claims, provider.claimMappings.subject);
+}
+
+function requiredClaim(claims: Record<string, unknown>, key: string): string {
+  const value = optionalClaim(claims, key);
+  if (!value) {
+    throw new Error(`OIDC claim 缺失: ${key}`);
+  }
+  return value;
+}
+
+function optionalClaim(claims: Record<string, unknown>, key: string): string | undefined {
+  const value = claims[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function assertAllowedEmailDomain(email: string | undefined, domains: string[]): void {
+  if (domains.length === 0 || !email) {
+    return;
+  }
+  const domain = email.split("@").at(-1)?.toLowerCase() ?? "";
+  if (!domains.map((item) => item.toLowerCase()).includes(domain)) {
+    throw new Error("OIDC 用户邮箱域名不在允许范围内。");
+  }
+}
+
+function uniqueOidcUsername(users: UserRecord[], preferred: string, subject: string): string {
+  const base = sanitizeUsername(preferred) || `oidc-${sanitizeUsername(subject)}` || "oidc-user";
+  let candidate = base;
+  let index = 2;
+  while (users.some((user) => user.username === candidate)) {
+    candidate = `${base}-${index}`;
+    index += 1;
+  }
+  return candidate;
+}
+
+function sanitizeUsername(value: string): string {
+  return value.toLowerCase().replace(/@.+$/u, "").replace(/[^a-z0-9_.-]/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 48);
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> {
+  const parts = token.split(".");
+  if (parts.length < 2 || !parts[1]) {
+    throw new Error("OIDC id_token 格式不正确。");
+  }
+  const parsed = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as unknown;
+  if (!isRecord(parsed)) {
+    throw new Error("OIDC id_token payload 不正确。");
+  }
+  return parsed;
+}
+
+function toPublicProvider(provider: NonNullable<PanelState["identityProvider"]>): IdentityProvider {
+  return {
+    id: provider.id,
+    name: provider.name,
+    type: provider.type,
+    issuerUrl: provider.issuerUrl,
+    authorizationEndpoint: provider.authorizationEndpoint,
+    ...(provider.tokenEndpoint ? { tokenEndpoint: provider.tokenEndpoint } : {}),
+    ...(provider.jwksUri ? { jwksUri: provider.jwksUri } : {}),
+    clientId: provider.clientId,
+    clientSecretConfigured: Boolean(provider.clientSecretConfigured || provider.clientSecret),
+    scopes: provider.scopes,
+    claimMappings: provider.claimMappings,
+    autoCreateUsers: provider.autoCreateUsers ?? true,
+    defaultRole: provider.defaultRole ?? "viewer",
+    allowedEmailDomains: provider.allowedEmailDomains ?? [],
+    requireMfa: provider.requireMfa,
+    breakGlassLocalLogin: provider.breakGlassLocalLogin,
+    enabled: provider.enabled,
+    createdAt: provider.createdAt,
+    updatedAt: provider.updatedAt,
+    updatedBy: provider.updatedBy
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

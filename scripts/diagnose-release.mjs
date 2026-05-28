@@ -13,6 +13,8 @@ const checks = await Promise.all([
   checkFile("apps/web/dist/index.html", "web-build", "Web build output"),
   checkFile("scripts/migrate-state.mjs", "state-migration", "State migration script"),
   checkFile("scripts/lxpanel-connector.mjs", "connector-agent", "Connector agent script"),
+  checkFile("release/connectors/manifest.json", "connector-manifest", "Connector release manifest"),
+  checkFile("release/connectors/SHA256SUMS", "connector-checksums", "Connector release checksums"),
   checkFile("docs/roadmap.md", "roadmap", "Roadmap document"),
   checkLatestRelease()
 ]);
@@ -87,7 +89,9 @@ async function collectArtifacts() {
     "docs/roadmap.md",
     "docs/architecture.md",
     "apps/web/dist/index.html",
-    "apps/api/dist/server.js"
+    "apps/api/dist/server.js",
+    "release/connectors/manifest.json",
+    "release/connectors/SHA256SUMS"
   ];
   const releases = (await releaseFiles()).map((file) => `release/${file}`);
   const artifactPaths = [...files, ...releases];

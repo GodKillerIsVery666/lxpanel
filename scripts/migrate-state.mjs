@@ -76,6 +76,10 @@ for (const connection of state.databaseConnections ?? []) {
   connection.scheduleEveryHours ??= 24;
 }
 
+for (const user of state.users ?? []) {
+  user.authProvider ??= user.externalSubject ? "oidc" : "local";
+}
+
 for (const session of state.terminalSessions ?? []) {
   session.outputCursor ??= 0;
   session.streamUrl ??= `/api/platform/terminal-sessions/ws?sessionId=${encodeURIComponent(session.id)}`;

@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { mkdir, readFile, readdir, stat, unlink } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CreateDatabaseConnection, DatabaseBackupCleanupResult, DatabaseBackupResult, DatabaseConnection, DatabaseRestoreDrillResult, DatabaseType, UpdateDatabaseConnection } from "@lxpanel/shared";
 import { runCommand, type CommandResult } from "../../lib/command.js";
@@ -8,6 +8,7 @@ import type { StateStore } from "../../lib/stateStore.js";
 import type { DatabaseConnectionRecord, PanelState } from "../state/panelState.js";
 
 const encryptedUrlPrefix = "dbenc:v1";
+const encryptedDumpKind = "lxpanel-database-dump-encrypted";
 const outputLimit = 12_000;
 
 export type DatabaseDumpRunner = (type: DatabaseType, url: string, filePath: string) => Promise<CommandResult>;
@@ -133,7 +134,8 @@ export class DatabaseStore {
     let result: DatabaseBackupResult;
     try {
       const output = await this.dumpRunner(connection.type, this.readUrl(connection), filePath);
-      result = { connectionId, filePath, status: "success", outputTail: tailOutput(`${output.stdout}\n${output.stderr}`.trim()) };
+      const encrypted = await this.encryptDumpIfEnabled(filePath, state.backupEncryptionPolicy);
+      result = { connectionId, filePath: encrypted.filePath, status: "success", ...(encrypted.encryption ? { encryption: encrypted.encryption } : {}), outputTail: tailOutput(`${output.stdout}\n${output.stderr}`.trim()) };
     } catch (error) {
       result = { connectionId, filePath, status: "failed", error: error instanceof Error ? error.message : String(error) };
     }
@@ -152,8 +154,15 @@ export class DatabaseStore {
     }
     let result: DatabaseRestoreDrillResult;
     try {
-      const output = await this.restoreDrillRunner(connection.type, this.readUrl(connection), connection.lastBackupPath);
-      result = { connectionId, checkedAt: new Date().toISOString(), status: "success", backupPath: connection.lastBackupPath, outputTail: tailOutput(`${output.stdout}\n${output.stderr}`.trim()) };
+      const prepared = await this.prepareDumpForRestoreDrill(connection.lastBackupPath);
+      try {
+        const output = await this.restoreDrillRunner(connection.type, this.readUrl(connection), prepared.filePath);
+        result = { connectionId, checkedAt: new Date().toISOString(), status: "success", backupPath: connection.lastBackupPath, outputTail: tailOutput(`${output.stdout}\n${output.stderr}`.trim()) };
+      } finally {
+        if (prepared.temporary) {
+          await unlink(prepared.filePath).catch(() => undefined);
+        }
+      }
     } catch (error) {
       result = { connectionId, checkedAt: new Date().toISOString(), status: "failed", backupPath: connection.lastBackupPath, error: error instanceof Error ? error.message : String(error) };
     }
@@ -198,7 +207,7 @@ export class DatabaseStore {
       throw error;
     }
     const retentionByPrefix = new Map((state.databaseConnections ?? []).map((connection) => [sanitizeName(connection.name), connection.backupRetentionDays ?? 30]));
-    for (const name of names.filter((item) => item.endsWith(".dump"))) {
+    for (const name of names.filter((item) => item.endsWith(".dump") || item.endsWith(".dump.lxenc"))) {
       const prefix = [...retentionByPrefix.keys()].find((item) => name.startsWith(`${item}-`));
       const retentionDays = prefix ? retentionByPrefix.get(prefix) ?? 30 : 30;
       const filePath = join(backupDir, name);
@@ -261,6 +270,54 @@ export class DatabaseStore {
     }
     throw new Error("数据库连接缺少 URL。");
   }
+
+  private async encryptDumpIfEnabled(filePath: string, policy: PanelState["backupEncryptionPolicy"]): Promise<{ filePath: string; encryption?: NonNullable<DatabaseBackupResult["encryption"]> }> {
+    if (policy?.enabled !== true) {
+      return { filePath };
+    }
+    if (!this.encryptionKey) {
+      throw new Error("数据库 dump 加密已启用，但当前未配置加密密钥。");
+    }
+    const plaintext = await readFile(filePath);
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", this.encryptionKey, iv);
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    const encryptedPath = `${filePath}.lxenc`;
+    const envelope = {
+      kind: encryptedDumpKind,
+      algorithm: "AES-256-GCM",
+      provider: policy.provider,
+      keyVersion: policy.keyVersion,
+      createdAt: new Date().toISOString(),
+      originalFileName: filePath.split(/[\\/]/u).at(-1) ?? "database.dump",
+      iv: iv.toString("base64url"),
+      tag: tag.toString("base64url"),
+      ciphertext: ciphertext.toString("base64url")
+    };
+    await writeFile(encryptedPath, `${JSON.stringify(envelope)}\n`, "utf8");
+    await unlink(filePath);
+    return { filePath: encryptedPath, encryption: { algorithm: "AES-256-GCM", provider: policy.provider, keyVersion: policy.keyVersion } };
+  }
+
+  private async prepareDumpForRestoreDrill(filePath: string): Promise<{ filePath: string; temporary: boolean }> {
+    if (!filePath.endsWith(".lxenc")) {
+      return { filePath, temporary: false };
+    }
+    if (!this.encryptionKey) {
+      throw new Error("数据库 dump 已加密，但当前未配置解密密钥。");
+    }
+    const envelope = JSON.parse(await readFile(filePath, "utf8")) as unknown;
+    if (!isRecord(envelope) || envelope.kind !== encryptedDumpKind || envelope.algorithm !== "AES-256-GCM" || typeof envelope.iv !== "string" || typeof envelope.tag !== "string" || typeof envelope.ciphertext !== "string") {
+      throw new Error("数据库 dump 加密 envelope 格式不正确。");
+    }
+    const decipher = createDecipheriv("aes-256-gcm", this.encryptionKey, Buffer.from(envelope.iv, "base64url"));
+    decipher.setAuthTag(Buffer.from(envelope.tag, "base64url"));
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, "base64url")), decipher.final()]);
+    const temporaryPath = filePath.replace(/\.lxenc$/u, ".restore-drill.tmp.dump");
+    await writeFile(temporaryPath, plaintext);
+    return { filePath: temporaryPath, temporary: true };
+  }
 }
 
 function toUpdatedConnection(connection: DatabaseConnectionRecord, result: DatabaseBackupResult, actor: string): DatabaseConnectionRecord {
@@ -269,6 +326,7 @@ function toUpdatedConnection(connection: DatabaseConnectionRecord, result: Datab
     lastBackupAt: new Date().toISOString(),
     lastStatus: result.status,
     ...(result.status === "success" ? { lastBackupPath: result.filePath } : {}),
+    ...(result.encryption ? { lastBackupEncryption: result.encryption } : {}),
     updatedAt: new Date().toISOString(),
     updatedBy: actor
   };
@@ -276,6 +334,9 @@ function toUpdatedConnection(connection: DatabaseConnectionRecord, result: Datab
     updated.lastError = result.error;
   } else {
     delete updated.lastError;
+  }
+  if (!result.encryption) {
+    delete updated.lastBackupEncryption;
   }
   return updated;
 }
@@ -299,6 +360,7 @@ function toPublicConnection(connection: DatabaseConnectionRecord, url: string): 
     ...(connection.lastBackupAt ? { lastBackupAt: connection.lastBackupAt } : {}),
     ...(connection.lastStatus ? { lastStatus: connection.lastStatus } : {}),
     ...(connection.lastError ? { lastError: connection.lastError } : {}),
+    ...(connection.lastBackupEncryption ? { lastBackupEncryption: connection.lastBackupEncryption } : {}),
     ...(connection.lastRestoreDrillAt ? { lastRestoreDrillAt: connection.lastRestoreDrillAt } : {}),
     ...(connection.lastRestoreDrillStatus ? { lastRestoreDrillStatus: connection.lastRestoreDrillStatus } : {})
   };
@@ -354,6 +416,10 @@ function maskDatabaseUrl(value: string): string {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function sanitizeName(value: string): string {

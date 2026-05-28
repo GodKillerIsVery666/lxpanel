@@ -24,6 +24,7 @@ const includePaths = [
   "apps/web/dist",
   "packages/shared/package.json",
   "packages/shared/dist",
+  "release/connectors",
   "deploy",
   "docs",
   "scripts"

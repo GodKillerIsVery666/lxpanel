@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { CreateApiTokenSchema, LoginRequestSchema, RevokeApiTokenSchema, SetupRequestSchema, TotpConfirmSchema } from "@lxpanel/shared";
+import { CreateApiTokenSchema, OidcCallbackSchema, RevokeApiTokenSchema, SetupRequestSchema, TotpConfirmSchema, LoginRequestSchema, type IdentityProvider, type OidcCallback } from "@lxpanel/shared";
 import type { Services } from "../../server.js";
+import { randomToken } from "../../lib/crypto.js";
 import { signValue, verifySignedValue } from "../../lib/sessionCookie.js";
 import { readAuthenticatedUser, requireRole, requireUser, sessionCookieName } from "./authMiddleware.js";
 
@@ -47,6 +48,25 @@ export function registerAuthRoutes(app: FastifyInstance, services: Services): vo
     await services.auditLog.append({ actor: user.username, action: "auth.login", target: "session", ip: request.ip, status: "success" });
     return { user };
   });
+
+  app.get("/api/auth/oidc/start", async (_request, reply) => {
+    const provider = await services.platformStore.identityProvider();
+    if (!provider?.enabled) {
+      await reply.code(404).send({ message: "OIDC 身份源未启用。" });
+      return;
+    }
+    const state = signValue(`oidc:${Date.now()}:${randomToken(16)}`, services.config.sessionSecret);
+    const callbackPath = "/api/auth/oidc/callback";
+    return { authorizationUrl: oidcAuthorizationUrl(provider, callbackPath, state), state, callbackPath };
+  });
+
+  app.post("/api/auth/oidc/callback", {
+    config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
+  }, async (request, reply) => completeOidcCallback(OidcCallbackSchema.parse(request.body), request, reply, services));
+
+  app.get<{ Querystring: Record<string, string | undefined> }>("/api/auth/oidc/callback", {
+    config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
+  }, async (request, reply) => completeOidcCallback(OidcCallbackSchema.parse(request.query), request, reply, services));
 
   app.post("/api/auth/logout", async (request, reply) => {
     const rawSessionId = verifySignedValue(request.cookies[sessionCookieName], services.config.sessionSecret);
@@ -173,4 +193,28 @@ function setSessionCookie(reply: FastifyReply, services: Services, rawSessionId:
     path: "/",
     maxAge: 60 * 60 * 12
   });
+}
+
+async function completeOidcCallback(input: OidcCallback, request: FastifyRequest, reply: FastifyReply, services: Services): Promise<{ user: unknown } | undefined> {
+  const state = verifySignedValue(input.state, services.config.sessionSecret);
+  if (!state?.startsWith("oidc:")) {
+    await services.auditLog.append({ actor: "oidc", action: "auth.oidc.callback", target: "state", ip: request.ip, status: "denied" });
+    await reply.code(400).send({ message: "OIDC state 无效或已损坏。" });
+    return;
+  }
+  const result = await services.authStore.completeOidcLogin(input);
+  const session = await services.authStore.createSession(result.user.id);
+  setSessionCookie(reply, services, session);
+  await services.auditLog.append({ actor: result.user.username, action: result.created ? "auth.oidc.auto_create" : "auth.oidc.login", target: result.provider.name, ip: request.ip, status: "success", detail: `subject=${result.subject}` });
+  return { user: result.user };
+}
+
+function oidcAuthorizationUrl(provider: IdentityProvider, callbackPath: string, state: string): string {
+  const url = new URL(provider.authorizationEndpoint);
+  url.searchParams.set("client_id", provider.clientId);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", provider.scopes.join(" "));
+  url.searchParams.set("redirect_uri", callbackPath);
+  url.searchParams.set("state", state);
+  return url.toString();
 }

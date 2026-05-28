@@ -1,6 +1,6 @@
 import { createHash, verify as verifySignature } from "node:crypto";
 import { arch, hostname, platform } from "node:os";
-import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type AuditEvent, type AuditRetentionEvaluation, type AuditRetentionEvaluationRequest, type AuditRetentionPolicy, type BackupEncryptionPolicy, type BackupKeyRotationPlan, type CapacityPlan, type ConnectorReleaseChannel, type ConnectorReleaseManifest, type CreateAccessPolicy, type CreateAuditRetentionPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type DiagnosticsBundle, type FrontendQualityReport, type HighAvailabilityPlan, type IdentityProvider, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type PluginManifest, type PluginPermissionEvaluation, type PluginPermissionEvaluationRequest, type RegisterPluginManifest, type ResourceApprovalCheck, type ResourceApprovalPolicy, type ResourceApprovalPrecheck, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type SsoReadiness, type StateArchivePage, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TemplateRepositoryRollback, type TenantReport, type TerminalInput, type TerminalOutput, type TerminalReplay, type TerminalSession, type UpdateBackupEncryptionPolicy, type UpdateConnectorReleaseChannel, type UpdateIdentityProvider, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
+import { TemplateRepositoryIndexSchema, type AccessEvaluation, type AccessEvaluationRequest, type AccessPolicy, type Approval, type AuditEvent, type AuditExportPackage, type AuditPruneResult, type AuditRetentionEvaluation, type AuditRetentionEvaluationRequest, type AuditRetentionExecution, type AuditRetentionExecutionRequest, type AuditRetentionPolicy, type BackupEncryptionPolicy, type BackupKeyRotationPlan, type CapacityPlan, type ClientApplicationPlan, type ConnectorReleaseChannel, type ConnectorReleaseManifest, type CreateAccessPolicy, type CreateAuditRetentionPolicy, type CreateResourceApprovalPolicy, type CreateTemplateRepository, type CreateTerminalSession, type CreateWorkspace, type DeliveryChecklist, type DiagnosticsBundle, type FrontendQualityReport, type HighAvailabilityPlan, type IdentityProvider, type ImportedAppTemplate, type InstallerGuide, type LicenseInfo, type LicenseStatus, type LicenseVerificationResult, type OpenApiDocument, type OpenApiSummary, type PluginManifest, type PluginPermissionEvaluation, type PluginPermissionEvaluationRequest, type PluginSandboxRun, type PluginSandboxRunRequest, type RegisterPluginManifest, type ResourceApprovalCheck, type ResourceApprovalPolicy, type ResourceApprovalPrecheck, type SdkExample, type SecurityRemediationRequest, type SecurityRemediationRun, type SsoReadiness, type StateArchivePage, type StateArchiveRequest, type StateArchiveResult, type TemplateRepository, type TemplateRepositoryRollback, type TenantReport, type TerminalInput, type TerminalOutput, type TerminalReplay, type TerminalSession, type UpdateBackupEncryptionPolicy, type UpdateConnectorReleaseChannel, type UpdateIdentityProvider, type UpdateLicense, type UpgradePlan, type Workspace, type WorkspaceOverview } from "@lxpanel/shared";
 import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import { createDefaultAuditRetentionPolicies, createDefaultBackupEncryptionPolicy, createDefaultConnectorReleaseChannels, type PanelState, type SecurityRemediationRunRecord, type TemplateRepositorySnapshotRecord } from "../state/panelState.js";
@@ -299,6 +299,9 @@ export class PlatformStore {
         ...(input.clientSecret ? { clientSecret: input.clientSecret } : current?.clientSecret ? { clientSecret: current.clientSecret } : {}),
         scopes: input.scopes,
         claimMappings: input.claimMappings,
+        autoCreateUsers: input.autoCreateUsers,
+        defaultRole: input.defaultRole,
+        allowedEmailDomains: input.allowedEmailDomains,
         requireMfa: input.requireMfa,
         breakGlassLocalLogin: input.breakGlassLocalLogin,
         enabled: input.enabled,
@@ -318,6 +321,7 @@ export class PlatformStore {
     const checks = [
       { id: "provider", title: "OIDC 身份源", ready: Boolean(provider?.issuerUrl && provider.clientId), detail: provider ? `${provider.name} / ${provider.issuerUrl}` : "尚未配置身份源。" },
       { id: "secret", title: "客户端密钥", ready: Boolean(provider?.clientSecretConfigured), detail: provider?.clientSecretConfigured ? "client secret 已加密保存状态标记。" : "生产环境建议配置 client secret。" },
+      { id: "auto-create", title: "自动创建用户", ready: Boolean(provider?.autoCreateUsers), detail: provider?.autoCreateUsers ? `默认角色 ${provider.defaultRole}` : "当前只允许已绑定用户登录。" },
       { id: "mfa", title: "MFA 策略", ready: Boolean(provider?.requireMfa), detail: provider?.requireMfa ? "平台要求身份源侧启用 MFA。" : "当前允许不强制 MFA。" },
       { id: "break-glass", title: "本地应急登录", ready: Boolean(provider?.breakGlassLocalLogin), detail: provider?.breakGlassLocalLogin ? "保留 owner 本地登录，避免身份源故障锁死。" : "建议保留本地应急登录。" }
     ];
@@ -462,6 +466,27 @@ export class PlatformStore {
     };
   }
 
+  async auditRetentionExecution(input: AuditRetentionExecutionRequest, eventCount: number, archivePackage?: AuditExportPackage, approval?: Approval, pruneResult?: AuditPruneResult): Promise<AuditRetentionExecution> {
+    const evaluation = await this.evaluateAuditRetention({ workspace: input.workspace, eventType: input.eventType, eventCount });
+    const target = `${evaluation.retainDays}d`;
+    const status = evaluation.legalHold ? "skipped" : pruneResult ? "executed" : approval ? "approval-required" : "planned";
+    return {
+      generatedAt: new Date().toISOString(),
+      dryRun: input.dryRun,
+      status,
+      evaluation,
+      ...(approval ? { approval } : {}),
+      ...(archivePackage ? { archivePackage } : {}),
+      pruneTask: {
+        id: sha256(canonicalJson({ workspace: input.workspace, eventType: input.eventType, target })).slice(0, 16),
+        action: "audit.prune",
+        target,
+        status: pruneResult ? "success" : evaluation.legalHold ? "skipped" : "planned",
+        ...(pruneResult ? { removed: pruneResult.removed, remaining: pruneResult.remaining } : {})
+      }
+    };
+  }
+
   async pluginManifests(): Promise<PluginManifest[]> {
     const state = await this.store.read();
     return (state.pluginManifests ?? []).slice().reverse();
@@ -497,6 +522,35 @@ export class PlatformStore {
     };
   }
 
+  async runPluginSandbox(input: PluginSandboxRunRequest): Promise<PluginSandboxRun> {
+    const started = Date.now();
+    const startedAt = new Date(started).toISOString();
+    const evaluation = await this.evaluatePluginPermissions({ pluginId: input.pluginId, requestedScopes: input.requestedScopes });
+    const state = await this.store.read();
+    const plugin = (state.pluginManifests ?? []).find((item) => item.id === input.pluginId);
+    const sandbox = { network: false as const, filesystem: false as const, timeoutMs: input.timeoutMs, directStateAccess: false as const };
+    if (!evaluation.allowed || !plugin) {
+      const finishedAt = new Date().toISOString();
+      return { pluginId: input.pluginId, operation: input.operation, status: "denied", startedAt, finishedAt, durationMs: Math.max(0, Date.now() - started), grantedScopes: evaluation.grantedScopes, deniedScopes: evaluation.deniedScopes, sandbox, error: evaluation.detail };
+    }
+    const output = input.operation === "health-check" ? {
+      ok: true,
+      plugin: plugin.id,
+      version: plugin.version,
+      entryPoint: plugin.entryPoint,
+      clientScopes: evaluation.grantedScopes,
+      inputKeys: Object.keys(input.input)
+    } : {
+      id: plugin.id,
+      name: plugin.name,
+      version: plugin.version,
+      permissions: evaluation.grantedScopes,
+      loaded: true
+    };
+    const finishedAt = new Date().toISOString();
+    return { pluginId: plugin.id, operation: input.operation, status: "success", startedAt, finishedAt, durationMs: Math.max(0, Date.now() - started), grantedScopes: evaluation.grantedScopes, deniedScopes: evaluation.deniedScopes, sandbox, output };
+  }
+
   async highAvailabilityPlan(): Promise<HighAvailabilityPlan> {
     const state = await this.store.read();
     const remoteTargets = (state.remoteBackupTargets ?? []).filter((target) => target.enabled).length;
@@ -526,6 +580,21 @@ export class PlatformStore {
         { id: "dns", title: "切换入口", detail: "将反向代理或 DNS 指向备用 API/Web 节点。" }
       ],
       estimatedRecoveryMinutes: remoteTargets > 0 ? 15 : 45
+    };
+  }
+
+  clientApplicationPlan(): ClientApplicationPlan {
+    return {
+      generatedAt: new Date().toISOString(),
+      currentClients: [
+        { id: "web-console", type: "web", status: "available", detail: "apps/web 是当前正式客户端，由 API 进程托管静态资源，覆盖桌面与移动浏览器。" },
+        { id: "managed-host-agent", type: "agent", status: "available", detail: "scripts/lxpanel-connector.mjs 是受管主机侧 agent，用于心跳、命令领取、终端代理和升级。" }
+      ],
+      candidates: [
+        { id: "desktop-tauri", type: "desktop", recommendedStack: "Tauri + WebView + 系统托盘", priority: "next", decision: "适合企业内网常驻巡检、通知和免浏览器入口，复用现有 Web UI。", risks: ["Windows 签名和自动更新成本", "本地凭据缓存需要额外加密设计"] },
+        { id: "mobile-readonly", type: "mobile", recommendedStack: "PWA first，后续再评估 React Native", priority: "later", decision: "优先做只读巡检、告警确认和审批处理，不承载高风险写操作。", risks: ["移动端密钥保护", "审批误触和弱网络一致性"] }
+      ],
+      recommendation: "短期继续强化 Web/PWA；商业桌面端优先选择 Tauri 包壳复用 Web；移动端先做只读巡检和审批，暂不复制完整面板。"
     };
   }
 
@@ -872,6 +941,9 @@ function toPublicIdentityProvider(provider: NonNullable<PanelState["identityProv
     clientSecretConfigured: Boolean(provider.clientSecretConfigured || provider.clientSecret),
     scopes: provider.scopes,
     claimMappings: provider.claimMappings,
+    autoCreateUsers: provider.autoCreateUsers ?? true,
+    defaultRole: provider.defaultRole ?? "viewer",
+    allowedEmailDomains: provider.allowedEmailDomains ?? [],
     requireMfa: provider.requireMfa,
     breakGlassLocalLogin: provider.breakGlassLocalLogin,
     enabled: provider.enabled,
@@ -919,9 +991,12 @@ function responseSchemaFor(path: string): unknown {
     "/api/platform/backup-encryption/rotation-plan": { $ref: "#/components/schemas/BackupKeyRotationPlanResponse" },
     "/api/platform/audit-retention-policies": { $ref: "#/components/schemas/AuditRetentionPoliciesResponse" },
     "/api/platform/audit-retention-policies/evaluate": { $ref: "#/components/schemas/AuditRetentionEvaluationResponse" },
+    "/api/platform/audit-retention-policies/execute": { $ref: "#/components/schemas/AuditRetentionExecutionResponse" },
     "/api/platform/plugins": { $ref: "#/components/schemas/PluginManifestsResponse" },
     "/api/platform/plugins/evaluate": { $ref: "#/components/schemas/PluginPermissionEvaluationResponse" },
+    "/api/platform/plugins/sandbox-run": { $ref: "#/components/schemas/PluginSandboxRunResponse" },
     "/api/platform/high-availability-plan": { $ref: "#/components/schemas/HighAvailabilityPlanResponse" },
+    "/api/platform/client-application-plan": { $ref: "#/components/schemas/ClientApplicationPlanResponse" },
     "/api/platform/terminal-sessions": { $ref: "#/components/schemas/TerminalSessionResponse" },
     "/api/platform/terminal-sessions/replay": { $ref: "#/components/schemas/TerminalReplayResponse" },
     "/api/platform/template-repositories/rollback": { $ref: "#/components/schemas/TemplateRepositoryRollbackResponse" },
@@ -941,6 +1016,8 @@ function openApiPathSpecs(): OpenApiSummary["paths"] {
     { method: "GET", path: "/api/auth/status" },
     { method: "POST", path: "/api/auth/setup" },
     { method: "POST", path: "/api/auth/login" },
+    { method: "GET", path: "/api/auth/oidc/start" },
+    { method: "POST", path: "/api/auth/oidc/callback" },
     { method: "POST", path: "/api/auth/logout" },
     { method: "GET", path: "/api/auth/me", scope: "system:read" },
     { method: "GET", path: "/api/auth/sessions", scope: "system:read" },
@@ -1085,10 +1162,13 @@ function platformOpenApiPathSpecs(): OpenApiSummary["paths"] {
     { method: "GET", path: "/api/platform/audit-retention-policies", scope: "platform:read" },
     { method: "POST", path: "/api/platform/audit-retention-policies", scope: "platform:write" },
     { method: "POST", path: "/api/platform/audit-retention-policies/evaluate", scope: "platform:read" },
+    { method: "POST", path: "/api/platform/audit-retention-policies/execute", scope: "platform:write" },
     { method: "GET", path: "/api/platform/plugins", scope: "platform:read" },
     { method: "POST", path: "/api/platform/plugins", scope: "platform:write" },
     { method: "POST", path: "/api/platform/plugins/evaluate", scope: "platform:read" },
+    { method: "POST", path: "/api/platform/plugins/sandbox-run", scope: "platform:write" },
     { method: "GET", path: "/api/platform/high-availability-plan", scope: "platform:read" },
+    { method: "GET", path: "/api/platform/client-application-plan", scope: "platform:read" },
     { method: "GET", path: "/api/platform/license", scope: "platform:read" },
     { method: "PUT", path: "/api/platform/license", scope: "platform:write" },
     { method: "POST", path: "/api/platform/license/verify", scope: "platform:write" },
@@ -1119,6 +1199,7 @@ function requestSchemaFor(method: string, path: string): Record<string, unknown>
   const map: Record<string, Record<string, unknown>> = {
     "POST /api/auth/setup": { $ref: "#/components/schemas/LoginRequest" },
     "POST /api/auth/login": { $ref: "#/components/schemas/LoginRequest" },
+    "POST /api/auth/oidc/callback": { type: "object", required: ["code", "state"], properties: { code: { type: "string" }, state: { type: "string" }, redirectUri: { type: "string" }, idToken: { type: "string" }, claims: { type: "object" } } },
     "POST /api/auth/tokens": { type: "object", required: ["name"], properties: { name: { type: "string" }, expiresInDays: { type: "integer" }, scopes: { type: "array", items: { type: "string" } } } },
     "POST /api/auth/totp/confirm": id("code"),
     "POST /api/auth/totp/disable": id("code"),
@@ -1167,13 +1248,15 @@ function requestSchemaFor(method: string, path: string): Record<string, unknown>
     "POST /api/approvals/approve": id("approvalId"),
     "POST /api/approvals/reject": id("approvalId"),
     "POST /api/platform/connectors/upgrade": { $ref: "#/components/schemas/ConnectorUpgradeRequest" },
-    "PUT /api/platform/identity-provider": { type: "object", required: ["name", "issuerUrl", "authorizationEndpoint", "clientId"], properties: { name: { type: "string" }, issuerUrl: { type: "string" }, authorizationEndpoint: { type: "string" }, tokenEndpoint: { type: "string" }, jwksUri: { type: "string" }, clientId: { type: "string" }, clientSecret: { type: "string" }, scopes: { type: "array", items: { type: "string" } }, requireMfa: { type: "boolean" }, breakGlassLocalLogin: { type: "boolean" }, enabled: { type: "boolean" } } },
+    "PUT /api/platform/identity-provider": { type: "object", required: ["name", "issuerUrl", "authorizationEndpoint", "clientId"], properties: { name: { type: "string" }, issuerUrl: { type: "string" }, authorizationEndpoint: { type: "string" }, tokenEndpoint: { type: "string" }, jwksUri: { type: "string" }, clientId: { type: "string" }, clientSecret: { type: "string" }, scopes: { type: "array", items: { type: "string" } }, autoCreateUsers: { type: "boolean" }, defaultRole: { type: "string", enum: ["owner", "operator", "viewer"] }, allowedEmailDomains: { type: "array", items: { type: "string" } }, requireMfa: { type: "boolean" }, breakGlassLocalLogin: { type: "boolean" }, enabled: { type: "boolean" } } },
     "PUT /api/platform/connectors/release-channels": { type: "object", required: ["name", "version", "minimumVersion", "rolloutPercent", "artifacts"], properties: { name: { type: "string", enum: ["stable", "candidate"] }, version: { type: "string" }, minimumVersion: { type: "string" }, rolloutPercent: { type: "integer" }, publicKeyId: { type: "string" }, artifacts: { type: "array", items: { type: "object" } } } },
     "PUT /api/platform/backup-encryption": { type: "object", required: ["enabled"], properties: { enabled: { type: "boolean" }, provider: { type: "string", enum: ["local", "kms"] }, keyRef: { type: "string" }, rotateEveryDays: { type: "integer" } } },
     "POST /api/platform/audit-retention-policies": { type: "object", required: ["workspace", "eventType", "retainDays"], properties: { workspace: { type: "string" }, eventType: { type: "string" }, retainDays: { type: "integer" }, archiveBeforeDelete: { type: "boolean" }, legalHold: { type: "boolean" }, enabled: { type: "boolean" } } },
     "POST /api/platform/audit-retention-policies/evaluate": { type: "object", properties: { workspace: { type: "string" }, eventType: { type: "string" }, eventCount: { type: "integer" } } },
+    "POST /api/platform/audit-retention-policies/execute": { type: "object", properties: { workspace: { type: "string" }, eventType: { type: "string" }, dryRun: { type: "boolean" }, approvalId: { type: "string" } } },
     "POST /api/platform/plugins": { type: "object", required: ["id", "name", "version", "entryPoint", "permissions"], properties: { id: { type: "string" }, name: { type: "string" }, version: { type: "string" }, entryPoint: { type: "string" }, permissions: { type: "array", items: { type: "string" } }, signature: { type: "string" }, enabled: { type: "boolean" } } },
     "POST /api/platform/plugins/evaluate": { type: "object", required: ["pluginId", "requestedScopes"], properties: { pluginId: { type: "string" }, requestedScopes: { type: "array", items: { type: "string" } } } },
+    "POST /api/platform/plugins/sandbox-run": { type: "object", required: ["pluginId"], properties: { pluginId: { type: "string" }, operation: { type: "string" }, requestedScopes: { type: "array", items: { type: "string" } }, timeoutMs: { type: "integer" }, input: { type: "object" } } },
     "POST /api/platform/access-policies": { type: "object", required: ["workspace", "resourceType", "resourceId", "role", "permissions"], properties: { workspace: { type: "string" }, resourceType: { type: "string" }, resourceId: { type: "string" }, role: { type: "string" }, permissions: { type: "array", items: { type: "string" } } } },
     "POST /api/platform/access-evaluate": { type: "object", required: ["workspace", "resourceType", "resourceId", "role", "permission"], properties: { workspace: { type: "string" }, resourceType: { type: "string" }, resourceId: { type: "string" }, role: { type: "string" }, permission: { type: "string" } } },
     "POST /api/platform/terminal-sessions": { type: "object", required: ["hostId"], properties: { hostId: { type: "string" }, username: { type: "string" }, rows: { type: "integer" }, cols: { type: "integer" } } },
@@ -1240,9 +1323,12 @@ function openApiSchemas(): Record<string, unknown> {
     BackupKeyRotationPlanResponse: { type: "object", properties: { plan: { type: "object", properties: { currentKeyVersion: { type: "integer" }, nextKeyVersion: { type: "integer" }, due: { type: "boolean" } } } } },
     AuditRetentionPoliciesResponse: { type: "object", properties: { policies: { type: "array", items: { type: "object" } }, policy: { type: "object" } } },
     AuditRetentionEvaluationResponse: { type: "object", properties: { evaluation: { type: "object", properties: { retainDays: { type: "integer" }, pruneEligibleBefore: { type: "string" } } } } },
+    AuditRetentionExecutionResponse: { type: "object", properties: { execution: { type: "object", properties: { status: { type: "string" }, dryRun: { type: "boolean" }, pruneTask: { type: "object" } } } } },
     PluginManifestsResponse: { type: "object", properties: { plugins: { type: "array", items: { type: "object" } }, plugin: { type: "object" } } },
     PluginPermissionEvaluationResponse: { type: "object", properties: { evaluation: { type: "object", properties: { allowed: { type: "boolean" }, grantedScopes: { type: "array", items: { type: "string" } }, deniedScopes: { type: "array", items: { type: "string" } } } } } },
+    PluginSandboxRunResponse: { type: "object", properties: { run: { type: "object", properties: { pluginId: { type: "string" }, status: { type: "string" }, sandbox: { type: "object" } } } } },
     HighAvailabilityPlanResponse: { type: "object", properties: { plan: { type: "object", properties: { mode: { type: "string" }, topology: { type: "array", items: { type: "object" } }, rolloutSteps: { type: "array", items: { type: "object" } } } } } },
+    ClientApplicationPlanResponse: { type: "object", properties: { plan: { type: "object", properties: { currentClients: { type: "array", items: { type: "object" } }, candidates: { type: "array", items: { type: "object" } }, recommendation: { type: "string" } } } } },
     TerminalSessionResponse: { type: "object", properties: { session: { type: "object" }, command: { type: "object" } } },
     TerminalReplayResponse: { type: "object", properties: { replay: { type: "object", properties: { sessionId: { type: "string" }, lineCount: { type: "integer" }, lines: { type: "array", items: { type: "object" } } } } } },
     TemplateRepositoryRollbackResponse: { type: "object", properties: { rollback: { type: "object" } } },
