@@ -1,98 +1,96 @@
 # 当前 Sprint 计划
 
 > 创建日期: 2026-05-28
-> 状态: ✅ 全部完成
+> 状态: ✅ v1.1 + v1.2 全部完成
 
 ## Sprint 目标
 
-从 v1.0 GA 生产就绪状态推进到 v1.1 社区生态扩展，重点攻克 **社区基建**、**集成扩展** 和 **监控增强** 三类任务。
+完成 v1.1 社区生态扩展和 v1.2 生产增强与体验优化。
 
 ## 完成情况
 
-| 项目 | 状态 | 说明 |
+### v1.1 社区生态扩展
+
+| 项目 | 状态 | 交付 |
 |------|------|------|
 | 开源协议与贡献指南 | ✅ | MIT License + CONTRIBUTING.md + CODE_OF_CONDUCT.md |
 | GitHub Issue 模板 | ✅ | bug_report + feature_request + config.yml |
-| 项目 Wiki | ✅ | 6 页基础 Wiki（架构、快速开始、部署、API、连接器） |
-| Ansible Playbook | ✅ | 面板 + 连接器部署 playbook |
-| 邮件通知渠道 (SMTP) | ✅ | 内置 net/tls SMTP 客户端，无额外依赖 |
-| WebAuthn 通行密钥 | ✅ | FIDO2 注册/登录/凭据管理完整流程 |
+| 项目 Wiki | ✅ | 6 页基础 Wiki |
+| Ansible Playbook | ✅ | 面板 + 连接器 playbook |
+| 邮件通知渠道 (SMTP) | ✅ | 内置 net/tls SMTP 客户端 |
+| WebAuthn 通行密钥 | ✅ | FIDO2 注册/登录/凭据管理 |
 | 操作审计重放 API | ✅ | GET /api/audit/replay |
 | 自定义告警规则引擎 | ✅ | JSON 条件表达式 + CRUD |
 | WebSocket 压缩 | ✅ | permessage-deflate 扩展协商 |
 | Route test 修复 | ✅ | 类型错误修复 + 测试完善 |
 
+### v1.2 生产增强与体验优化
+
+| 项目 | 状态 | 交付 |
+|------|------|------|
+| 状态存储迁移向导 | ✅ | MigrationPage + StepWizard + API 端点 |
+| 前端性能优化 | ✅ | React.lazy 路由级代码分割，20+ 独立 chunk |
+| 安全增强 UI | ✅ | SecuritySettingsPanel (速率限制/IP白名单/审计加密) |
+| 移动端适配完善 | ✅ | 触摸优化、打印样式、底部安全区 |
+| 通知中心 | ✅ | NotificationCenter 下拉面板 + 未读计数 |
+| Grafana 面板增强 | ✅ | CPU/内存/磁盘/告警/审计趋势面板 |
+| Terraform Provider | ✅ | 完整 Go provider + 4 个资源 (host/backup/user/workspace) |
+| 国际化补充 | ✅ | 中英文资源文件 + 多语言切换 |
+
 ---
 
-# 下一阶段：v1.2 生产增强与体验优化计划表
+# 下一阶段：v1.3 社区运营与合规增强
 
 > 预计工时：4-6 周
 
-## P0 — 关键修复与增强
+## P0 — 关键事项
 
-### 1. 状态存储迁移向导
-- [ ] Web UI 引导从 JSON → SQLite 迁移
-- [ ] 迁移前数据完整性校验
-- [ ] 迁移回滚能力
+### 1. 单元测试覆盖率提升
+- [ ] 前端组件测试（Vitest + React Testing Library）
+- [ ] 后端新增模块测试（SMTP/WebAuthn/告警规则/审计重放）
+- [ ] CI 集成测试覆盖率门禁
 
-### 2. 前端性能优化
-- [ ] 路由级代码分割（懒加载）
-- [ ] 大数据列表虚拟滚动优化
-- [ ] 首屏加载指标优化
+### 2. 前端 UI 完善
+- [ ] WebAuthn 前端登录注册 UI
+- [ ] 自定义告警规则前端管理页面
+- [ ] SMTP 邮件通知前端配置表单
 
-### 3. 安全增强
-- [ ] 速率限制精细化配置（Web UI）
-- [ ] IP 白名单管理界面
-- [ ] 审计日志加密存储选项
+### 3. 文档深化
+- [ ] API 文档补充新端点
+- [ ] 架构文档补充 v1.2 新增模块
+- [ ] Wiki 补充安全设置、迁移向导说明
 
-## P1 — 体验优化
+## P1 — 社区运营
 
-### 4. 移动端适配完善
-- [ ] 所有页面移动端响应式验证
-- [ ] 触摸操作优化
-- [ ] 移动端顶部栏折叠菜单
+### 4. GitHub Discussions 配置
+- [ ] 配置 Discussions 分类（Q&A / Ideas / Show & Tell）
+- [ ] 创建社区健康文件（SECURITY.md、SUPPORT.md）
 
-### 5. 通知中心
-- [ ] 页面内通知面板（下拉/弹出）
-- [ ] 未读通知计数徽标
-- [ ] 通知历史持久化
+### 5. CI 增强
+- [ ] 自动发布 GitHub Release
+- [ ] Docker 镜像自动构建
+- [ ] 代码覆盖率报告
 
-### 6. 向导式初始化
-- [ ] 首次运行向导（管理员创建、基础配置）
-- [ ] Docker 部署检查清单
-- [ ] 连接器注册引导
+### 6. 新手引导
+- [ ] README 添加贡献者徽章和统计
+- [ ] 创建示例项目和教程链接
 
-## P2 — 扩展功能
+## P2 — 合规增强
 
-### 7. Grafana 面板增强
-- [ ] 更丰富的监控仪表盘模板
-- [ ] 面板数据源直连支持
+### 7. GDPR / 数据合规
+- [ ] 数据保留策略可视化
+- [ ] 用户数据导出 API
+- [ ] 隐私政策文档
 
-### 8. Terraform Provider 完善
-- [ ] 从骨架升级到可用 provider
-- [ ] 覆盖主机、用户、备份资源
-- [ ] 发布到 Terraform Registry
-
-### 9. 国际化翻译补充
-- [ ] 后端错误消息双语化完成度审计
-- [ ] 前端缺失文案补充
-- [ ] 日语/韩语初步支持评估
+### 8. 审计增强
+- [ ] 审计事件签名链可视化
+- [ ] 合规报告导出增强
 
 ## 时间线
 
 ```
-Week 1-2: P0 状态迁移 + 前端性能优化
-Week 3:   P0 安全增强
-Week 4:   P1 移动端适配 + 通知中心
-Week 5:   P2 Grafana + Terraform
-Week 6:   P2 国际化 + 综合测试
+Week 1-2: P0 测试覆盖 + UI 完善
+Week 3:   P0 文档深化
+Week 4:   P1 社区运营 + CI
+Week 5-6: P2 合规增强
 ```
-
-## 验收标准
-
-- [ ] `npm run test` 全部通过
-- [ ] `npm run lint` 无错误
-- [ ] `npm run typecheck` 通过
-- [ ] `npm run build` 成功
-- [ ] Lighthouse 评分 ≥ 85
-- [ ] 移动端所有核心页面可用
