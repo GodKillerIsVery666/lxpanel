@@ -4,6 +4,7 @@ import { randomToken } from "../../lib/crypto.js";
 import type { StateStore } from "../../lib/stateStore.js";
 import type { NotificationChannelRecord, NotificationDeliveryRecord, PanelState } from "../state/panelState.js";
 import { sendSmtpEmail, type SmtpConfig } from "./emailChannelService.js";
+import { sendBotMessage } from "./botChannelService.js";
 
 const maxDeliveries = 300;
 const defaultDeliveryLimit = 100;
@@ -240,6 +241,15 @@ export class NotificationService {
           `时间: ${alert.time}`,
           `消息: ${alert.message}`
         ].join("\n"));
+        if (!result.ok) {
+          status = "failed";
+          errorMessage = result.error;
+        }
+      } else if (channel.type === "dingtalk" || channel.type === "wechat" || channel.type === "feishu") {
+        const url = this.readWebhookUrl(channel);
+        const title = `[LXPanel] ${alert.level === "critical" ? "严重告警" : "告警通知"}`;
+        const content = `**告警 ID:** ${alert.id}\n**级别:** ${alert.level}\n**类型:** ${alert.type}\n**目标:** ${alert.target}\n**当前值:** ${alert.currentValue}\n**阈值:** ${alert.threshold}\n**时间:** ${alert.time}\n**消息:** ${alert.message}`;
+        const result = await sendBotMessage(channel.type, { url }, title, content);
         if (!result.ok) {
           status = "failed";
           errorMessage = result.error;

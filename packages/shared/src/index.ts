@@ -635,7 +635,7 @@ export const WebAuthnAssertionResultSchema = z.object({
 });
 export type WebAuthnAssertionResult = z.infer<typeof WebAuthnAssertionResultSchema>;
 
-export const NotificationChannelTypeSchema = z.enum(["webhook", "eventbus", "email"]);
+export const NotificationChannelTypeSchema = z.enum(["webhook", "eventbus", "email", "dingtalk", "wechat", "feishu"]);
 export type NotificationChannelType = z.infer<typeof NotificationChannelTypeSchema>;
 
 export const NotificationChannelSchema = z.object({

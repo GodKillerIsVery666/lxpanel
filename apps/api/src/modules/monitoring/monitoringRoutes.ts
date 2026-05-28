@@ -27,7 +27,23 @@ export function registerMonitoringRoutes(app: FastifyInstance, services: Service
     }
     const samples = await services.monitoringService.listSamples(undefined, 1000);
     reply.header("content-type", "text/plain; version=0.0.4; charset=utf-8");
-    return toPrometheus(samples);
+
+    // 附加自定义告警规则 Prometheus 规则
+    const state = await services.stateStore.read();
+    const customRules = state.customAlertRules ?? [];
+    const rulesYaml = customRules.filter((r) => r.enabled).map((rule) => {
+      return `# ${rule.name}: ${rule.description || rule.messageTemplate}
+# type: ${rule.level}
+- alert: LXPanel_${rule.name.replace(/[^a-zA-Z0-9_]/g, "_")}
+  expr: ${rule.metric} ${rule.condition} ${rule.threshold}
+  for: ${rule.duration}s
+  labels:
+    severity: ${rule.level}
+  annotations:
+    summary: "${rule.messageTemplate || rule.name}"`;
+    }).join("\n\n");
+
+    return toPrometheus(samples) + (rulesYaml ? `\n# Custom alert rules for Prometheus\n${rulesYaml}\n` : "");
   });
 }
 

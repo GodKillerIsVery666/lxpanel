@@ -68,7 +68,8 @@ export const shellText: Record<Locale, {
       backups: { label: "备份", description: "快照、远程同步和恢复" },
       security: { label: "安全", description: "巡检、会话和 Token" },
       platform: { label: "平台", description: "商业治理和交付检查" },
-      audit: { label: "审计", description: "日志、导出和完整性" }
+      audit: { label: "审计", description: "日志、导出和完整性" },
+      migration: { label: "迁移", description: "状态存储迁移向导" }
     }
   },
   "en-US": {
@@ -109,7 +110,8 @@ export const shellText: Record<Locale, {
       backups: { label: "Backups", description: "Snapshots, remote sync, and restore" },
       security: { label: "Security", description: "Posture, sessions, and tokens" },
       platform: { label: "Platform", description: "Commercial governance and delivery checks" },
-      audit: { label: "Audit", description: "Logs, exports, and integrity" }
+      audit: { label: "Audit", description: "Logs, exports, and integrity" },
+      migration: { label: "Migration", description: "State store migration wizard" }
     }
   }
 };

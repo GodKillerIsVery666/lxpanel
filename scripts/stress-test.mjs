@@ -3,7 +3,7 @@
  * 状态存储压力测试脚本
  * 测试 JSON/SQLite 状态存储在大量主机和审计事件下的读写性能。
  *
- * 用法: node scripts/stress-test.mjs [--store json|sqlite] [--hosts 10000] [--events 1000000]
+ * 用法: node scripts/stress-test.mjs [--store json|sqlite] [--hosts 10000] [--events 1000000] [--concurrency 10]
  */
 import { performance } from "node:perf_hooks";
 import { mkdtemp, writeFile, readFile } from "node:fs/promises";
@@ -14,20 +14,26 @@ const args = parseArgs(process.argv.slice(2));
 const storeType = args.store || "json";
 const hostCount = Number.parseInt(args.hosts || "10000", 10);
 const eventCount = Number.parseInt(args.events || "100000", 10);
+const concurrency = Number.parseInt(args.concurrency || "10", 10);
 const batchSize = Math.min(1000, Math.floor(eventCount / 10));
 
 console.log(`\n=== LXPanel 状态存储压力测试 ===`);
 console.log(`存储类型: ${storeType}`);
 console.log(`主机数量: ${hostCount}`);
 console.log(`审计事件: ${eventCount}`);
+console.log(`并发数: ${concurrency}`);
 console.log(`批次大小: ${batchSize}\n`);
 
 async function run() {
   const tmpDir = await mkdtemp(join(tmpdir(), "lxpanel-stress-"));
   const stateFile = join(tmpDir, "state.json");
 
+  // 逐阶段计时
+  const timings = {};
+
   // 1. 写入测试
   console.log("1. 写入测试...");
+  const t0 = performance.now();
   const state = {
     users: [{ id: "admin", username: "admin", role: "owner" }],
     hosts: Array.from({ length: hostCount }, (_, i) => ({
@@ -74,9 +80,54 @@ async function run() {
     console.log(`   ${q.label}: ${(t5 - t4).toFixed(2)}ms (结果: ${typeof result === "object" ? JSON.stringify(result).slice(0, 60) : result})`);
   }
 
-  console.log(`\n=== 测试完成 ===`);
-  console.log(`临时文件: ${stateFile}`);
-  console.log(`文件大小: ${fileSize}MB`);
+  // 4. 并发读取测试
+  console.log(`4. 并发读取测试 (${concurrency} 并发)...`);
+  const t6 = performance.now();
+  const concurrencyResults = await Promise.all(Array.from({ length: concurrency }, async () => {
+    const c = await readFile(stateFile, "utf8");
+    JSON.parse(c);
+  }));
+  const t7 = performance.now();
+  console.log(`   并发 ${concurrency} 次读取，总耗时 ${(t7 - t6).toFixed(0)}ms，平均 ${((t7 - t6) / concurrency).toFixed(2)}ms/次`);
+
+  // 5. 批量更新测试
+  console.log(`5. 批量更新测试 (添加 ${batchSize} 条告警)...`);
+  const t8 = performance.now();
+  const updatedState = { ...parsed };
+  for (let i = 0; i < batchSize; i++) {
+    updatedState.alertEvents = [...(updatedState.alertEvents || []), {
+      id: `alert-concurrent-${i}`,
+      time: new Date().toISOString(), type: "memory", level: "critical",
+      target: `host-${i % hostCount}`, currentValue: 95, threshold: 90,
+      message: `Memory critical on server-${i % hostCount}`
+    }];
+  }
+  const t9 = performance.now();
+  console.log(`   添加 ${batchSize} 条告警，耗时 ${(t9 - t8).toFixed(0)}ms`);
+
+  // 6. 重写并验证
+  console.log("6. 重写并验证...");
+  const t10 = performance.now();
+  await writeFile(stateFile, JSON.stringify(updatedState), "utf8");
+  const verifyContent = await readFile(stateFile, "utf8");
+  const verified = JSON.parse(verifyContent);
+  const t11 = performance.now();
+  const verifySize = (Buffer.byteLength(verifyContent, "utf8") / 1024 / 1024).toFixed(2);
+  console.log(`   重写 ${verifySize}MB，验证: ${verified.alertEvents.length === (parsed.alertEvents?.length ?? 0) + batchSize ? "通过 ✅" : "失败 ❌"}`);
+  console.log(`   重写+验证耗时 ${(t11 - t10).toFixed(0)}ms`);
+
+  // 汇总
+  console.log(`\n=== 测试汇总 ===`);
+  console.log(`主机数:     ${hostCount}`);
+  console.log(`事件数:     ${eventCount}`);
+  console.log(`并发数:     ${concurrency}`);
+  console.log(`文件大小:   ${fileSize}MB → ${verifySize}MB`);
+  console.log(`写入耗时:   ${(t1 - t0).toFixed(0)}ms`);
+  console.log(`读取耗时:   ${(t3 - t2).toFixed(0)}ms`);
+  console.log(`并发平均:   ${((t7 - t6) / concurrency).toFixed(2)}ms`);
+  console.log(`更新耗时:   ${(t9 - t8).toFixed(0)}ms`);
+  console.log(`重写验证:   ${(t11 - t10).toFixed(0)}ms`);
+  console.log(`临时文件:   ${stateFile}`);
 }
 
 function parseArgs(values: string[]): Record<string, string> {

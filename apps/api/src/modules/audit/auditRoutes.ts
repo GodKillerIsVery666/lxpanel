@@ -3,6 +3,7 @@ import { AuditExportQuerySchema, AuditPageQuerySchema, AuditQuerySchema, AuditRe
 import type { Services } from "../../server.js";
 import { sendApprovalError } from "../approvals/approvalRoutes.js";
 import { requireRole, requireUser } from "../auth/authMiddleware.js";
+import { generateComplianceReportHtml, generateComplianceReportText } from "./auditReportService.js";
 
 export function registerAuditRoutes(app: FastifyInstance, services: Services): void {
   app.get("/api/audit", async (request, reply) => {
@@ -94,6 +95,31 @@ export function registerAuditRoutes(app: FastifyInstance, services: Services): v
     const result = await services.auditLog.prune(input.retainDays);
     await services.auditLog.append({ actor: user.username, action: "audit.prune", target: `${input.retainDays}d`, ip: request.ip, status: "success", detail: `removed=${result.removed}` });
     return { result };
+  });
+
+  // ---- 审计合规报告导出 ----
+  app.get("/api/audit/compliance-report", async (request, reply) => {
+    const user = await requireRole(request, reply, services, "owner");
+    if (!user) {
+      return;
+    }
+    const { format } = (request.query ?? {}) as { format?: "html" | "txt" };
+    const [compliance, integrity] = await Promise.all([
+      services.auditLog.complianceReport(),
+      services.auditLog.verifyIntegrity()
+    ]);
+    const input = { compliance, integrity, generatedAt: new Date().toISOString() };
+
+    if (format === "txt") {
+      const text = generateComplianceReportText(input);
+      reply.header("content-type", "text/plain; charset=utf-8");
+      reply.header("content-disposition", `attachment; filename="lxpanel-compliance-report.txt"`);
+      return text;
+    }
+    const html = generateComplianceReportHtml(input);
+    reply.header("content-type", "text/html; charset=utf-8");
+    reply.header("content-disposition", `attachment; filename="lxpanel-compliance-report.html"`);
+    return html;
   });
 
   // ---- 审计重放 API ----
