@@ -224,4 +224,26 @@ td > input + .mini-button { margin: 8px 0 0 0; }
   .task-form { grid-template-columns: 1fr; }
   .icon-button { width: 100%; }
   .quick-action-grid { grid-template-columns: 1fr; }
+  .notification-dropdown { width: 100% !important; right: auto !important; left: 0 !important; }
+}
+
+/* 移动端触摸优化 */
+@media (hover: none) and (pointer: coarse) {
+  button, a { min-height: 44px; }
+  input, select, textarea { font-size: 16px; } /* 防止 iOS 缩放 */
+  .mini-button { min-height: 44px; }
+  .nav-button { min-height: 52px !important; }
+  .table-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  td, th { padding: 10px 8px; }
+  .topbar { min-height: 56px; }
+  .sidebar { padding: 10px; }
+}
+
+/* 打印样式 */
+@media print {
+  .sidebar, .topbar, .command-overlay, .confirm-overlay { display: none !important; }
+  .app-shell { grid-template-columns: 1fr; }
+  .content-area { overflow: visible !important; }
+  table { border: 1px solid #ddd; }
+  th, td { border: 1px solid #ddd; }
 }

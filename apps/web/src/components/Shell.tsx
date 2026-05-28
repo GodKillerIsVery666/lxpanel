@@ -5,6 +5,7 @@ import { api, type AuthUser } from "../api/client.js";
 import { navItems, navSections, roleRank, type NavItem, type ViewId } from "../navigation.js";
 import { shellText } from "../i18n/resources.js";
 import { addRecentViewPreference, readFavoriteViewsPreference, readLocalePreference, readRecentViewsPreference, readTableDensityPreference, saveLocalePreference, saveTableDensityPreference, toggleFavoriteViewPreference, type LocalePreference, type TableDensity } from "../utils/preferences.js";
+import { NotificationCenter } from "./NotificationCenter.js";
 
 interface ShellProps {
   user: AuthUser;
@@ -259,6 +260,7 @@ export function Shell({ user, activeView, onNavigate, onLogout, children }: Shel
           <div className="topbar-actions">
             {favoriteItems.length ? <div className="recent-views">{favoriteItems.slice(0, 3).map((item) => <button type="button" key={item.id} onClick={() => { setFilter(""); onNavigate(item.id); }}>★ {viewLabel(item, text)}</button>)}</div> : recentItems.length ? <div className="recent-views">{recentItems.slice(0, 3).map((item) => <button type="button" key={item.id} onClick={() => { setFilter(""); onNavigate(item.id); }}>{viewLabel(item, text)}</button>)}</div> : null}
             <button className="command-trigger" type="button" onClick={() => setCommandOpen(true)} title={text.commandTrigger} aria-label={text.commandTrigger}><Search size={16} /><kbd>Ctrl K</kbd></button>
+            <NotificationCenter locale={locale} />
             <button className="icon-button" type="button" onClick={toggleFavorite} title={favoriteViews.includes(activeView) ? text.unfavorite : text.favorite} aria-label={favoriteViews.includes(activeView) ? text.unfavorite : text.favorite}><Star size={17} fill={favoriteViews.includes(activeView) ? "currentColor" : "none"} /></button>
             <select className="locale-select" value={locale} onChange={(event) => changeLocale(event.target.value as LocalePreference)} aria-label={text.language}><option value="zh-CN">中文</option><option value="en-US">EN</option></select>
             <div className="density-toggle" role="group" aria-label={text.density}>

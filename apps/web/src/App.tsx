@@ -1,29 +1,32 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { api, type AuthStatus, type AuthUser } from "./api/client.js";
 import { LoginPanel } from "./components/LoginPanel.js";
 import { Shell } from "./components/Shell.js";
-import { ApprovalsPage } from "./pages/ApprovalsPage.js";
-import { AuditPage } from "./pages/AuditPage.js";
-import { AlertsPage } from "./pages/AlertsPage.js";
-import { AppsPage } from "./pages/AppsPage.js";
-import { BackupsPage } from "./pages/BackupsPage.js";
-import { ConnectorsPage } from "./pages/ConnectorsPage.js";
-import { DashboardPage } from "./pages/DashboardPage.js";
-import { DatabasesPage } from "./pages/DatabasesPage.js";
-import { DockerPage } from "./pages/DockerPage.js";
-import { FilesPage } from "./pages/FilesPage.js";
-import { HostsPage } from "./pages/HostsPage.js";
-import { LogsPage } from "./pages/LogsPage.js";
-import { MonitoringPage } from "./pages/MonitoringPage.js";
-import { NotificationsPage } from "./pages/NotificationsPage.js";
-import { PlatformPage } from "./pages/PlatformPage.js";
-import { ProcessesPage } from "./pages/ProcessesPage.js";
-import { SecurityPage } from "./pages/SecurityPage.js";
-import { ServicesPage } from "./pages/ServicesPage.js";
-import { TasksPage } from "./pages/TasksPage.js";
-import { UsersPage } from "./pages/UsersPage.js";
 import { canAccessView, type ViewId } from "./navigation.js";
 import { readActiveViewPreference, saveActiveViewPreference } from "./utils/preferences.js";
+
+// 路由级代码分割 - 每个页面独立懒加载
+const ApprovalsPage = lazy(() => import("./pages/ApprovalsPage.js").then((m) => ({ default: m.ApprovalsPage })));
+const AuditPage = lazy(() => import("./pages/AuditPage.js").then((m) => ({ default: m.AuditPage })));
+const AlertsPage = lazy(() => import("./pages/AlertsPage.js").then((m) => ({ default: m.AlertsPage })));
+const AppsPage = lazy(() => import("./pages/AppsPage.js").then((m) => ({ default: m.AppsPage })));
+const BackupsPage = lazy(() => import("./pages/BackupsPage.js").then((m) => ({ default: m.BackupsPage })));
+const ConnectorsPage = lazy(() => import("./pages/ConnectorsPage.js").then((m) => ({ default: m.ConnectorsPage })));
+const DashboardPage = lazy(() => import("./pages/DashboardPage.js").then((m) => ({ default: m.DashboardPage })));
+const DatabasesPage = lazy(() => import("./pages/DatabasesPage.js").then((m) => ({ default: m.DatabasesPage })));
+const DockerPage = lazy(() => import("./pages/DockerPage.js").then((m) => ({ default: m.DockerPage })));
+const FilesPage = lazy(() => import("./pages/FilesPage.js").then((m) => ({ default: m.FilesPage })));
+const HostsPage = lazy(() => import("./pages/HostsPage.js").then((m) => ({ default: m.HostsPage })));
+const LogsPage = lazy(() => import("./pages/LogsPage.js").then((m) => ({ default: m.LogsPage })));
+const MonitoringPage = lazy(() => import("./pages/MonitoringPage.js").then((m) => ({ default: m.MonitoringPage })));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage.js").then((m) => ({ default: m.NotificationsPage })));
+const PlatformPage = lazy(() => import("./pages/PlatformPage.js").then((m) => ({ default: m.PlatformPage })));
+const ProcessesPage = lazy(() => import("./pages/ProcessesPage.js").then((m) => ({ default: m.ProcessesPage })));
+const SecurityPage = lazy(() => import("./pages/SecurityPage.js").then((m) => ({ default: m.SecurityPage })));
+const ServicesPage = lazy(() => import("./pages/ServicesPage.js").then((m) => ({ default: m.ServicesPage })));
+const TasksPage = lazy(() => import("./pages/TasksPage.js").then((m) => ({ default: m.TasksPage })));
+const UsersPage = lazy(() => import("./pages/UsersPage.js").then((m) => ({ default: m.UsersPage })));
+const MigrationPage = lazy(() => import("./pages/MigrationPage.js").then((m) => ({ default: m.MigrationPage })));
 
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -68,7 +71,9 @@ export default function App(): JSX.Element {
 
   return (
     <Shell user={status.user} activeView={view} onNavigate={navigate} onLogout={() => void logout()}>
-      {renderView(view, navigate, status.user)}
+      <Suspense fallback={<div className="page-stack"><div className="loader">加载中...</div></div>}>
+        {renderView(view, navigate, status.user)}
+      </Suspense>
     </Shell>
   );
 }
@@ -93,6 +98,7 @@ function renderView(view: ViewId, navigate: (view: ViewId) => void, user: AuthUs
     case "security": return <SecurityPage />;
     case "platform": return <PlatformPage />;
     case "audit": return <AuditPage />;
+    case "migration": return <MigrationPage />;
     case "dashboard":
     default: return <DashboardPage user={user} onNavigate={navigate} />;
   }

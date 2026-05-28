@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import { Archive, BellDot, BellRing, Cable, ClipboardCheck, ClipboardList, Container, Database, FileText, Files, Gauge, LineChart, ListTree, PackagePlus, ScrollText, Server, ShieldCheck, SlidersHorizontal, SquareActivity, Users } from "lucide-react";
 import type { AuthUser } from "./api/client.js";
 
-export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "databases" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "approvals" | "users" | "backups" | "security" | "platform" | "audit";
+export type ViewId = "dashboard" | "hosts" | "monitoring" | "processes" | "services" | "docker" | "apps" | "databases" | "files" | "logs" | "connectors" | "tasks" | "alerts" | "notifications" | "approvals" | "users" | "backups" | "security" | "platform" | "audit" | "migration";
 
 export interface NavItem {
   id: ViewId;
@@ -58,6 +58,7 @@ export const navSections: NavSection[] = [
     items: [
       { id: "approvals", label: "审批", description: "高风险操作准入", icon: ClipboardCheck, minRole: "owner", keywords: ["批准", "恢复", "权限"] },
       { id: "users", label: "用户", description: "账号、角色和密码", icon: Users, minRole: "owner", keywords: ["rbac", "成员"] },
+      { id: "migration", label: "迁移", description: "状态存储迁移向导", icon: Database, minRole: "owner", keywords: ["sqlite", "json", "迁移"] },
       { id: "backups", label: "备份", description: "快照、远程同步和恢复", icon: Archive, minRole: "owner", keywords: ["恢复", "快照", "s3"] },
       { id: "security", label: "安全", description: "巡检、会话和 Token", icon: ShieldCheck, keywords: ["token", "2fa", "加固"] },
       { id: "platform", label: "平台", description: "商业治理和交付检查", icon: SlidersHorizontal, minRole: "operator", keywords: ["许可证", "工作空间", "openapi"] },

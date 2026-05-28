@@ -40,6 +40,7 @@ import { MonitoringService } from "./modules/monitoring/monitoringService.js";
 import { registerNotificationRoutes } from "./modules/notifications/notificationRoutes.js";
 import { NotificationService } from "./modules/notifications/notificationService.js";
 import { registerPlatformRoutes } from "./modules/platform/platformRoutes.js";
+import { registerMigrationRoutes } from "./modules/platform/migrationRoutes.js";
 import { PlatformStore } from "./modules/platform/platformStore.js";
 import { SchedulerService } from "./modules/scheduler/schedulerService.js";
 import { registerSecurityRoutes } from "./modules/security/securityRoutes.js";
@@ -136,6 +137,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   registerAppRoutes(app, services);
   registerDatabaseRoutes(app, services);
   registerPlatformRoutes(app, services);
+  registerMigrationRoutes(app, services);
   registerTaskRoutes(app, services);
   registerBackupRoutes(app, services);
   registerAlertRoutes(app, services);

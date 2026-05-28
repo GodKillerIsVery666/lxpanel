@@ -3,6 +3,7 @@ import { ApiTokenScopes, type ApiToken, type ApiTokenScope, type AuthSession, ty
 import { api } from "../api/client.js";
 import { StatusPill } from "../components/StatusPill.js";
 import { VirtualTable, type VirtualColumn } from "../components/VirtualTable.js";
+import { SecuritySettingsPanel } from "../components/SecuritySettingsPanel.js";
 import { pageText } from "../i18n/resources.js";
 import { formatDate } from "../utils/format.js";
 import { readLocalePreference } from "../utils/preferences.js";
@@ -191,6 +192,7 @@ export function SecurityPage(): JSX.Element {
         <VirtualTable tableId="security-api-tokens" rows={apiTokens} columns={tokenColumns} getRowKey={(token) => token.id} />
       </section>
       <section className="table-panel"><div className="panel-title">{text.recommendations}</div>{posture?.recommendations.length ? posture.recommendations.map((item) => <p className="notice" key={item}>{item}</p>) : <p className="muted-text">{text.none}</p>}</section>
+      <SecuritySettingsPanel />
     </main>
   );
 }
