@@ -17,7 +17,7 @@ const to = args.find((a) => a.startsWith("--to="))?.split("=")[1] ?? "HEAD";
 const log = execSync(`git log ${from}..${to} --oneline --no-decorate`, { cwd: root, encoding: "utf8" });
 const lines = log.split("\n").filter(Boolean);
 
-const categories: Record<string, string[]> = {
+const categories = {
   "✨ 新功能": [],
   "🔒 安全": [],
   "🐛 修复": [],

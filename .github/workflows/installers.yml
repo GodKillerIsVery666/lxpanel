@@ -1,0 +1,99 @@
+name: Build Installers
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  installer-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build Windows Installer
+        run: |
+          # 使用 tar 打包为便携版
+          mkdir -p dist/lxpanel
+          cp -r apps/api/dist dist/lxpanel/api
+          cp -r apps/web/dist dist/lxpanel/web
+          cp -r packages/shared/dist dist/lxpanel/shared
+          cp -r scripts dist/lxpanel/scripts
+          cp package.json dist/lxpanel/
+          cd dist
+          tar -czf lxpanel-windows-x64-${{ github.ref_name }}.tar.gz lxpanel/
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: dist/lxpanel-windows-*.tar.gz
+          retention-days: 90
+
+  installer-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build Linux Installer
+        run: |
+          mkdir -p dist/lxpanel
+          cp -r apps/api/dist dist/lxpanel/api
+          cp -r apps/web/dist dist/lxpanel/web
+          cp -r packages/shared/dist dist/lxpanel/shared
+          cp -r scripts dist/lxpanel/scripts
+          cp -r deploy dist/lxpanel/deploy
+          cp package.json dist/lxpanel/
+          cp CHANGELOG.md dist/lxpanel/
+          cd dist
+          tar -czf lxpanel-linux-x64-${{ github.ref_name }}.tar.gz lxpanel/
+          sha256sum lxpanel-linux-x64-${{ github.ref_name }}.tar.gz > lxpanel-linux-x64-${{ github.ref_name }}.sha256
+      - name: Upload Linux Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-linux
+          path: dist/lxpanel-linux-*
+          retention-days: 90
+
+  installer-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build macOS Installer
+        run: |
+          mkdir -p dist/lxpanel
+          cp -r apps/api/dist dist/lxpanel/api
+          cp -r apps/web/dist dist/lxpanel/web
+          cp -r packages/shared/dist dist/lxpanel/shared
+          cp -r scripts dist/lxpanel/scripts
+          cp package.json dist/lxpanel/
+          cd dist
+          tar -czf lxpanel-darwin-arm64-${{ github.ref_name }}.tar.gz lxpanel/
+          shasum -a 256 lxpanel-darwin-arm64-${{ github.ref_name }}.tar.gz > lxpanel-darwin-arm64-${{ github.ref_name }}.sha256
+      - name: Upload macOS Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-macos
+          path: dist/lxpanel-darwin-*
+          retention-days: 90
